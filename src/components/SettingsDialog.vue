@@ -187,7 +187,7 @@ async function removeFolder(folder: string) {
             </div>
             <p class="hint">{{ t('dataSourceHint') }}</p>
 
-            <template v-if="session.backend.kind === 'launcher'">
+            <template v-if="session.backend.kind !== 'mock'">
               <h3>{{ t('profilesLabel') }}</h3>
               <ul class="profiles">
                 <li v-for="p in profiles.filter((x) => x.exists || x.source === 'added')" :key="p.dataRoot" :class="{ active: state.installationId === p.dataRoot }">
@@ -209,7 +209,7 @@ async function removeFolder(folder: string) {
             </template>
 
             <dl class="facts">
-              <div><dt>{{ t('connBackend') }}</dt><dd>{{ isMock ? t('backendMock') : t('backendLauncher') }}</dd></div>
+              <div><dt>{{ t('connBackend') }}</dt><dd>{{ isMock ? t('backendMock') : session.backend.kind === 'composite' ? t('backendStandalone') : t('backendLauncher') }}</dd></div>
               <div v-if="hs && !isMock"><dt>{{ t('launcherExecutable') }}</dt><dd class="path" :title="hs.launcherVersion">{{ hs.launcherVersion }}</dd></div>
               <div v-if="hs && !isMock"><dt>{{ t('contractVersion') }}</dt><dd>{{ t('contractPinned', { version: hs.contract }) }}</dd></div>
               <div v-if="state.installations[0]"><dt>{{ t('libraryInstallation') }}</dt><dd class="path" :title="state.installations[0].path">{{ state.installations[0].path }}</dd></div>

@@ -13,7 +13,7 @@ export type ConnectionState = 'connecting' | 'connected' | 'disconnected';
  * Transport framing lives inside implementations, never in components.
  */
 export interface ManagerBackend {
-  readonly kind: 'mock' | 'launcher';
+  readonly kind: 'mock' | 'launcher' | 'helper' | 'composite';
   connect(): Promise<Handshake>;
   onConnectionChange(listener: (state: ConnectionState) => void): () => void;
 

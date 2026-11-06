@@ -50,6 +50,8 @@ export interface ProviderInfo {
 
 export interface Handshake {
   contract: string;
+  /** The Manager's test helper: nothing it reports is a real installation. */
+  stub?: boolean;
   launcherVersion: string;
   capabilities: Capability[];
   providers: ProviderInfo[];
@@ -433,7 +435,9 @@ export type BackendErrorCode =
   /** The Launcher needs the user to act in its own window first (sign-in, a dialog). */
   | 'interaction-required'
   /** An interrupted change must be recovered in the Launcher before this instance is used. */
-  | 'recovery-required';
+  | 'recovery-required'
+  /** The Manager's native helper is not installed, failed to start, or is incompatible. */
+  | 'helper-unavailable';
 
 export class BackendError extends Error {
   constructor(readonly code: BackendErrorCode, message: string, readonly detail?: string) {

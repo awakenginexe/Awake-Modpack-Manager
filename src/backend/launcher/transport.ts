@@ -29,8 +29,22 @@ export interface PipeTransport {
   open(serverName: string, pid: string): Promise<number>;
   request(connection: number, body: string, timeoutMs: number): Promise<string>;
   close(connection: number): Promise<void>;
+  /** Start the Manager's bundled native helper if needed and report its endpoint (desktop host only). */
+  ensureHelper?(): Promise<HelperStatus>;
+  /** Open the helper pipe; the host verifies the server is the bundled helper executable. */
+  openHelper?(serverName: string, pid: string): Promise<number>;
   /** Start awakelauncher.exe of the installation discovery resolved to this data root. */
   startLauncher?(dataRoot: string, added: string[]): Promise<void>;
+}
+
+/** src-tauri/src/helper.rs HelperStatus. */
+export interface HelperStatus {
+  state: 'not_installed' | 'starting' | 'ready' | 'failed';
+  descriptor: EndpointDescriptor | null;
+  /** Bundled build is the Manager's test stub, not the real native core. */
+  stub: boolean;
+  dataRoot: string | null;
+  message: string | null;
 }
 
 export const isDesktopHost = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -54,5 +68,7 @@ export function createHostTransport(): PipeTransport {
     request: (connection, body, timeoutMs) => invoke('ipc_request', { id: connection, body, timeoutMs }),
     close: (connection) => invoke('ipc_close', { id: connection }),
     startLauncher: (dataRoot, added) => invoke('start_launcher', { dataRoot, added }),
+    ensureHelper: () => invoke('helper_ensure', {}),
+    openHelper: (serverName, pid) => invoke('helper_open', { serverName, pid }),
   };
 }

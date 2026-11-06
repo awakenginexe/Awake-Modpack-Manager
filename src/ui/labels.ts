@@ -40,8 +40,8 @@ export function instanceSubtitle(inst: InstanceSummary): string {
 
 /** Connection problem → headline and next step. */
 export function connectErrorTitle(code: string): MessageKey {
-  return ({ 'not-running': 'launcherNotRunning', 'unsupported-profile': 'profileUnsupported', identity: 'launcherIdentity', unsupported: 'connUnsupported', protocol: 'launcherProtocol' } as Record<string, MessageKey>)[code] ?? 'connFailed';
+  return ({ 'not-running': 'launcherNotRunning', 'unsupported-profile': 'profileUnsupported', identity: 'launcherIdentity', unsupported: 'connUnsupported', protocol: 'launcherProtocol', 'helper-unavailable': 'helperUnavailable' } as Record<string, MessageKey>)[code] ?? 'connFailed';
 }
 export function connectErrorHint(code: string): MessageKey {
-  return ({ 'not-running': 'launcherNotRunningHint', 'unsupported-profile': 'profileUnsupportedHint', identity: 'launcherIdentityHint', unsupported: 'connUnsupportedHint', protocol: 'launcherProtocolHint' } as Record<string, MessageKey>)[code] ?? 'connFailedHint';
+  return ({ 'not-running': 'launcherNotRunningHint', 'unsupported-profile': 'profileUnsupportedHint', identity: 'launcherIdentityHint', unsupported: 'connUnsupportedHint', protocol: 'launcherProtocolHint', 'helper-unavailable': 'helperUnavailableHint' } as Record<string, MessageKey>)[code] ?? 'connFailedHint';
 }

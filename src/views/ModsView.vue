@@ -134,11 +134,14 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
       </div>
     </header>
 
-    <div v-if="session.backend.kind === 'launcher' && snapshot" class="notice warn" role="status">
+    <div v-if="session.source.value === 'launcher' && snapshot" class="notice warn" role="status">
       <History :size="18" /><span class="grow">{{ t('snapshotNotice', { time: formatDate(new Date(state.inventoryObservedAt!).toISOString()) }) }}</span>
     </div>
-    <div v-else-if="session.backend.kind === 'launcher' && !session.can('plan.apply')" class="notice" role="note">
+    <div v-else-if="session.source.value === 'launcher' && !session.can('plan.apply')" class="notice" role="note">
       <Lock :size="18" /><span class="grow">{{ t('readOnlyNotice') }}</span>
+    </div>
+    <div v-else-if="session.source.value === 'helper' && !session.can('plan.apply')" class="notice" role="note">
+      <Lock :size="18" /><span class="grow">{{ t('helperPendingNotice') }}</span>
     </div>
     <div v-if="state.inventoryError" class="notice error" role="alert">
       <CircleAlert :size="18" /><span class="grow">{{ t('inventoryFailed') }} <code class="small">{{ state.inventoryError.message }}</code></span>

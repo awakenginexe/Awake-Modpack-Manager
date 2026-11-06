@@ -1,11 +1,14 @@
 //! Desktop host for Awake Modpack Manager (Windows x64).
 //!
 //! The host is deliberately thin: it discovers Launcher data profiles, opens the Launcher's
-//! integration named pipe, verifies who owns it, and moves length-prefixed frames. All protocol
-//! semantics (hello, negotiation, pagination, errors) live in TypeScript (`src/backend/launcher`).
-//! It never reads or writes instance files.
+//! integration named pipe, starts and verifies the Manager's own native helper, and moves
+//! length-prefixed frames. All protocol semantics live in TypeScript (`src/backend`). It never reads
+//! or writes instance files: its only writes are a user-chosen export file and the Manager's
+//! project store (`files.rs`).
 
 mod discovery;
+mod files;
+mod helper;
 mod pipe;
 
 /// Live test against a running Awake Launcher. Skipped unless AWAKE_MM_LIVE_PROFILE names the
@@ -52,13 +55,20 @@ mod live {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(pipe::Connections::default())
+        .manage(helper::Spawned::default())
         .invoke_handler(tauri::generate_handler![
             discovery::discover_profiles,
             discovery::start_launcher,
             pipe::ipc_open,
             pipe::ipc_request,
             pipe::ipc_close,
+            helper::helper_ensure,
+            helper::helper_open,
+            files::save_export,
+            files::projects_read,
+            files::projects_write,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Awake Modpack Manager");

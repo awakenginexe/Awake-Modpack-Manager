@@ -97,7 +97,7 @@ async function create() {
       </label>
       <label v-if="state.installations.length > 1" class="field inline">
         <span>{{ t('libraryInstallation') }}</span>
-        <select v-model="state.installationId" class="select" @change="preferredProfile = state.installationId; session.refreshInstances()">
+        <select v-model="state.installationId" class="select" @change="state.installationId !== 'manager' && (preferredProfile = state.installationId); session.refreshInstances()">
           <option v-for="inst in state.installations" :key="inst.id" :value="inst.id">{{ inst.displayName }}{{ inst.available === false ? ` (${t('profileNotRunning')})` : '' }}</option>
         </select>
       </label>
@@ -118,6 +118,13 @@ async function create() {
       </div>
       <button v-if="!state.waitingForLauncher" class="btn btn-small" type="button" @click="session.connect()">{{ t('retry') }}</button>
       <button v-else-if="!state.launcherStartedAt && session.backend.canStartLauncher?.()" class="btn btn-small btn-primary" type="button" @click="startLauncher">{{ t('startLauncher') }}</button>
+    </div>
+
+    <div v-if="session.source.value === 'helper' && state.handshake?.stub" class="notice warn" role="note">
+      <TriangleAlert :size="18" /><span class="grow"><strong>{{ t('helperStubTitle') }}</strong> {{ t('helperStubNotice') }}</span>
+    </div>
+    <div v-else-if="session.source.value === 'helper' && state.handshake && !session.can('instances.create')" class="notice" role="note">
+      <Info :size="18" /><span class="grow">{{ t('helperPendingNotice') }}</span>
     </div>
 
     <details v-if="state.instanceWarnings.length" class="notice warn warnings">

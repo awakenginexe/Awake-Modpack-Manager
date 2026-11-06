@@ -4,6 +4,7 @@ import {
   type InstallPackRequest, type InstanceSummary, type InstanceWarning, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan,
 } from '../backend/contract';
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
+import { isComposite } from '../backend/composite';
 import { newDraft } from '../domain/draft';
 import { followOperation, isSettled } from '../domain/operation';
 import { load, save } from '../domain/storage';
@@ -65,6 +66,18 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   watch(() => state.instanceId, (v) => save('instance', v));
 
   const can = (cap: Capability) => !!state.handshake?.capabilities.includes(cap);
+  /** Which side serves the selected installation: the Manager's helper, Awake Launcher, or demo data. */
+  const source = ref<'mock' | 'launcher' | 'helper'>(backend.kind === 'composite' ? 'helper' : backend.kind === 'mock' ? 'mock' : backend.kind === 'helper' ? 'helper' : 'launcher');
+  /** Capabilities, errors and "waiting for Launcher" follow the selected installation's side. */
+  function syncPart() {
+    if (!isComposite(backend)) return;
+    const p = backend.partFor(state.installationId);
+    source.value = p === backend.parts.helper ? 'helper' : 'launcher';
+    state.handshake = p.handshake;
+    state.connectError = p.error;
+    state.waitingForLauncher = p === backend.parts.launcher && p.error?.code === 'not-running';
+  }
+  if (isComposite(backend)) backend.onChanged(() => { syncPart(); void refreshInstallations().catch(() => undefined); });
   const instance = computed(() => state.instances.find((i) => i.id === state.instanceId) ?? null);
   const draft = computed<Draft | null>(() => {
     if (!state.instanceId || !inventory.value) return null;
@@ -98,6 +111,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
       state.waitingForLauncher = false;
       state.launcherStartedAt = null;
       await refreshInstallations();
+      syncPart();
       if (state.instanceId) await loadInventory();
       await resumePending();
       await refreshOperations();
@@ -114,14 +128,15 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   /* ----- instances & inventory ----- */
 
   async function refreshInstallations() {
-    if (!can('installations.discover')) return;
+    if (!can('installations.discover') && !isComposite(backend)) return;
     state.installations = await backend.listInstallations();
     if (!state.installations.some((i) => i.id === state.installationId)) state.installationId = (state.installations.find((i) => i.available !== false) ?? state.installations[0])?.id ?? null;
     await refreshInstances();
   }
 
   async function refreshInstances() {
-    if (!state.installationId || !can('instances.list')) return;
+    syncPart();
+    if (!state.installationId || !can('instances.list')) { if (isComposite(backend)) state.instances = []; return; }
     state.instancesLoading = true;
     try {
       state.instances = await backend.listInstances(state.installationId);
@@ -370,7 +385,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   }
 
   return {
-    backend, state, inventory, selection, drafts, pins, exportIncludes, review,
+    backend, source, state, inventory, selection, drafts, pins, exportIncludes, review,
     can, instance, draft, pinned, planOutdated,
     connect, refreshInstances, selectInstance, loadInventory,
     setDraft, discardDraft, setPinned,

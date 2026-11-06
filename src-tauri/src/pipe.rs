@@ -14,6 +14,9 @@ use std::time::Duration;
 
 pub const MAX_FRAME: usize = 1 << 20;
 const SERVER_PREFIX: &str = "awake-manager-v1-";
+/// The Manager's own native helper. Kept apart from the Launcher prefix so neither side's commands
+/// can be pointed at the other (provisional until the helper contract is committed, H1).
+pub const HELPER_PREFIX: &str = "awake-core-v1-";
 
 #[derive(Debug, Serialize, Clone)]
 pub struct IpcError {
@@ -42,10 +45,18 @@ pub struct Connections {
 
 /// Only the Launcher's own pipe names may be opened, so the web view can't reach arbitrary pipes.
 pub fn valid_server_name(name: &str) -> bool {
+    valid_name(name, SERVER_PREFIX)
+}
+
+pub fn valid_helper_name(name: &str) -> bool {
+    valid_name(name, HELPER_PREFIX)
+}
+
+fn valid_name(name: &str, prefix: &str) -> bool {
     name.len() <= 128
-        && name.starts_with(SERVER_PREFIX)
-        && name[SERVER_PREFIX.len()..].chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-        && name.len() > SERVER_PREFIX.len()
+        && name.starts_with(prefix)
+        && name[prefix.len()..].chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        && name.len() > prefix.len()
 }
 
 pub fn encode_frame(body: &[u8]) -> Result<Vec<u8>, IpcError> {
@@ -138,6 +149,27 @@ mod win {
         Ok(())
     }
 
+    /// Full path of a running process's executable, or None if it has exited or can't be read.
+    pub fn process_image(pid: u32) -> Option<std::path::PathBuf> {
+        use windows_sys::Win32::System::Threading::{GetExitCodeProcess, QueryFullProcessImageNameW};
+        let process = Owned(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) });
+        if process.0.is_null() {
+            return None;
+        }
+        let mut code = 0u32;
+        // 259 = STILL_ACTIVE
+        if unsafe { GetExitCodeProcess(process.0, &mut code) } == 0 || code != 259 {
+            return None;
+        }
+        let mut buf = vec![0u16; 32768];
+        let mut len = buf.len() as u32;
+        if unsafe { QueryFullProcessImageNameW(process.0, 0, buf.as_mut_ptr(), &mut len) } == 0 {
+            return None;
+        }
+        use std::os::windows::ffi::OsStringExt;
+        Some(std::ffi::OsString::from_wide(&buf[..len as usize]).into())
+    }
+
     pub fn cancel_io(raw: usize) {
         unsafe { windows_sys::Win32::System::IO::CancelIoEx(raw as HANDLE, std::ptr::null()) };
     }
@@ -155,13 +187,22 @@ mod win {
         Err(IpcError::new("invalid", "Launcher IPC is supported on Windows only."))
     }
     pub fn cancel_io(_: usize) {}
+    pub fn process_image(_: u32) -> Option<std::path::PathBuf> { None }
     pub fn raw(_: &File) -> usize { 0 }
 }
+
+pub use win::process_image;
 
 pub fn open_pipe(server_name: &str, expected_pid: u32) -> Result<File, IpcError> {
     if !valid_server_name(server_name) {
         return Err(IpcError::new("invalid", "Not an Awake Launcher integration endpoint."));
     }
+    connect(server_name, expected_pid)
+}
+
+/// Open `\.\pipe\<server_name>` and verify it is served by `expected_pid` running as this user.
+/// Callers check the name against their own allowlist first.
+pub fn connect(server_name: &str, expected_pid: u32) -> Result<File, IpcError> {
     let path = format!(r"\\.\pipe\{server_name}");
     let file = OpenOptions::new().read(true).write(true).open(&path).map_err(|e| match e.raw_os_error() {
         Some(231) => IpcError::new("busy", "The Launcher is serving the maximum number of clients."),
@@ -175,11 +216,14 @@ pub fn open_pipe(server_name: &str, expected_pid: u32) -> Result<File, IpcError>
 #[tauri::command]
 pub fn ipc_open(state: tauri::State<'_, Connections>, server_name: String, pid: String) -> Result<u32, IpcError> {
     let pid: u32 = pid.parse().map_err(|_| IpcError::new("invalid", "Descriptor pid is not a number."))?;
-    let file = open_pipe(&server_name, pid)?;
+    Ok(register(&state, open_pipe(&server_name, pid)?))
+}
+
+pub fn register(state: &Connections, file: File) -> u32 {
     let id = state.next.fetch_add(1, Ordering::Relaxed) + 1;
     let raw = win::raw(&file);
     state.map.lock().unwrap().insert(id, Arc::new(Conn { file: Mutex::new(file), raw }));
-    Ok(id)
+    id
 }
 
 #[tauri::command]
