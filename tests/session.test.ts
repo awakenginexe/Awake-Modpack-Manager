@@ -1,0 +1,144 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BackendError } from '../src/backend/contract';
+import { MockBackend } from '../src/backend/mock/MockBackend';
+import { addChanges } from '../src/domain/draft';
+import { hasUpdate } from '../src/domain/modList';
+import { createSession, type Session } from '../src/state/session';
+
+async function ready(options = {}) {
+  const backend = new MockBackend({ stepMs: 1, latencyMs: 0, ...options });
+  const session = createSession(backend, { pollMs: 5 });
+  await session.connect();
+  await session.selectInstance('inst-atlas');
+  return { backend, session };
+}
+
+function draftUpdates(session: Session, n = 3) {
+  const mods = session.inventory.value!.mods.filter((m) => hasUpdate(m) && !m.locallyModified).slice(0, n);
+  session.setDraft(addChanges(session.draft.value!, mods.map((m) => ({ kind: 'update' as const, modKey: m.key, targetVersionId: m.available!.id }))));
+}
+
+const until = async (fn: () => boolean, ms = 2000) => {
+  const start = Date.now();
+  while (!fn()) {
+    if (Date.now() - start > ms) throw new Error('timed out');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
+
+describe('session', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('connects, lists instances and loads the selected inventory', async () => {
+    const { session } = await ready();
+    expect(session.state.connection).toBe('connected');
+    expect(session.state.instances.length).toBeGreaterThan(0);
+    expect(session.inventory.value?.mods.length).toBeGreaterThanOrEqual(280);
+  });
+
+  it('reviews then applies exactly the reviewed plan and clears the draft', async () => {
+    const { session } = await ready();
+    draftUpdates(session);
+    await session.validate();
+    expect(session.review.phase).toBe('reviewed');
+    const hash = session.review.plan!.planHash;
+    await session.apply();
+    await until(() => session.review.phase === 'done');
+    expect(session.review.operation?.planHash).toBe(hash);
+    expect(session.draft.value?.changes).toHaveLength(0);
+  });
+
+  it('marks the plan outdated when the draft changes after review', async () => {
+    const { session } = await ready();
+    draftUpdates(session, 2);
+    await session.validate();
+    draftUpdates(session, 3);
+    expect(session.planOutdated.value).toBe(true);
+    const spy = vi.spyOn(session.backend, 'preparePlan');
+    await session.apply();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('stops for renewed confirmation when prepare changes the plan', async () => {
+    const { session, backend } = await ready({ driftOnPrepare: true });
+    const apply = vi.spyOn(backend, 'applyPlan');
+    draftUpdates(session);
+    await session.validate();
+    const reviewedHash = session.review.plan!.planHash;
+    await session.apply();
+    expect(session.review.phase).toBe('changed');
+    expect(session.review.plan!.planHash).not.toBe(reviewedHash);
+    expect(apply).not.toHaveBeenCalled();
+    session.acceptChangedPlan();
+    await session.apply();
+    await until(() => session.review.phase === 'done');
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a stale revision instead of applying', async () => {
+    const { session, backend } = await ready();
+    draftUpdates(session);
+    backend.touchInstance('inst-atlas');
+    await session.validate();
+    expect(session.review.phase).toBe('stale');
+  });
+
+  it('recovers a lost Apply reply by idempotency key without resubmitting', async () => {
+    const { session, backend } = await ready({ stepMs: 5 });
+    const original = backend.applyPlan.bind(backend);
+    const apply = vi.spyOn(backend, 'applyPlan').mockImplementation(async (req) => {
+      await original(req); // coordinator accepted it…
+      backend.simulateDisconnect(); // …but the reply never arrived
+      throw new BackendError('disconnected', 'connection lost');
+    });
+    draftUpdates(session);
+    await session.validate();
+    await session.apply();
+    expect(session.review.phase).toBe('unconfirmed');
+    await session.connect();
+    await until(() => session.review.phase === 'done');
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the user when a lost Apply never reached the coordinator', async () => {
+    const { session, backend } = await ready();
+    vi.spyOn(backend, 'applyPlan').mockImplementation(async () => {
+      backend.simulateDisconnect();
+      throw new BackendError('disconnected', 'connection lost');
+    });
+    draftUpdates(session);
+    await session.validate();
+    await session.apply();
+    await session.connect();
+    expect(session.review.phase).toBe('not-received');
+  });
+
+  it('shows a rollback as a failure with recovery details', async () => {
+    const { session } = await ready({ failApply: true });
+    draftUpdates(session);
+    await session.validate();
+    await session.apply();
+    await until(() => session.review.phase === 'failed');
+    expect(session.review.operation?.state).toBe('rolled_back');
+    expect(session.review.operation?.recovery?.message).toBeTruthy();
+    expect(session.draft.value?.changes.length).toBeGreaterThan(0); // draft kept for retry
+  });
+
+  it('gates features on negotiated capabilities', async () => {
+    const { session } = await ready({ capabilities: ['installations.discover', 'instances.list', 'mods.inventory'] });
+    expect(session.can('plan.apply')).toBe(false);
+    draftUpdates(session);
+    const validate = vi.spyOn(session.backend, 'validateDraft');
+    await session.validate();
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it('persists drafts and pins locally', async () => {
+    const { session } = await ready();
+    draftUpdates(session, 1);
+    session.setPinned(['a'], true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(JSON.parse(localStorage.getItem('awake-mm:drafts')!)['inst-atlas'].changes).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem('awake-mm:pins')!)['inst-atlas']).toEqual(['a']);
+  });
+});
