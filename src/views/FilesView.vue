@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, type Component } from 'vue';
+import { CircleAlert, Code, FileCode, FileCog, FileText, Folder, FolderOpen, Image, Lock, PackageCheck, Settings2, Sun, TriangleAlert } from '@lucide/vue';
 import type { ContentArea, ContentEntry } from '../backend/contract';
 import { t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
@@ -10,6 +11,7 @@ const areas: { id: ContentArea; label: MessageKey }[] = [
   { id: 'config', label: 'areaConfig' }, { id: 'defaultconfigs', label: 'areaDefaultconfigs' }, { id: 'kubejs', label: 'areaKubejs' },
   { id: 'scripts', label: 'areaScripts' }, { id: 'resourcepacks', label: 'areaResourcepacks' }, { id: 'shaderpacks', label: 'areaShaderpacks' },
 ];
+const areaIcon: Record<ContentArea, Component> = { config: Settings2, defaultconfigs: FileCog, kubejs: Code, scripts: FileCode, resourcepacks: Image, shaderpacks: Sun };
 const area = ref<ContentArea>('config');
 const entries = ref<ContentEntry[]>([]);
 const loading = ref(false);
@@ -42,23 +44,30 @@ watch(area, load, { immediate: true });
         <h1>{{ t('filesTitle') }}</h1>
         <p>{{ t('filesSubtitle') }}</p>
       </div>
-      <span class="badge info">{{ t('filesIncluded', { count: included.size }) }}</span>
+      <span class="chip"><PackageCheck :size="15" />{{ t('filesIncluded', { count: included.size }) }}</span>
     </header>
-    <p class="notice">{{ t('filesReadOnly') }}</p>
-    <div v-if="!session.can('files.read')" class="notice warn">{{ t('capabilityMissing') }}</div>
+    <p class="notice small"><Lock :size="18" />{{ t('filesReadOnly') }}</p>
+    <div v-if="!session.can('files.read')" class="notice warn"><TriangleAlert :size="18" />{{ t('capabilityMissing') }}</div>
 
     <div class="columns">
-      <nav class="areas glass" :aria-label="t('filesTitle')">
-        <button v-for="a in areas" :key="a.id" type="button" class="area" :class="{ active: area === a.id }" :aria-current="area === a.id ? 'true' : undefined" @click="area = a.id">{{ t(a.label) }}</button>
+      <nav class="areas card" :aria-label="t('filesTitle')">
+        <button v-for="a in areas" :key="a.id" type="button" class="area" :class="{ active: area === a.id }" :aria-current="area === a.id ? 'true' : undefined" @click="area = a.id">
+          <component :is="areaIcon[a.id]" :size="17" />{{ t(a.label) }}
+        </button>
       </nav>
-      <section class="panel glass">
-        <p v-if="loading" class="muted" role="status">{{ t('loadingFiles') }}</p>
-        <p v-else-if="error" class="notice error" role="alert">{{ error }}</p>
-        <p v-else-if="!entries.length" class="muted">{{ t('filesEmpty') }}</p>
+      <section class="card panel">
+        <div class="panel-head">
+          <h2 class="panel-title"><component :is="areaIcon[area]" :size="18" />{{ t(areas.find((a) => a.id === area)!.label) }}</h2>
+          <span class="muted small">{{ t('fileCount', { count: entries.length }) }}</span>
+        </div>
+        <div v-if="loading" class="rows" aria-busy="true"><span v-for="n in 6" :key="n" class="skeleton" style="height: 36px"></span></div>
+        <p v-else-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ error }}</p>
+        <div v-else-if="!entries.length" class="empty"><span class="empty-icon"><FolderOpen :size="26" /></span><p>{{ t('filesEmpty') }}</p></div>
         <ul v-else class="entries">
-          <li v-for="e in entries" :key="e.path">
-            <span class="path">{{ e.path }}</span>
-            <span class="muted small">{{ formatBytes(e.sizeBytes) }}</span>
+          <li v-for="e in entries" :key="e.path" :class="{ on: included.has(e.path) }">
+            <component :is="e.kind === 'directory' ? Folder : FileText" :size="16" class="muted" />
+            <span class="path" :title="e.path">{{ e.path }}</span>
+            <span class="muted small size">{{ formatBytes(e.sizeBytes) }}</span>
             <label class="check small"><input type="checkbox" :checked="included.has(e.path)" @change="setIncluded(e.path, ($event.target as HTMLInputElement).checked)" />{{ t('includeInExport') }}</label>
           </li>
         </ul>
@@ -68,15 +77,19 @@ watch(area, load, { immediate: true });
 </template>
 
 <style scoped>
-.columns { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-4); flex: 1; min-height: 0; }
-.areas { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2); border-radius: var(--radius-medium); align-self: start; }
-.area { text-align: left; padding: 8px 10px; border-radius: var(--radius-control); border: none; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.columns { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-4); flex: 1; min-height: 0; }
+.areas { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2); align-self: start; }
+.area { display: flex; align-items: center; gap: var(--space-3); text-align: left; padding: 9px 12px; border-radius: var(--radius-control); border: none; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 0.93rem; }
 .area:hover { background: var(--surface-hover); color: var(--text); }
 .area.active { background: var(--surface-selected); color: #fff; }
-.panel { border-radius: var(--radius-medium); overflow-y: auto; min-height: 0; }
+.panel { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; }
+.rows { display: flex; flex-direction: column; gap: 6px; }
 .entries { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.entries li { display: flex; align-items: center; gap: var(--space-3); padding: 6px 4px; border-bottom: 1px solid var(--border-subtle); font-size: 0.88rem; }
-.path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; }
-.small { font-size: 0.8rem; }
+.entries li { display: flex; align-items: center; gap: var(--space-3); padding: 8px 8px; border-radius: var(--radius-control); font-size: 0.9rem; }
+.entries li:hover { background: var(--surface-hover); }
+.entries li.on { background: rgba(59, 130, 246, 0.08); }
+.path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
+.size { width: 72px; text-align: right; }
 @media (max-width: 800px) { .columns { grid-template-columns: 1fr; } .areas { flex-direction: row; flex-wrap: wrap; } }
 </style>

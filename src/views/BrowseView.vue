@@ -5,6 +5,9 @@ import { addChanges } from '../domain/draft';
 import { formatNumber, t } from '../i18n';
 import { asError, useSession } from '../state/session';
 import { loaderLabel } from '../ui/labels';
+import { CircleAlert, CircleCheck, Download, Gamepad2, Layers, ListChecks, Plus, Search } from '@lucide/vue';
+import Avatar from '../components/Avatar.vue';
+import ProviderLogo from '../components/ProviderLogo.vue';
 import type { ViewId } from '../App.vue';
 
 const emit = defineEmits<{ navigate: [ViewId] }>();
@@ -71,20 +74,27 @@ function addToDraft(list: SearchHit[]) {
     <header class="view-header">
       <div>
         <h1>{{ t('browseTitle') }}</h1>
-        <p>{{ t('browseSubtitle', { version: inst.minecraftVersion, loader: loaderLabel(inst.loader.kind) }) }}</p>
+        <p class="meta">
+          <span><Gamepad2 :size="15" />Minecraft {{ inst.minecraftVersion }}</span>
+          <span><Layers :size="15" />{{ loaderLabel(inst.loader.kind) }}</span>
+        </p>
       </div>
       <div class="toolbar">
-        <button class="btn btn-primary" type="button" :disabled="!picked.size" @click="addToDraft([...picked.values()])">{{ t('addSelected', { count: picked.size }) }}</button>
-        <button class="btn" type="button" :disabled="!session.draft.value?.changes.length" @click="emit('navigate', 'review')">{{ t('reviewChanges') }}</button>
+        <button class="btn btn-primary" type="button" :disabled="!picked.size" @click="addToDraft([...picked.values()])"><Plus :size="16" />{{ t('addSelected', { count: picked.size }) }}</button>
+        <button class="btn" type="button" :disabled="!session.draft.value?.changes.length" @click="emit('navigate', 'review')"><ListChecks :size="16" />{{ t('reviewChanges') }}</button>
       </div>
     </header>
 
     <div class="toolbar">
-      <input v-model="text" class="input search" type="search" :placeholder="t('browseSearch')" :aria-label="t('browseSearch')" />
-      <label class="field inline"><span>{{ t('provider') }}</span>
-        <select v-model="provider" class="select">
-          <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.id === 'modrinth' ? 'Modrinth' : 'CurseForge' }}</option>
-        </select>
+      <div class="segmented" role="tablist" :aria-label="t('provider')">
+        <button
+          v-for="p in providers" :key="p.id" type="button" role="tab" class="seg" :class="{ active: provider === p.id, off: !p.available }"
+          :aria-selected="provider === p.id" @click="provider = p.id"
+        ><ProviderLogo :provider="p.id" :size="18" />{{ p.id === 'modrinth' ? 'Modrinth' : 'CurseForge' }}</button>
+      </div>
+      <label class="search-field">
+        <Search :size="16" />
+        <input v-model="text" class="input" type="search" :placeholder="t('browseSearch')" :aria-label="t('browseSearch')" />
       </label>
       <fieldset class="types">
         <legend class="sr-only">{{ t('releaseTypes') }}</legend>
@@ -93,14 +103,18 @@ function addToDraft(list: SearchHit[]) {
       <label class="check"><input v-model="compatibleOnly" type="checkbox" />{{ t('compatibleOnly') }}</label>
     </div>
 
-    <div v-if="!session.can('providers.search')" class="notice warn">{{ t('capabilityMissing') }}</div>
+    <div v-if="!session.can('providers.search')" class="notice warn"><CircleAlert :size="18" />{{ t('capabilityMissing') }}</div>
     <div v-else-if="providerInfo && !providerInfo.available" class="notice warn" role="status">
-      {{ providerInfo.unavailableReason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : t('providerUnavailable', { provider: providerInfo.id }) }}
+      <ProviderLogo :provider="providerInfo.id" :size="22" />
+      <span>{{ providerInfo.unavailableReason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : t('providerUnavailable', { provider: providerInfo.id }) }}</span>
     </div>
-    <div v-if="error" class="notice error" role="alert">{{ t('searchFailed') }} <code>{{ error }}</code></div>
+    <div v-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ t('searchFailed') }} <code class="small">{{ error }}</code></div>
 
     <ul class="results" :aria-busy="loading">
-      <li v-for="hit in hits" :key="hit.projectId" class="hit glass" :class="{ picked: picked.has(hit.projectId) }">
+      <template v-if="loading && !hits.length">
+        <li v-for="n in 6" :key="`s${n}`" class="card skel"><span class="skeleton" style="width: 52px; height: 52px; border-radius: 12px"></span><span class="lines"><span class="skeleton" style="height: 14px; width: 50%"></span><span class="skeleton" style="height: 12px; width: 85%"></span></span></li>
+      </template>
+      <li v-for="hit in hits" :key="hit.projectId" class="card hit" :class="{ selected: picked.has(hit.projectId), dim: !hit.compatible }">
         <label class="pick">
           <input
             type="checkbox"
@@ -110,39 +124,40 @@ function addToDraft(list: SearchHit[]) {
             @change="togglePick(hit)"
           />
         </label>
-        <span class="hit-icon" aria-hidden="true">{{ hit.name.slice(0, 1) }}</span>
+        <Avatar :name="hit.name" :src="hit.iconUrl" :size="52" />
         <div class="hit-copy">
-          <div class="hit-title"><strong>{{ hit.name }}</strong> <span class="muted">{{ t('byAuthor', { author: hit.author }) }}</span></div>
-          <p class="muted">{{ hit.summary }}</p>
-          <div class="hit-meta">
-            <span>{{ t('downloads', { count: formatNumber(hit.downloads) }) }}</span>
-            <span v-if="hit.latest" class="badge" :class="hit.latest.releaseType === 'release' ? '' : 'warn'">{{ hit.latest.name }} · {{ t(hit.latest.releaseType) }}</span>
+          <div class="hit-title"><strong>{{ hit.name }}</strong> <span class="muted small">{{ t('byAuthor', { author: hit.author }) }}</span></div>
+          <p class="summary">{{ hit.summary }}</p>
+          <div class="meta small">
+            <span><Download :size="13" />{{ formatNumber(hit.downloads) }}</span>
+            <span v-if="hit.latest">{{ hit.latest.name }}</span>
+            <span v-if="hit.latest && hit.latest.releaseType !== 'release'" class="badge warn">{{ t(hit.latest.releaseType) }}</span>
             <span v-if="!hit.compatible" class="badge error">{{ t('notCompatible') }}</span>
           </div>
         </div>
-        <span v-if="installed.has(hit.projectId)" class="badge ok">{{ t('alreadyInstalled') }}</span>
+        <span v-if="installed.has(hit.projectId)" class="badge ok"><CircleCheck :size="13" />{{ t('alreadyInstalled') }}</span>
         <span v-else-if="inDraft.has(hit.projectId)" class="badge info">{{ t('inDraft') }}</span>
-        <button v-else class="btn btn-small" type="button" :disabled="!hit.compatible" @click="addToDraft([hit])">{{ t('addToDraft') }}</button>
+        <button v-else class="btn btn-small" type="button" :disabled="!hit.compatible" @click="addToDraft([hit])"><Plus :size="15" />{{ t('addToDraft') }}</button>
       </li>
     </ul>
-    <p v-if="loading" class="muted" role="status">{{ t('searching') }}</p>
-    <p v-else-if="!hits.length && providerInfo?.available && !error" class="empty">{{ t('noResults') }}</p>
+    <div v-if="!loading && !hits.length && providerInfo?.available && !error" class="empty card">
+      <span class="empty-icon"><Search :size="28" /></span><p>{{ t('noResults') }}</p>
+    </div>
     <button v-if="hits.length < total && !loading" class="btn load-more" type="button" @click="search(true)">{{ t('loadMore') }}</button>
   </section>
 </template>
 
 <style scoped>
-.view { overflow-y: auto; }
-.search { min-width: 240px; flex: 1; max-width: 380px; }
-.inline { flex-direction: row; align-items: center; gap: var(--space-2); }
+.view { overflow-y: auto; padding-right: 4px; }
+.view-header .meta { margin-top: 4px; }
+.seg.off:not(.active) { opacity: 0.5; }
 .types { display: inline-flex; gap: var(--space-3); border: none; margin: 0; padding: 0; }
-.results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-.hit { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border-radius: var(--radius-medium); }
-.hit.picked { border-color: rgba(96, 165, 250, 0.5); }
-.pick input { accent-color: var(--accent); width: 16px; height: 16px; }
-.hit-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; background: linear-gradient(135deg, #1e3a5f, #0f2744); font-weight: 700; }
-.hit-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.hit-copy p { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hit-meta { display: flex; gap: var(--space-2); align-items: center; font-size: 0.8rem; color: var(--text-secondary); flex-wrap: wrap; }
+.results { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: var(--space-3); }
+.hit { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+.hit.dim { opacity: 0.6; }
+.skel { display: flex; gap: var(--space-3); padding: var(--space-4); }
+.lines { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+.hit-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.summary { font-size: 0.88rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .load-more { align-self: center; }
 </style>

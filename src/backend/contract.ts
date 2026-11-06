@@ -160,6 +160,7 @@ export interface InstalledMod {
   key: string;
   fileName: string;
   name: string;
+  iconUrl?: string;
   source: ModSource;
   projectId?: string;
   installed: VersionRef | null;

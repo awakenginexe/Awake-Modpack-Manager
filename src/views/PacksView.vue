@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { ArrowRight, CircleAlert, CircleCheck, Download, Gamepad2, Info, Layers, PackageSearch, Search, X } from '@lucide/vue';
 import type { PackHit, PackProviderId, PackVersion } from '../backend/contract';
-import { formatNumber, t } from '../i18n';
+import Avatar from '../components/Avatar.vue';
+import ProviderLogo from '../components/ProviderLogo.vue';
+import { formatDate, formatNumber, t } from '../i18n';
 import { asError, useSession } from '../state/session';
 import { loaderLabel, opStateKey, opStateTone, packProviderNames } from '../ui/labels';
 
@@ -90,7 +93,6 @@ async function install() {
   }
 }
 
-
 let debounce: ReturnType<typeof setTimeout> | undefined;
 watch(text, () => { clearTimeout(debounce); debounce = setTimeout(() => void search(), 250); });
 watch(provider, () => { picked.value = null; void search(); });
@@ -112,101 +114,144 @@ onMounted(() => void search());
         <button
           v-for="p in providers" :key="p.id" type="button" role="tab" class="seg"
           :class="{ active: provider === p.id, off: !p.available }" :aria-selected="provider === p.id"
+          :title="p.available ? undefined : t('providerUnavailable', { provider: packProviderNames[p.id] })"
           @click="provider = p.id"
-        >{{ packProviderNames[p.id] }}</button>
+        ><ProviderLogo :provider="p.id" :size="18" />{{ packProviderNames[p.id] }}</button>
       </div>
-      <input v-model="text" class="input search" type="search" :placeholder="t('packsSearch')" :aria-label="t('packsSearch')" :disabled="!canSearch" />
+      <label class="search-field">
+        <Search :size="16" />
+        <input v-model="text" class="input" type="search" :placeholder="t('packsSearch')" :aria-label="t('packsSearch')" :disabled="!canSearch" />
+      </label>
     </div>
 
-    <div v-if="!session.can('packs.search')" class="notice warn">{{ t('capabilityMissing') }}</div>
+    <div v-if="!session.can('packs.search')" class="notice warn"><CircleAlert :size="18" />{{ t('capabilityMissing') }}</div>
     <div v-else-if="info && !info.available" class="notice warn" role="status">
-      {{ info.unavailableReason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : t('providerUnavailable', { provider: packProviderNames[info.id] }) }}
+      <ProviderLogo :provider="info.id" :size="22" />
+      <span>{{ info.unavailableReason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : t('providerUnavailable', { provider: packProviderNames[info.id] }) }}</span>
     </div>
-    <div v-if="error" class="notice error" role="alert">{{ t('searchFailed') }} <code>{{ error }}</code></div>
+    <div v-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ t('searchFailed') }} <code class="small">{{ error }}</code></div>
 
-    <div class="columns">
+    <div class="columns" :class="{ open: !!picked }">
       <div class="results-wrap">
         <ul class="results" :aria-busy="loading">
+          <template v-if="loading && !hits.length">
+            <li v-for="n in 6" :key="`s${n}`" class="card skel"><span class="skeleton" style="width: 64px; height: 64px; border-radius: 14px"></span><span class="skeleton-lines"><span class="skeleton" style="height: 14px; width: 55%"></span><span class="skeleton" style="height: 12px; width: 85%"></span></span></li>
+          </template>
           <li v-for="hit in hits" :key="hit.packId">
-            <button type="button" class="hit glass" :class="{ active: picked?.packId === hit.packId }" :aria-pressed="picked?.packId === hit.packId" @click="pick(hit)">
-              <img v-if="hit.iconUrl" :src="hit.iconUrl" alt="" class="hit-icon" />
-              <span v-else class="hit-icon initial" aria-hidden="true">{{ hit.name.slice(0, 1) }}</span>
+            <button type="button" class="card hit" :class="{ selected: picked?.packId === hit.packId }" :aria-pressed="picked?.packId === hit.packId" @click="pick(hit)">
+              <Avatar :name="hit.name" :src="hit.iconUrl" :size="64" />
               <span class="hit-copy">
-                <span class="hit-title"><strong>{{ hit.name }}</strong> <span class="muted">{{ t('byAuthor', { author: hit.author }) }}</span></span>
-                <span class="muted summary">{{ hit.summary }}</span>
-                <span class="hit-meta">
-                  <span v-if="hit.minecraftVersion" class="badge">{{ hit.minecraftVersion }}<template v-if="hit.loader"> · {{ loaderLabel(hit.loader) }}</template></span>
-                  <span v-if="hit.downloads !== undefined">{{ t('downloads', { count: formatNumber(hit.downloads) }) }}</span>
+                <span class="hit-title"><strong>{{ hit.name }}</strong></span>
+                <span class="muted small">{{ t('byAuthor', { author: hit.author }) }}</span>
+                <span class="summary">{{ hit.summary }}</span>
+                <span class="meta">
+                  <span v-if="hit.minecraftVersion"><Gamepad2 :size="14" />{{ hit.minecraftVersion }}</span>
+                  <span v-if="hit.loader"><Layers :size="14" />{{ loaderLabel(hit.loader) }}</span>
+                  <span v-if="hit.downloads !== undefined"><Download :size="14" />{{ formatNumber(hit.downloads) }}</span>
                 </span>
               </span>
             </button>
           </li>
         </ul>
-        <p v-if="loading" class="muted" role="status">{{ t('searching') }}</p>
-        <p v-else-if="canSearch && !hits.length && !error" class="empty">{{ t('noResults') }}</p>
+        <div v-if="!loading && canSearch && !hits.length && !error" class="empty card">
+          <span class="empty-icon"><PackageSearch :size="28" /></span>
+          <p>{{ t('noResults') }}</p>
+        </div>
         <button v-if="hits.length < total && !loading" class="btn load-more" type="button" @click="search(true)">{{ t('loadMore') }}</button>
       </div>
 
-      <aside class="details glass" :aria-label="t('packDetails')">
-        <template v-if="picked">
-          <h2>{{ picked.name }}</h2>
-          <p class="muted">{{ t('packFrom', { provider: packProviderNames[picked.provider] }) }} · {{ t('byAuthor', { author: picked.author }) }}</p>
-          <p>{{ picked.summary }}</p>
+      <Transition name="slide">
+        <aside v-if="picked" class="details glass" :aria-label="t('packDetails')">
+          <button class="icon-btn close" type="button" :aria-label="t('close')" @click="picked = null"><X :size="18" /></button>
+          <div class="details-head">
+            <Avatar :name="picked.name" :src="picked.iconUrl" :size="72" />
+            <div>
+              <h2>{{ picked.name }}</h2>
+              <p class="muted small">{{ t('byAuthor', { author: picked.author }) }}</p>
+              <span class="chip"><ProviderLogo :provider="picked.provider" :size="15" />{{ packProviderNames[picked.provider] }}</span>
+            </div>
+          </div>
+          <p class="description">{{ picked.summary }}</p>
 
-          <label class="field"><span>{{ t('packVersionLabel') }}</span>
-            <select v-model="versionId" class="select" :disabled="versionsLoading || !versions.length || installing">
-              <option v-for="v in versions" :key="v.id" :value="v.id">
-                {{ v.name }} · {{ v.minecraftVersion }}<template v-if="v.loader"> · {{ loaderLabel(v.loader) }}</template><template v-if="v.releaseType && v.releaseType !== 'release'"> · {{ t(v.releaseType) }}</template>
-              </option>
-            </select>
-          </label>
-          <p v-if="versionsLoading" class="muted small">{{ t('packLoadingVersions') }}</p>
-          <p v-else-if="!versions.length && !installError" class="muted small">{{ t('packNoVersions') }}</p>
+          <fieldset class="versions" :disabled="installing">
+            <legend class="field-label">{{ t('packVersionLabel') }}</legend>
+            <div v-if="versionsLoading" class="version-list">
+              <span v-for="n in 3" :key="n" class="skeleton" style="height: 44px"></span>
+            </div>
+            <p v-else-if="!versions.length && !installError" class="muted small">{{ t('packNoVersions') }}</p>
+            <div v-else class="version-list" role="radiogroup">
+              <label v-for="v in versions" :key="v.id" class="version" :class="{ active: v.id === versionId }">
+                <input v-model="versionId" type="radio" name="pack-version" :value="v.id" />
+                <span class="version-copy">
+                  <span class="version-name">{{ v.name }}
+                    <span v-if="v.releaseType && v.releaseType !== 'release'" class="badge warn">{{ t(v.releaseType) }}</span>
+                    <span v-else-if="v.id === versions[0]?.id" class="badge info">{{ t('latest') }}</span>
+                  </span>
+                  <span class="meta small">
+                    <span><Gamepad2 :size="13" />{{ v.minecraftVersion }}</span>
+                    <span v-if="v.loader"><Layers :size="13" />{{ loaderLabel(v.loader) }}</span>
+                    <span v-if="v.publishedAt">{{ formatDate(v.publishedAt) }}</span>
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
 
           <label class="field"><span>{{ t('packInstanceName') }}</span><input v-model="instanceName" class="input" :disabled="installing" /></label>
-          <p v-if="nameTaken" class="muted small">{{ t('packNameTaken') }}</p>
-          <p class="muted small">{{ t('packInstallHint') }}</p>
+          <p v-if="nameTaken" class="hint warn-text small"><Info :size="14" />{{ t('packNameTaken') }}</p>
 
-          <button class="btn btn-primary" type="button" :disabled="!canInstall" @click="install">{{ installing ? t('packInstalling') : t('packInstall') }}</button>
-          <p v-if="!session.can('packs.install')" class="muted small">{{ t('capabilityMissing') }}</p>
-
-          <div v-if="operation" class="operation" aria-live="polite">
-            <span class="badge" :class="opStateTone[operation.state]">{{ t(opStateKey[operation.state]) }}</span>
+          <div v-if="operation && !installed" class="operation" aria-live="polite">
+            <div class="op-row"><span class="badge" :class="opStateTone[operation.state]">{{ t(opStateKey[operation.state]) }}</span><span class="muted small">{{ Math.round((operation.progress ?? 0) * 100) }}%</span></div>
             <div class="progress"><span :style="{ width: `${Math.round((operation.progress ?? 0) * 100)}%` }"></span></div>
           </div>
-          <div v-if="operation?.state === 'completed'" class="notice" role="status">
-            <span>{{ t('packInstalled', { name: instanceName }) }}</span>
-            <button class="btn btn-small btn-primary" type="button" style="margin-left: auto" @click="emit('manage')">{{ t('packManageNow') }}</button>
+          <div v-if="installed" class="notice success" role="status">
+            <CircleCheck :size="18" /><span class="grow">{{ t('packInstalled', { name: instanceName }) }}</span>
           </div>
-          <p v-if="installError" class="notice error" role="alert">{{ installError }}</p>
-        </template>
-        <p v-else class="muted">{{ t('packSelectHint') }}</p>
-      </aside>
+          <p v-if="installError" class="notice error" role="alert"><CircleAlert :size="18" />{{ installError }}</p>
+
+          <button v-if="installed" class="btn btn-primary btn-large btn-block" type="button" @click="emit('manage')">{{ t('packManageNow') }}<ArrowRight :size="18" /></button>
+          <button v-else class="btn btn-primary btn-large btn-block" type="button" :disabled="!canInstall" @click="install">
+            <Download :size="18" />{{ installing ? t('packInstalling') : t('packInstall') }}
+          </button>
+          <p class="muted small center">{{ session.can('packs.install') ? t('packInstallHint') : t('capabilityMissing') }}</p>
+        </aside>
+      </Transition>
     </div>
   </section>
 </template>
 
 <style scoped>
-.view { overflow-y: auto; }
-.search { min-width: 240px; flex: 1; max-width: 380px; }
-.segmented { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: var(--radius-control); background: rgba(3, 8, 16, 0.4); border: 1px solid var(--control-border); }
-.seg { border: none; background: transparent; color: var(--text-secondary); padding: 5px 12px; border-radius: 6px; cursor: pointer; }
-.seg.active { background: var(--surface-selected); color: #fff; }
-.seg.off:not(.active) { opacity: 0.55; }
-.columns { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--space-4); align-items: start; }
-.results-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
-.results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-.hit { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-3); border-radius: var(--radius-medium); text-align: left; cursor: pointer; }
-.hit.active { border-color: rgba(96, 165, 250, 0.55); box-shadow: var(--shadow-medium), inset 3px 0 0 #3b82f6; }
-.hit-icon { width: 48px; height: 48px; border-radius: 10px; flex-shrink: 0; object-fit: cover; }
-.initial { display: grid; place-items: center; background: linear-gradient(135deg, #1e3a5f, #0f2744); font-weight: 700; font-size: 1.2rem; }
-.hit-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.summary { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hit-meta { display: flex; gap: var(--space-2); align-items: center; font-size: 0.8rem; color: var(--text-secondary); flex-wrap: wrap; }
-.details { position: sticky; top: 0; padding: var(--space-4); border-radius: var(--radius-medium); display: flex; flex-direction: column; gap: var(--space-3); }
-.details h2 { font-size: 1.1rem; }
-.small { font-size: 0.82rem; }
+.view { overflow-y: auto; padding-right: 4px; }
+.seg.off:not(.active) { opacity: 0.5; }
+.columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.columns.open { grid-template-columns: minmax(0, 1fr) 380px; }
+.results-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
+.results { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--space-3); }
+.hit { display: flex; align-items: flex-start; gap: var(--space-3); width: 100%; height: 100%; padding: var(--space-4); }
+.skel { display: flex; gap: var(--space-3); padding: var(--space-4); }
+.skeleton-lines { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+.hit-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hit-title strong { font-size: 1.02rem; }
+.summary { font-size: 0.9rem; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 2px 0 4px; }
+.details { position: sticky; top: 0; padding: var(--space-5); border-radius: var(--radius-medium); display: flex; flex-direction: column; gap: var(--space-4); max-height: calc(100vh - 120px); overflow-y: auto; }
+.close { position: absolute; top: 10px; right: 10px; }
+.details-head { display: flex; gap: var(--space-3); align-items: center; padding-right: 28px; }
+.details-head > div { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.details-head h2 { font-size: 1.25rem; }
+.description { color: var(--text-secondary); font-size: 0.93rem; line-height: 1.55; }
+.versions { border: none; margin: 0; padding: 0; min-width: 0; }
+.field-label { font-size: 0.88rem; color: var(--text-secondary); font-weight: 500; margin-bottom: 6px; padding: 0; }
+.version-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+.version { display: flex; align-items: center; gap: var(--space-3); padding: 8px 12px; border-radius: var(--radius-control); border: 1px solid var(--border-subtle); background: rgba(255, 255, 255, 0.03); cursor: pointer; }
+.version:hover { border-color: rgba(147, 197, 253, 0.3); }
+.version.active { border-color: rgba(96, 165, 250, 0.55); background: rgba(59, 130, 246, 0.12); }
+.version-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.version-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.hint { display: flex; align-items: center; gap: 6px; }
+.warn-text { color: #fcd34d; }
 .operation { display: flex; flex-direction: column; gap: var(--space-2); }
+.op-row { display: flex; justify-content: space-between; align-items: center; }
+.center { text-align: center; }
 .load-more { align-self: center; }
-@media (max-width: 1000px) { .columns { grid-template-columns: 1fr; } .details { position: static; } }
+@media (max-width: 1100px) { .columns.open { grid-template-columns: 1fr; } .details { position: static; max-height: none; } }
 </style>

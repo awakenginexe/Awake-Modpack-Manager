@@ -82,6 +82,34 @@ export const zhTW: Catalog = {
   packSelectHint: '選擇一個整合包，然後選擇版本進行安裝。',
   packLinked: '{pack} {version}（來自 {provider}）',
 
+  navSectionLibrary: "收藏庫",
+  navSectionInstance: "目前實例",
+  switchInstance: "切換實例",
+  settings: "設定",
+  instanceCount: "{count} 個實例",
+  play: "啟動",
+  latest: "最新",
+
+  statUpdates: "{count} 個可更新",
+  statIssues: "{count} 個需要處理",
+  statUnknown: "{count} 個未知檔案",
+
+  stepDraft: "編輯草稿",
+  stepCheck: "檢查計畫",
+  stepApply: "套用",
+
+  refresh: "重新整理",
+
+  fileCount: "{count} 個檔案",
+
+  formatMrpackHint: "適用於 Modrinth 和大多數啟動器",
+  formatCurseforgeHint: "適用於 CurseForge 應用程式及其啟動器",
+  statBundled: "經授權打包",
+  statExcluded: "不包含",
+  statOverrides: "覆寫檔案",
+
+  planPlaceholder: "檢查計畫，查看具體會有哪些變更，包括相依性與衝突。",
+
   modsTitle: '模組',
   modsSubtitle: '{name} 中共有 {count} 個檔案',
   modsSearch: '依名稱或檔名搜尋',

@@ -26,7 +26,7 @@ watchEffect(() => {
 });
 
 export function translate(loc: Locale, key: MessageKey, params?: Record<string, string | number>): string {
-  const text = catalogs[loc][key] ?? en[key];
+  const text: string = catalogs[loc][key] ?? en[key] ?? key; // never crash the UI over a missing string
   return params ? text.replace(/\{(\w+)\}/g, (m, name: string) => (name in params ? String(params[name]) : m)) : text;
 }
 

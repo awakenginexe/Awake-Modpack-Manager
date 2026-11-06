@@ -8,9 +8,18 @@
   That is a product/licensing decision for the project owner.
 * **K2D font** (`src/assets/fonts/`): SIL Open Font License 1.1, copied with `OFL.txt`, the
   same files the Launcher bundles. The OFL allows bundling; the font must not be sold by itself.
-* **Branded assets:** no Launcher icons, logos or pack artwork were copied. The sidebar mark is
-  a plain "A" placeholder until the owner supplies a Manager icon.
-* **Runtime dependency:** Vue 3.5.43 (MIT). See `THIRD-PARTY-NOTICES.txt`.
+* **Awake logo** (`src/assets/brand/awake.png`): the Launcher's
+  `program_info/io.github.awakenginexe.AwakeLauncher_256.png`, supplied by the Awake maintainer
+  and licensed CC BY-SA 4.0 (licence text alongside it). Used unmodified, with attribution.
+* **Provider logos** (`src/assets/providers/`): Modrinth, CurseForge, FTB, ATLauncher and Technic
+  SVGs copied from the Launcher's `launcher/awake-web/src/assets/icons/`. They are trademarks of
+  their owners, used only to show where a mod or pack comes from, which does not imply
+  endorsement. The ATLauncher mark's dark grey faces were lightened so it is visible on the dark
+  theme. Because these files come from the GPL-3.0 Launcher repository, either keep the Manager
+  GPL-compatible or swap them for each provider's official brand-kit assets before a non-GPL
+  release.
+* **Runtime dependencies:** Vue 3.5.43 (MIT) and @lucide/vue 1.59.0 icons (ISC). See
+  `THIRD-PARTY-NOTICES.txt`.
 * **Project licence:** none chosen yet (`"private": true`). Needs an owner decision before any
   public release.
 * **Mod redistribution:** Export never assumes a mod can be redistributed. Provider-hosted files

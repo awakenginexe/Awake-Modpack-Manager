@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, type Component } from 'vue';
 import type { DraftChange, OptionalSuggestion, PlanAction, PlanItem } from '../backend/contract';
 import { addChange, isStale, rebase, removeChange } from '../domain/draft';
 import { t, type MessageKey } from '../i18n';
 import { useSession } from '../state/session';
 import { opStateKey, opStateTone, planActionKey } from '../ui/labels';
+import {
+  ArrowRight, ArrowUpCircle, Check, CircleAlert, CircleCheck, Download, Info, ListChecks, Loader, Power, PowerOff,
+  Sparkles, Trash2, TriangleAlert, Undo2,
+} from '@lucide/vue';
+import Avatar from '../components/Avatar.vue';
 import type { ViewId } from '../App.vue';
 
 const emit = defineEmits<{ navigate: [ViewId] }>();
@@ -36,6 +41,11 @@ const changeLabel: Record<DraftChange['kind'], MessageKey> = { install: 'pending
 const nameOf = (c: DraftChange) => (c.kind === 'install' ? c.name : modName.value.get(c.modKey) ?? c.modKey);
 const severityKey = { error: 'issueError', warning: 'issueWarning', info: 'issueInfo' } as const;
 const severityTone = { error: 'error', warning: 'warn', info: 'info' } as const;
+const severityIcon = { error: CircleAlert, warning: TriangleAlert, info: Info } as const;
+const actionIcon: Record<PlanAction, Component> = { install: Download, update: ArrowUpCircle, remove: Trash2, enable: Power, disable: PowerOff, keep: Check };
+const changeIcon: Record<DraftChange['kind'], Component> = { install: Download, update: ArrowUpCircle, remove: Trash2, enable: Power, disable: PowerOff };
+/** 0 = draft, 1 = plan checked, 2 = applying/applied. */
+const step = computed(() => (['applying', 'unconfirmed', 'done'].includes(review.phase) ? 2 : plan.value && !session.planOutdated.value ? 1 : 0));
 
 function undo(c: DraftChange) { if (draft.value) session.setDraft(removeChange(draft.value, c)); }
 function addOptional(o: OptionalSuggestion) {
@@ -63,83 +73,100 @@ function reasonText(i: PlanItem) {
       </div>
       <div v-if="changes.length" class="toolbar">
         <template v-if="confirmDiscard">
-          <span>{{ t('discardConfirm', { count: changes.length }) }}</span>
-          <button class="btn btn-small btn-danger" type="button" @click="discard">{{ t('discardDraft') }}</button>
+          <span class="small">{{ t('discardConfirm', { count: changes.length }) }}</span>
+          <button class="btn btn-small btn-danger" type="button" @click="discard"><Trash2 :size="15" />{{ t('discardDraft') }}</button>
           <button class="btn btn-small" type="button" @click="confirmDiscard = false">{{ t('cancel') }}</button>
         </template>
-        <button v-else class="btn" type="button" :disabled="busy" @click="confirmDiscard = true">{{ t('discardDraft') }}</button>
+        <button v-else class="btn btn-ghost" type="button" :disabled="busy" @click="confirmDiscard = true"><Trash2 :size="16" />{{ t('discardDraft') }}</button>
       </div>
     </header>
 
-    <div v-if="review.phase === 'done'" class="notice" role="status">
-      <strong>{{ t('applyDone') }}</strong>
-      <button class="btn btn-small" type="button" style="margin-left: auto" @click="session.resetReview(); emit('navigate', 'mods')">{{ t('navMods') }}</button>
+    <ol class="steps" :aria-label="t('reviewTitle')">
+      <li :class="{ done: step > 0, current: step === 0 }"><span class="step-num"><Check v-if="step > 0" :size="14" /><template v-else>1</template></span>{{ t('stepDraft') }}</li>
+      <li :class="{ done: step > 1, current: step === 1 }"><span class="step-num"><Check v-if="step > 1" :size="14" /><template v-else>2</template></span>{{ t('stepCheck') }}</li>
+      <li :class="{ done: review.phase === 'done', current: step === 2 && review.phase !== 'done' }"><span class="step-num"><Check v-if="review.phase === 'done'" :size="14" /><template v-else>3</template></span>{{ t('stepApply') }}</li>
+    </ol>
+
+    <div v-if="review.phase === 'done'" class="notice success" role="status">
+      <CircleCheck :size="20" /><strong class="grow">{{ t('applyDone') }}</strong>
+      <button class="btn btn-small btn-primary" type="button" @click="session.resetReview(); emit('navigate', 'mods')">{{ t('navMods') }}<ArrowRight :size="15" /></button>
     </div>
 
-    <div v-if="!changes.length && review.phase !== 'done' && review.phase !== 'applying'" class="empty glass">
+    <div v-if="!changes.length && review.phase !== 'done' && review.phase !== 'applying'" class="empty card">
+      <span class="empty-icon"><ListChecks :size="28" /></span>
       <h2>{{ t('reviewEmpty') }}</h2>
       <p>{{ t('reviewEmptyHint') }}</p>
       <div class="toolbar">
         <button class="btn" type="button" @click="emit('navigate', 'mods')">{{ t('navMods') }}</button>
-        <button class="btn" type="button" @click="emit('navigate', 'browse')">{{ t('navBrowse') }}</button>
+        <button class="btn btn-primary" type="button" @click="emit('navigate', 'browse')">{{ t('navBrowse') }}</button>
       </div>
     </div>
 
     <div v-else class="columns">
-      <section class="panel glass draft-panel" :aria-label="t('draftList')">
-        <h2>{{ t('draftList') }} <span class="badge">{{ changes.length }}</span></h2>
-        <div v-if="stale" class="notice warn" role="alert">
-          <span>{{ review.phase === 'stale' ? t('planStale') : t('staleDraft') }}</span>
+      <section class="panel card draft-panel" :aria-label="t('draftList')">
+        <h2 class="panel-title">{{ t('draftList') }} <span class="badge">{{ changes.length }}</span></h2>
+        <div v-if="stale" class="notice warn small" role="alert">
+          <TriangleAlert :size="18" />
+          <span class="grow">{{ review.phase === 'stale' ? t('planStale') : t('staleDraft') }}</span>
           <button class="btn btn-small" type="button" @click="refreshDraft">{{ t('staleDraftAction') }}</button>
         </div>
         <ul class="list">
-          <li v-for="(c, i) in changes" :key="i">
-            <span class="badge" :class="c.kind === 'remove' ? 'error' : 'info'">{{ t(changeLabel[c.kind]) }}</span>
-            <span class="grow">{{ nameOf(c) }}</span>
-            <button class="btn btn-small" type="button" :disabled="busy" @click="undo(c)">{{ t('undoChange') }}</button>
+          <li v-for="(c, i) in changes" :key="i" class="item">
+            <Avatar :name="nameOf(c)" :size="28" />
+            <span class="grow">
+              <span class="item-name">{{ nameOf(c) }}</span>
+              <span class="item-kind" :class="c.kind"><component :is="changeIcon[c.kind]" :size="12" />{{ t(changeLabel[c.kind]) }}</span>
+            </span>
+            <button class="icon-btn" type="button" :disabled="busy" :aria-label="t('undoChange')" :title="t('undoChange')" @click="undo(c)"><Undo2 :size="15" /></button>
           </li>
         </ul>
-        <button class="btn btn-primary" type="button" :disabled="busy || stale || !changes.length || !session.can('plan.validate')" @click="session.validate()">
+        <button class="btn btn-primary btn-block" type="button" :disabled="busy || stale || !changes.length || !session.can('plan.validate')" @click="session.validate()">
+          <Loader v-if="review.phase === 'resolving'" :size="16" class="spin" /><Sparkles v-else :size="16" />
           {{ review.phase === 'resolving' ? t('resolving') : t('resolve') }}
         </button>
-        <p v-if="!session.can('plan.validate')" class="muted">{{ t('capabilityMissing') }}</p>
+        <p v-if="!session.can('plan.validate')" class="muted small">{{ t('capabilityMissing') }}</p>
       </section>
 
-      <section class="panel glass plan-panel" :aria-label="t('planTitle')" aria-live="polite">
-        <h2>{{ t('planTitle') }}</h2>
-        <p v-if="!plan && review.phase !== 'failed'" class="muted">{{ t('planNeedsCheck') }}</p>
-        <div v-if="session.planOutdated.value" class="notice warn" role="alert">{{ t('planNeedsCheck') }}</div>
+      <section class="panel card plan-panel" :aria-label="t('planTitle')" aria-live="polite">
+        <h2 class="panel-title">{{ t('planTitle') }}</h2>
+        <p v-if="!plan && review.phase !== 'failed'" class="placeholder muted"><Sparkles :size="18" />{{ t('planPlaceholder') }}</p>
+        <div v-if="session.planOutdated.value" class="notice warn small" role="alert"><TriangleAlert :size="18" />{{ t('planNeedsCheck') }}</div>
         <div v-if="review.phase === 'changed'" class="notice warn" role="alert">
-          <span>{{ t('planChanged') }}</span>
+          <TriangleAlert :size="18" /><span class="grow">{{ t('planChanged') }}</span>
           <button class="btn btn-small" type="button" @click="session.acceptChangedPlan()">{{ t('reviewChanges') }}</button>
         </div>
 
         <template v-if="plan">
           <p v-if="!plan.items.length" class="muted">{{ t('nothingToApply') }}</p>
+          <div v-if="groups.length > 1" class="summary-chips">
+            <span v-for="g in groups" :key="g.action" class="chip" :class="g.action"><component :is="actionIcon[g.action]" :size="14" />{{ t(planActionKey[g.action]) }} {{ g.items.length }}</span>
+          </div>
+
           <div v-for="g in groups" :key="g.action" class="group">
-            <h3>{{ t(planActionKey[g.action]) }} <span class="badge">{{ g.items.length }}</span></h3>
+            <h3 :class="g.action"><component :is="actionIcon[g.action]" :size="15" />{{ t(planActionKey[g.action]) }} <span class="badge">{{ g.items.length }}</span></h3>
             <ul class="list">
-              <li v-for="item in g.items" :key="item.modKey">
+              <li v-for="item in g.items" :key="item.modKey" class="item">
+                <Avatar :name="item.name" :size="28" />
                 <span class="grow">
-                  <strong>{{ item.name }}</strong>
-                  <span v-if="item.reason !== 'requested'" class="muted small"> · {{ reasonText(item) }}</span>
+                  <span class="item-name">{{ item.name }}</span>
+                  <span v-if="item.reason !== 'requested'" class="muted small">{{ reasonText(item) }}</span>
                 </span>
                 <span class="versions">
-                  <template v-if="item.action === 'update'">{{ item.from?.name ?? t('noVersion') }} → {{ item.to?.name }}</template>
-                  <template v-else-if="item.action === 'install'">{{ item.to?.name }}</template>
-                  <template v-else>{{ item.from?.name ?? t('noVersion') }}</template>
+                  <template v-if="item.action === 'update'"><span class="from">{{ item.from?.name ?? t('noVersion') }}</span><ArrowRight :size="13" /><span class="to">{{ item.to?.name }}</span></template>
+                  <span v-else-if="item.action === 'install'" class="to">{{ item.to?.name }}</span>
+                  <span v-else class="from">{{ item.from?.name ?? t('noVersion') }}</span>
                 </span>
-                <span v-if="item.destructive" class="badge warn">{{ t('destructiveTitle') }}</span>
+                <span v-if="item.destructive" class="badge warn" :title="t('destructiveTitle')"><TriangleAlert :size="12" /></span>
               </li>
             </ul>
           </div>
 
           <div v-if="plan.issues.length" class="group">
-            <h3>{{ t('issues') }}</h3>
-            <ul class="list">
-              <li v-for="(issue, i) in plan.issues" :key="i">
-                <span class="badge" :class="severityTone[issue.severity]">{{ t(severityKey[issue.severity]) }}</span>
-                <span class="grow">{{ issue.message }}</span>
+            <h3>{{ t('issues') }} <span class="badge">{{ plan.issues.length }}</span></h3>
+            <ul class="issues">
+              <li v-for="(issue, i) in plan.issues" :key="i" :class="severityTone[issue.severity]">
+                <component :is="severityIcon[issue.severity]" :size="16" />
+                <span class="grow"><strong class="sev">{{ t(severityKey[issue.severity]) }}</strong> {{ issue.message }}</span>
               </li>
             </ul>
           </div>
@@ -148,44 +175,49 @@ function reasonText(i: PlanItem) {
             <h3>{{ t('optionalTitle') }}</h3>
             <p class="muted small">{{ t('optionalHint') }}</p>
             <ul class="list">
-              <li v-for="o in plan.optional" :key="o.projectId">
-                <span class="grow"><strong>{{ o.name }}</strong> <span class="muted small">· {{ t('reasonOptional', { names: o.suggestedBy.join(', ') }) }}</span></span>
+              <li v-for="o in plan.optional" :key="o.projectId" class="item">
+                <Avatar :name="o.name" :size="28" />
+                <span class="grow"><span class="item-name">{{ o.name }}</span><span class="muted small">{{ t('reasonOptional', { names: o.suggestedBy.join(', ') }) }}</span></span>
                 <button class="btn btn-small" type="button" :disabled="busy" @click="addOptional(o)">{{ t('addOptional') }}</button>
               </li>
             </ul>
           </div>
-
-          <p v-if="plan.blocked" class="notice error" role="alert">{{ t('blockedPlan') }}</p>
-          <label v-if="destructive.length && !plan.blocked" class="notice warn check">
-            <input v-model="acknowledged" type="checkbox" />
-            <span><strong>{{ t('destructiveTitle') }}</strong> — {{ t('destructiveConfirm') }}</span>
-          </label>
         </template>
 
         <div v-if="review.operation" class="operation">
-          <div class="op-head">
+          <div class="op-row">
             <span class="badge" :class="opStateTone[review.operation.state]">{{ t(opStateKey[review.operation.state]) }}</span>
+            <span class="muted small">{{ Math.round((review.operation.progress ?? 0) * 100) }}%</span>
           </div>
           <div class="progress"><span :style="{ width: `${Math.round((review.operation.progress ?? 0) * 100)}%` }"></span></div>
           <p v-if="review.operation.error" class="small">{{ review.operation.error.message }}</p>
           <p v-if="review.operation.recovery" class="small">{{ review.operation.recovery.message }}</p>
         </div>
 
-        <p v-if="review.phase === 'applying' && !review.operation" class="muted" role="status">{{ t('applyAccepted') }}</p>
-        <p v-if="review.phase === 'unconfirmed'" class="notice warn" role="status">{{ t('applyLostReply') }}</p>
-        <p v-if="review.phase === 'not-received'" class="notice warn" role="alert">{{ t('applyNotReceived') }}</p>
+        <p v-if="review.phase === 'applying' && !review.operation" class="notice small" role="status"><Loader :size="16" class="spin" />{{ t('applyAccepted') }}</p>
+        <p v-if="review.phase === 'unconfirmed'" class="notice warn small" role="status"><Loader :size="16" class="spin" />{{ t('applyLostReply') }}</p>
+        <p v-if="review.phase === 'not-received'" class="notice warn small" role="alert"><TriangleAlert :size="18" />{{ t('applyNotReceived') }}</p>
         <div v-if="review.phase === 'failed'" class="notice error" role="alert">
-          <div>
+          <CircleAlert :size="18" />
+          <div class="grow">
             <strong>{{ t('applyFailed') }}</strong>
-            <details v-if="review.error"><summary>{{ t('technicalDetails') }}</summary><code>{{ review.error.code }}: {{ review.error.message }}</code></details>
+            <details v-if="review.error"><summary class="small">{{ t('technicalDetails') }}</summary><code class="small">{{ review.error.code }}: {{ review.error.message }}</code></details>
           </div>
         </div>
 
-        <div class="apply-row">
-          <button class="btn btn-primary" type="button" :disabled="!canApply" @click="session.apply()">
-            {{ review.phase === 'preparing' ? t('preparing') : t('apply', { count: plan?.items.length ?? 0 }) }}
-          </button>
-          <span v-if="!session.can('plan.apply')" class="muted small">{{ t('capabilityMissing') }}</span>
+        <div v-if="plan" class="apply-bar">
+          <p v-if="plan?.blocked" class="notice error small" role="alert"><CircleAlert :size="18" />{{ t('blockedPlan') }}</p>
+          <label v-if="plan && destructive.length && !plan.blocked" class="notice warn check small">
+            <input v-model="acknowledged" type="checkbox" />
+            <span><strong>{{ t('destructiveTitle') }}.</strong> {{ t('destructiveConfirm') }}</span>
+          </label>
+          <div class="apply-row">
+            <span v-if="!session.can('plan.apply')" class="muted small">{{ t('capabilityMissing') }}</span>
+            <button class="btn btn-primary btn-large" type="button" :disabled="!canApply" @click="session.apply()">
+              <Loader v-if="review.phase === 'preparing'" :size="18" class="spin" /><Check v-else :size="18" />
+              {{ review.phase === 'preparing' ? t('preparing') : t('apply', { count: plan?.items.length ?? 0 }) }}
+            </button>
+          </div>
         </div>
       </section>
     </div>
@@ -193,18 +225,45 @@ function reasonText(i: PlanItem) {
 </template>
 
 <style scoped>
-.view { overflow-y: auto; }
-.columns { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
-.panel { display: flex; flex-direction: column; gap: var(--space-3); border-radius: var(--radius-medium); }
-.panel h2 { font-size: 1.05rem; display: flex; align-items: center; gap: var(--space-2); }
-.group h3 { font-size: 0.9rem; color: var(--text-secondary); display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
+.view { overflow-y: auto; padding-right: 4px; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.steps li { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 0.9rem; font-weight: 500; }
+.steps li + li::before { content: ''; width: 32px; height: 1px; background: var(--border-subtle); margin-right: var(--space-2); }
+.step-num { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--control-border); font-size: 0.8rem; }
+.steps li.current { color: var(--text); }
+.steps li.current .step-num { background: var(--accent-gradient); border-color: transparent; color: #fff; }
+.steps li.done { color: #6ee7b7; }
+.steps li.done .step-num { background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.4); }
+.columns { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
+.panel { display: flex; flex-direction: column; gap: var(--space-4); }
+.placeholder { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4); border: 1px dashed var(--control-border); border-radius: var(--radius-control); }
+.summary-chips { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.group h3 { font-size: 0.92rem; display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); color: var(--text-secondary); }
+.install { color: #7dd3fc; }
+.update { color: #93c5fd; }
+.remove { color: #fca5a5; }
+.enable { color: #6ee7b7; }
+.disable { color: #cbd5e1; }
 .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
-.list li { display: flex; align-items: center; gap: var(--space-2); padding: 6px 8px; border-radius: var(--radius-control); background: rgba(255, 255, 255, 0.025); font-size: 0.88rem; }
-.grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.small { font-size: 0.8rem; }
-.versions { font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 0.82rem; white-space: nowrap; }
+.item { display: flex; align-items: center; gap: var(--space-3); padding: 6px 10px; border-radius: var(--radius-control); background: rgba(255, 255, 255, 0.03); }
+.item .grow { display: flex; flex-direction: column; min-width: 0; }
+.item-name { font-weight: 600; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-kind { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; }
+.grow { flex: 1; min-width: 0; }
+.versions { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; font-size: 0.86rem; white-space: nowrap; color: var(--text-muted); }
+.versions .to { color: #7dd3fc; font-weight: 600; }
+.issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.issues li { display: flex; gap: var(--space-2); align-items: flex-start; padding: 8px 12px; border-radius: var(--radius-control); font-size: 0.9rem; background: rgba(255, 255, 255, 0.03); }
+.issues li.error { background: rgba(239, 68, 68, 0.08); color: #fecaca; }
+.issues li.warn { background: rgba(245, 158, 11, 0.07); }
+.issues li.warn svg { color: #fcd34d; }
+.issues li.info svg { color: #93c5fd; }
+.sev { margin-right: 4px; }
 .operation { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius-control); background: rgba(255, 255, 255, 0.03); }
-.op-head { display: flex; gap: var(--space-2); align-items: center; }
-.apply-row { display: flex; align-items: center; gap: var(--space-3); }
+.op-row { display: flex; justify-content: space-between; align-items: center; }
+.apply-bar { position: sticky; bottom: 0; display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); background: linear-gradient(180deg, transparent, rgba(10, 19, 34, 0.9) 30%); }
+.apply-row { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1000px) { .columns { grid-template-columns: 1fr; } }
 </style>

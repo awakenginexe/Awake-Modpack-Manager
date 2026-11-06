@@ -82,6 +82,34 @@ export const th: Catalog = {
   packSelectHint: 'เลือกม็อดแพ็กเพื่อเลือกเวอร์ชันและติดตั้ง',
   packLinked: '{pack} {version} จาก {provider}',
 
+  navSectionLibrary: "คลัง",
+  navSectionInstance: "อินสแตนซ์",
+  switchInstance: "เปลี่ยนอินสแตนซ์",
+  settings: "การตั้งค่า",
+  instanceCount: "{count} อินสแตนซ์",
+  play: "เล่น",
+  latest: "ล่าสุด",
+
+  statUpdates: "มีอัปเดต {count} รายการ",
+  statIssues: "ต้องดูแล {count} รายการ",
+  statUnknown: "ไฟล์ไม่ทราบที่มา {count} ไฟล์",
+
+  stepDraft: "สร้างฉบับร่าง",
+  stepCheck: "ตรวจสอบแผน",
+  stepApply: "นำไปใช้",
+
+  refresh: "รีเฟรช",
+
+  fileCount: "{count} ไฟล์",
+
+  formatMrpackHint: "เหมาะกับ Modrinth และตัวเปิดเกมส่วนใหญ่",
+  formatCurseforgeHint: "สำหรับแอป CurseForge และตัวเปิดเกมที่รองรับ",
+  statBundled: "รวมไว้โดยได้รับอนุญาต",
+  statExcluded: "ไม่รวม",
+  statOverrides: "ไฟล์โอเวอร์ไรด์",
+
+  planPlaceholder: "ตรวจสอบแผนเพื่อดูว่าจะมีอะไรเปลี่ยนแปลงบ้าง รวมถึงการพึ่งพาและความขัดแย้ง",
+
   modsTitle: 'ม็อด',
   modsSubtitle: '{count} ไฟล์ใน {name}',
   modsSearch: 'ค้นหาจากชื่อหรือไฟล์',

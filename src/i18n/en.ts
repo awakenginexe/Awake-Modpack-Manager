@@ -80,6 +80,34 @@ export const en = {
   packSelectHint: 'Select a modpack to choose a version and install it.',
   packLinked: '{pack} {version} from {provider}',
 
+  navSectionLibrary: "Library",
+  navSectionInstance: "Instance",
+  switchInstance: "Switch instance",
+  settings: "Settings",
+  instanceCount: "{count} instances",
+  play: "Play",
+  latest: "Latest",
+
+  statUpdates: "{count} updates available",
+  statIssues: "{count} need attention",
+  statUnknown: "{count} unknown files",
+
+  stepDraft: "Build draft",
+  stepCheck: "Check plan",
+  stepApply: "Apply",
+
+  refresh: "Refresh",
+
+  fileCount: "{count} files",
+
+  formatMrpackHint: "Best for Modrinth and most launchers",
+  formatCurseforgeHint: "For the CurseForge app and its launchers",
+  statBundled: "Bundled with permission",
+  statExcluded: "Left out",
+  statOverrides: "Override files",
+
+  planPlaceholder: "Check the plan to see exactly what will change, including dependencies and conflicts.",
+
   modsTitle: 'Mods',
   modsSubtitle: '{count} files in {name}',
   modsSearch: 'Search by name or file',

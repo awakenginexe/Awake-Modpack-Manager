@@ -82,6 +82,34 @@ export const zhCN: Catalog = {
   packSelectHint: '选择一个整合包，然后选择版本进行安装。',
   packLinked: '{pack} {version}（来自 {provider}）',
 
+  navSectionLibrary: "库",
+  navSectionInstance: "当前版本",
+  switchInstance: "切换版本",
+  settings: "设置",
+  instanceCount: "{count} 个版本",
+  play: "启动",
+  latest: "最新",
+
+  statUpdates: "{count} 个可更新",
+  statIssues: "{count} 个需要处理",
+  statUnknown: "{count} 个未知文件",
+
+  stepDraft: "编辑草稿",
+  stepCheck: "检查计划",
+  stepApply: "应用",
+
+  refresh: "刷新",
+
+  fileCount: "{count} 个文件",
+
+  formatMrpackHint: "适用于 Modrinth 和大多数启动器",
+  formatCurseforgeHint: "适用于 CurseForge 应用及其启动器",
+  statBundled: "经许可打包",
+  statExcluded: "不包含",
+  statOverrides: "覆盖文件",
+
+  planPlaceholder: "检查计划，查看具体会发生哪些变化，包括依赖和冲突。",
+
   modsTitle: '模组',
   modsSubtitle: '{name} 中共有 {count} 个文件',
   modsSearch: '按名称或文件名搜索',

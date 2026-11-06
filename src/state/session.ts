@@ -110,6 +110,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     state.instancesLoading = true;
     try {
       state.instances = await backend.listInstances(state.installationId);
+      // A remembered instance may have been deleted in the Launcher.
+      if (state.instanceId && !state.instances.some((i) => i.id === state.instanceId)) state.instanceId = null;
     } finally {
       state.instancesLoading = false;
     }
