@@ -4,10 +4,11 @@ import {
   type Draft, type ExportFormat, type ExportReport, type ExportRequest, type Handshake, type InstalledMod,
   type InstanceSummary, type Installation, type ModInventory, type OperationKind, type OperationState,
   type OperationStatus, type PlanIssue, type PlanItem, type ProviderInfo, type RecoveryStatus, type ResolvedPlan,
-  type SearchPage, type SearchQuery,
+  type SearchPage, type SearchQuery, type InstallPackRequest, type PackProviderId, type PackProviderInfo,
+  type PackSearchPage, type PackSearchQuery, type PackVersion,
 } from '../contract';
 import type { ConnectionState, ManagerBackend } from '../ManagerBackend';
-import { buildCatalog, buildInstances, buildInventory, type CatalogProject } from './fixtures';
+import { buildCatalog, buildInstances, buildInventory, buildPackCatalog, type CatalogProject } from './fixtures';
 
 export interface MockOptions {
   /** Delay between simulated operation steps. 0 in tests (with fake timers). */
@@ -16,6 +17,7 @@ export interface MockOptions {
   latencyMs?: number;
   capabilities?: Capability[];
   providers?: ProviderInfo[];
+  packProviders?: PackProviderInfo[];
   /** The next prepare returns a materially different plan (new hash). */
   driftOnPrepare?: boolean;
   /** Apply fails during verification and the coordinator rolls back. */
@@ -27,10 +29,19 @@ export const DEFAULT_PROVIDERS: ProviderInfo[] = [
   { id: 'curseforge', available: false, unavailableReason: 'curseforge-unauthorized' },
 ];
 
+/** Mirrors an unkeyed build: CurseForge needs the Launcher's build-time API key. */
+export const DEFAULT_PACK_PROVIDERS: PackProviderInfo[] = [
+  { id: 'modrinth', available: true },
+  { id: 'curseforge', available: false, unavailableReason: 'curseforge-unauthorized' },
+  { id: 'ftb', available: true },
+  { id: 'atlauncher', available: true },
+  { id: 'technic', available: true },
+];
+
 export const ALL_CAPABILITIES: Capability[] = [
   'installations.discover', 'instances.list', 'instances.create', 'mods.inventory', 'providers.search',
   'plan.validate', 'plan.prepare', 'plan.apply', 'operations.watch', 'operations.cancel', 'operations.reconnect',
-  'recovery.status', 'files.read', 'export.mrpack', 'export.curseforge', 'launch.request',
+  'recovery.status', 'files.read', 'export.mrpack', 'export.curseforge', 'launch.request', 'packs.search', 'packs.install',
 ];
 
 interface StoredPlan { plan: ResolvedPlan; draft: Draft; drifted?: boolean }
@@ -51,10 +62,11 @@ const now = () => new Date().toISOString();
  */
 export class MockBackend implements ManagerBackend {
   readonly kind = 'mock' as const;
-  private opts: Required<Omit<MockOptions, 'capabilities' | 'providers'>> & Pick<MockOptions, 'capabilities' | 'providers'>;
+  private opts: Required<Omit<MockOptions, 'capabilities' | 'providers' | 'packProviders'>> & Pick<MockOptions, 'capabilities' | 'providers' | 'packProviders'>;
   private connection: ConnectionState = 'disconnected';
   private connectionListeners = new Set<(s: ConnectionState) => void>();
   private catalog: CatalogProject[] = buildCatalog();
+  private packs = buildPackCatalog();
   private instances: InstanceSummary[] = buildInstances();
   private inventories = new Map<string, InstalledMod[]>();
   private plans = new Map<string, StoredPlan>();
@@ -92,6 +104,7 @@ export class MockBackend implements ManagerBackend {
       launcherVersion: 'mock',
       capabilities: this.opts.capabilities ?? ALL_CAPABILITIES,
       providers: this.opts.providers ?? DEFAULT_PROVIDERS,
+      packProviders: this.opts.packProviders ?? DEFAULT_PACK_PROVIDERS,
     };
   }
 
@@ -137,7 +150,7 @@ export class MockBackend implements ManagerBackend {
       const id = `inst-${++this.seq}`;
       this.instances.push({ id, name: request.name, minecraftVersion: request.minecraftVersion, loader: { kind: request.loader }, modCount: 0, status: 'ready', manageable: true, revision: 'r1' });
       this.inventories.set(id, []);
-      return { revision: 'r1' };
+      return { revision: 'r1', instanceId: id };
     }));
   }
 
@@ -157,6 +170,53 @@ export class MockBackend implements ManagerBackend {
         total: hits.length,
         hits: hits.slice(q.offset, q.offset + q.limit).map(({ provider, projectId, name, author, summary, downloads, compatible, latest }) => ({ provider, projectId, name, author, summary, downloads, compatible, latest })),
       };
+    });
+  }
+
+  /* ----- modpacks ----- */
+
+  private requirePackProvider(id: PackProviderId) {
+    const info = (this.opts.packProviders ?? DEFAULT_PACK_PROVIDERS).find((p) => p.id === id);
+    if (!info?.available) throw new BackendError('unsupported', info?.unavailableReason ?? 'Provider unavailable');
+  }
+
+  searchPacks(q: PackSearchQuery): Promise<PackSearchPage> {
+    return this.call(() => {
+      this.requirePackProvider(q.provider);
+      const text = q.text.trim().toLowerCase();
+      const hits = this.packs
+        .filter((p) => p.provider === q.provider && (!text || p.name.toLowerCase().includes(text) || p.summary.toLowerCase().includes(text)))
+        .sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0));
+      return { total: hits.length, hits: hits.slice(q.offset, q.offset + q.limit).map(({ versions: _v, modCount: _m, ...hit }) => hit) };
+    });
+  }
+
+  packVersions(provider: PackProviderId, packId: string): Promise<PackVersion[]> {
+    return this.call(() => {
+      this.requirePackProvider(provider);
+      const pack = this.packs.find((p) => p.provider === provider && p.packId === packId);
+      if (!pack) throw new BackendError('rejected', 'Unknown modpack');
+      return pack.versions;
+    });
+  }
+
+  installPack(request: InstallPackRequest): Promise<Accepted> {
+    return this.call(() => {
+      this.requirePackProvider(request.provider);
+      const pack = this.packs.find((p) => p.provider === request.provider && p.packId === request.packId);
+      const version = pack?.versions.find((v) => v.id === request.versionId);
+      if (!pack || !version) throw new BackendError('rejected', 'Unknown modpack version');
+      return this.startOperation('install-pack', request.idempotencyKey, undefined, undefined, () => {
+        const id = `inst-${++this.seq}`;
+        const mods = buildInventory(this.catalog, Math.min(pack.modCount, 300), this.seq, version.minecraftVersion);
+        this.instances.push({
+          id, name: request.instanceName, minecraftVersion: version.minecraftVersion, loader: { kind: version.loader ?? 'forge' },
+          modCount: mods.length, status: 'ready', manageable: true, revision: 'r1',
+          pack: { provider: pack.provider, packId: pack.packId, packName: pack.name, versionId: version.id, versionName: version.name },
+        });
+        this.inventories.set(id, mods);
+        return { revision: 'r1', instanceId: id };
+      });
     });
   }
 

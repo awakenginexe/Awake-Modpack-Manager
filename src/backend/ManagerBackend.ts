@@ -1,6 +1,6 @@
 import type {
   Accepted, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
-  ExportReport, ExportRequest, Handshake, InstanceSummary, Installation, ModInventory,
+  ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, Installation, ModInventory,
   OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery,
 } from './contract';
 
@@ -22,6 +22,12 @@ export interface ManagerBackend {
   getInventory(instanceId: string): Promise<ModInventory>;
 
   search(query: SearchQuery): Promise<SearchPage>;
+
+  /** Modpack catalog. Provider calls and API keys stay in the Launcher. */
+  searchPacks(query: PackSearchQuery): Promise<PackSearchPage>;
+  packVersions(provider: PackSearchQuery['provider'], packId: string): Promise<PackVersion[]>;
+  /** Download and install a pack as a new instance. The result carries the new instance id. */
+  installPack(request: InstallPackRequest): Promise<Accepted>;
 
   /** Resolve a draft against the authoritative baseline. Rejects with `stale-revision` if the base moved. */
   validateDraft(draft: Draft): Promise<ResolvedPlan>;

@@ -142,3 +142,18 @@ describe('session', () => {
     expect(JSON.parse(localStorage.getItem('awake-mm:pins')!)['inst-atlas']).toEqual(['a']);
   });
 });
+
+describe('session installPack', () => {
+  it('installs a modpack and selects the new instance for managing', async () => {
+    localStorage.clear();
+    const { session } = await ready();
+    const hit = (await session.backend.searchPacks({ provider: 'modrinth', text: '', offset: 0, limit: 1 })).hits[0]!;
+    const version = (await session.backend.packVersions('modrinth', hit.packId))[0]!;
+    let accepted = '';
+    const final = await session.installPack({ provider: 'modrinth', packId: hit.packId, versionId: version.id, instanceName: hit.name }, (id) => { accepted = id; });
+    expect(final?.state).toBe('completed');
+    expect(accepted).toBe(final?.operationId);
+    expect(session.instance.value?.pack?.packId).toBe(hit.packId);
+    expect(session.inventory.value?.instanceId).toBe(final?.result?.instanceId);
+  });
+});

@@ -117,3 +117,31 @@ describe('followOperation', () => {
     expect((await done).state).toBe('completed');
   });
 });
+
+describe('MockBackend modpacks', () => {
+  it('searches each available provider and reports CurseForge as needing the Launcher key', async () => {
+    const b = new MockBackend(FAST);
+    const hs = await b.connect();
+    expect(hs.packProviders.map((p) => p.id)).toEqual(['modrinth', 'curseforge', 'ftb', 'atlauncher', 'technic']);
+    for (const p of hs.packProviders.filter((x) => x.available)) {
+      const page = await b.searchPacks({ provider: p.id, text: '', offset: 0, limit: 10 });
+      expect(page.hits.length, p.id).toBe(10);
+      expect(page.hits.every((h) => h.provider === p.id)).toBe(true);
+    }
+    await expect(b.searchPacks({ provider: 'curseforge', text: '', offset: 0, limit: 10 })).rejects.toMatchObject({ code: 'unsupported' });
+  });
+
+  it('installs a pack as a new, linked, manageable instance', async () => {
+    const b = new MockBackend(FAST);
+    await b.connect();
+    const hit = (await b.searchPacks({ provider: 'ftb', text: '', offset: 0, limit: 1 })).hits[0]!;
+    const version = (await b.packVersions('ftb', hit.packId))[0]!;
+    const { operationId } = await b.installPack({ provider: 'ftb', packId: hit.packId, versionId: version.id, instanceName: 'My copy', idempotencyKey: 'p1' });
+    const final = await followOperation(b, operationId, () => {}, { pollMs: 5 });
+    expect(final.state).toBe('completed');
+    const inst = (await b.listInstances()).find((i) => i.id === final.result?.instanceId)!;
+    expect(inst).toMatchObject({ name: 'My copy', manageable: true, minecraftVersion: version.minecraftVersion });
+    expect(inst.pack).toMatchObject({ provider: 'ftb', packId: hit.packId, versionId: version.id });
+    expect((await b.getInventory(inst.id)).mods.length).toBeGreaterThan(0);
+  });
+});

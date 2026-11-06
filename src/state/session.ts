@@ -1,7 +1,7 @@
 import { computed, inject, reactive, ref, shallowRef, watch, type InjectionKey } from 'vue';
 import {
   BackendError, type Capability, type CreateInstanceRequest, type Draft, type ExportRequest, type Handshake,
-  type InstanceSummary, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan,
+  type InstallPackRequest, type InstanceSummary, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan,
 } from '../backend/contract';
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
 import { newDraft } from '../domain/draft';
@@ -289,7 +289,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
         selection.value = emptySelection();
       }
     }
-    if (s.kind === 'create-instance' || s.instanceId) void refreshInstances();
+    if (s.kind === 'create-instance' || s.kind === 'install-pack' || s.instanceId) void refreshInstances();
     if (s.instanceId && s.instanceId === state.instanceId) void loadInventory();
   }
 
@@ -314,6 +314,18 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     return track(operationId);
   }
 
+  /** Install a provider modpack as a new instance and, once it exists, select it for managing. */
+  async function installPack(req: Omit<InstallPackRequest, 'idempotencyKey'>, onAccepted?: (operationId: string) => void) {
+    const { operationId } = await backend.installPack({ ...req, idempotencyKey: crypto.randomUUID() });
+    onAccepted?.(operationId);
+    const final = await track(operationId);
+    if (final?.state === 'completed' && final.result?.instanceId) {
+      await refreshInstances();
+      await selectInstance(final.result.instanceId);
+    }
+    return final;
+  }
+
   async function startExport(req: Omit<ExportRequest, 'idempotencyKey'>) {
     const { operationId } = await backend.startExport({ ...req, idempotencyKey: crypto.randomUUID() });
     return track(operationId);
@@ -325,7 +337,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     connect, refreshInstances, selectInstance, loadInventory,
     setDraft, discardDraft, setPinned,
     validate, apply, acceptChangedPlan, resetReview,
-    refreshOperations, cancelOperation, createInstance, startExport,
+    refreshOperations, cancelOperation, createInstance, installPack, startExport,
   };
 }
 

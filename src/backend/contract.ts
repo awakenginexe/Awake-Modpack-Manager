@@ -25,7 +25,9 @@ export type Capability =
   | 'files.read'
   | 'export.mrpack'
   | 'export.curseforge'
-  | 'launch.request';
+  | 'launch.request'
+  | 'packs.search'
+  | 'packs.install';
 
 export type ProviderId = 'modrinth' | 'curseforge';
 export type ModSource = ProviderId | 'manual';
@@ -44,6 +46,68 @@ export interface Handshake {
   launcherVersion: string;
   capabilities: Capability[];
   providers: ProviderInfo[];
+  /** Modpack sources. The Launcher's pack catalog already supports all of these. */
+  packProviders: PackProviderInfo[];
+}
+
+/* ---------- Modpacks (install someone else's pack as a new instance) ---------- */
+
+export type PackProviderId = 'modrinth' | 'curseforge' | 'ftb' | 'atlauncher' | 'technic';
+
+export interface PackProviderInfo {
+  id: PackProviderId;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export interface PackSearchQuery {
+  provider: PackProviderId;
+  text: string;
+  offset: number;
+  limit: number;
+}
+
+export interface PackHit {
+  provider: PackProviderId;
+  packId: string;
+  name: string;
+  author: string;
+  summary: string;
+  iconUrl?: string;
+  downloads?: number;
+  minecraftVersion?: string;
+  loader?: LoaderKind;
+}
+
+export interface PackSearchPage {
+  hits: PackHit[];
+  total: number;
+}
+
+export interface PackVersion {
+  id: string;
+  name: string;
+  minecraftVersion: string;
+  loader?: LoaderKind;
+  releaseType?: ReleaseType;
+  publishedAt?: string;
+}
+
+/** Link from an instance to the pack it was installed from; the basis for upstream updates. */
+export interface PackLink {
+  provider: PackProviderId;
+  packId: string;
+  packName: string;
+  versionId: string;
+  versionName: string;
+}
+
+export interface InstallPackRequest {
+  provider: PackProviderId;
+  packId: string;
+  versionId: string;
+  instanceName: string;
+  idempotencyKey: string;
 }
 
 export interface Installation {
@@ -70,6 +134,7 @@ export interface InstanceSummary {
   blockedReason?: string;
   /** Opaque authoritative revision. Any change to the instance's content changes it. */
   revision: string;
+  pack?: PackLink;
 }
 
 export type DependencyKind = 'required' | 'optional' | 'incompatible' | 'embedded';
@@ -225,7 +290,7 @@ export type OperationState =
 
 export const TERMINAL_STATES: readonly OperationState[] = ['completed', 'cancelled', 'rolled_back', 'needs_attention'];
 
-export type OperationKind = 'apply-plan' | 'create-instance' | 'export';
+export type OperationKind = 'apply-plan' | 'create-instance' | 'install-pack' | 'export';
 
 export interface OperationStatus {
   operationId: string;
@@ -241,7 +306,8 @@ export interface OperationStatus {
   cancellable: boolean;
   error?: { code: string; message: string; detail?: string };
   recovery?: { backupId?: string; restored?: boolean; message: string };
-  result?: { revision?: string; exportPath?: string };
+  /** `instanceId` is set when the operation created an instance. */
+  result?: { revision?: string; exportPath?: string; instanceId?: string };
 }
 
 export interface ApplyRequest {

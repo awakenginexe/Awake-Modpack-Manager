@@ -1,4 +1,43 @@
-import type { DependencyRef, InstalledMod, InstanceSummary, LoaderKind, ProviderId, ReleaseType, SearchHit, VersionRef } from '../contract';
+import type { DependencyRef, InstalledMod, InstanceSummary, LoaderKind, PackHit, PackProviderId, PackVersion, ProviderId, ReleaseType, SearchHit, VersionRef } from '../contract';
+
+const PACK_WORDS = ['Skyward', 'Ember', 'Northern', 'Arcane', 'Hollow', 'Starfall', 'Iron', 'Verdant', 'Tidal', 'Clockwork', 'Frontier', 'Echo'];
+const PACK_KINDS = ['Odyssey', 'Engineers', 'Survival', 'Kingdoms', 'Quest', 'Expedition', 'Tech', 'Magic'];
+const PACK_PROVIDERS: PackProviderId[] = ['modrinth', 'curseforge', 'ftb', 'atlauncher', 'technic'];
+
+export interface CatalogPack extends PackHit {
+  versions: PackVersion[];
+  modCount: number;
+}
+
+export function buildPackCatalog(seed = 31): CatalogPack[] {
+  const rand = seeded(seed);
+  const out: CatalogPack[] = [];
+  PACK_PROVIDERS.forEach((provider, p) => {
+    for (let i = 0; i < 36; i++) {
+      const kind = PACK_KINDS[(i + p) % PACK_KINDS.length]!;
+      const name = `${PACK_WORDS[(i + p * 5) % PACK_WORDS.length]} ${kind}${i >= 24 ? ' II' : ''}`;
+      const mc = provider === 'technic' && i % 3 === 0 ? '1.12.2' : rand() > 0.5 ? '1.21.1' : '1.20.1';
+      const loader: LoaderKind = mc === '1.12.2' ? 'forge' : (['fabric', 'neoforge', 'forge', 'quilt'] as const)[Math.floor(rand() * 4)]!;
+      const major = 1 + Math.floor(rand() * 5);
+      const versions: PackVersion[] = Array.from({ length: 3 + Math.floor(rand() * 4) }, (_, v) => ({
+        id: `${provider}-${i}-v${v}`,
+        name: `${major}.${5 - v}.0`,
+        minecraftVersion: mc,
+        loader,
+        releaseType: v === 0 && rand() > 0.7 ? 'beta' : 'release',
+        publishedAt: new Date(Date.UTC(2026, 9 - v, 1 + i)).toISOString(),
+      }));
+      out.push({
+        provider, packId: `${provider}-pack-${i}`, name,
+        author: ['Northwind Studio', 'Team Ember', 'packsmith', 'CraftWorks', 'lumen'][i % 5]!,
+        summary: `${name} is a modpack built around ${kind.toLowerCase()}.`,
+        downloads: Math.floor(rand() * 5_000_000), minecraftVersion: mc, loader, versions,
+        modCount: 40 + Math.floor(rand() * 260),
+      });
+    }
+  });
+  return out;
+}
 
 /** Deterministic PRNG so fixtures (and tests) are stable across runs. */
 export function seeded(seed: number) {

@@ -7,13 +7,14 @@ import { useSession } from './state/session';
 import { loaderLabel } from './ui/labels';
 import LibraryView from './views/LibraryView.vue';
 import ModsView from './views/ModsView.vue';
+import PacksView from './views/PacksView.vue';
 import BrowseView from './views/BrowseView.vue';
 import ReviewView from './views/ReviewView.vue';
 import FilesView from './views/FilesView.vue';
 import HistoryView from './views/HistoryView.vue';
 import ExportView from './views/ExportView.vue';
 
-export type ViewId = 'library' | 'mods' | 'browse' | 'review' | 'files' | 'history' | 'export';
+export type ViewId = 'library' | 'packs' | 'mods' | 'browse' | 'review' | 'files' | 'history' | 'export';
 
 const session = useSession();
 const { state } = session;
@@ -24,6 +25,7 @@ watch(reducedMotion, (v) => save('reducedMotion', v));
 // Simple line icons (24px grid), drawn for the Manager.
 const nav: { id: ViewId; label: MessageKey; icon: string; needsInstance: boolean }[] = [
   { id: 'library', label: 'navLibrary', icon: 'M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z', needsInstance: false },
+  { id: 'packs', label: 'navPacks', icon: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5', needsInstance: false },
   { id: 'mods', label: 'navMods', icon: 'M4 6h16M4 12h16M4 18h10', needsInstance: true },
   { id: 'browse', label: 'navBrowse', icon: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4', needsInstance: true },
   { id: 'review', label: 'navReview', icon: 'M5 12l4 4L19 6', needsInstance: true },
@@ -96,8 +98,9 @@ function open(id: ViewId) { view.value = id; }
     </nav>
 
     <main class="stage">
-      <div v-if="session.backend.kind === 'mock' && view !== 'library'" class="mock-banner">{{ t('connMockHint') }}</div>
-      <LibraryView v-if="view === 'library'" @manage="open('mods')" />
+      <div v-if="session.backend.kind === 'mock' && view !== 'library' && view !== 'packs'" class="mock-banner">{{ t('connMockHint') }}</div>
+      <LibraryView v-if="view === 'library'" @manage="open('mods')" @get-pack="open('packs')" />
+      <PacksView v-else-if="view === 'packs'" @manage="open('mods')" />
       <template v-else-if="session.instance.value">
         <ModsView v-if="view === 'mods'" @navigate="open" />
         <BrowseView v-else-if="view === 'browse'" @navigate="open" />

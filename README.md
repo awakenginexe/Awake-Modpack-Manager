@@ -25,6 +25,9 @@ Dev scenarios: `?mock=drift`, `?mock=fail`, `?mock=cf` (see INTEGRATION.md).
 
 * **Instances**: Launcher instances with version, loader, mod count, status, location and
   whether they can be managed now; create an instance; open it in Awake Launcher.
+* **Get modpack**: search Modrinth, CurseForge, FTB, ATLauncher and Technic, pick a version
+  and install it as a new instance in one step, then go straight to managing it. Provider calls
+  and the CurseForge API key stay in Awake Launcher; this app ships no keys.
 * **Mods**: a windowed table for hundreds of mods with search, status/source filters, sorting,
   multi-select (shift-range, Ctrl+A), bulk update/enable/disable/remove/pin, and a details panel
   with dependencies. Unknown/manual files stay visible.

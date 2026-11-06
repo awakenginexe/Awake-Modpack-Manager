@@ -56,6 +56,28 @@ Sent by the coordinator in the handshake (`Handshake.capabilities`). Each gates 
 | `files.read` | Read-only listing of config/kubejs/etc. |
 | `export.mrpack`, `export.curseforge` | Distribution check and export job |
 | `launch.request` | "Open in Awake Launcher" |
+| `packs.search` | "Get modpack": search packs and list versions (`Handshake.packProviders`) |
+| `packs.install` | Install a pack version as a new instance; `result.instanceId` names it |
+
+## Modpack sources and provider API keys
+
+"Get modpack" covers the same sources as the Launcher's existing pack catalog
+(`launcher/awake/web/AwakePackCatalog.cpp`): **Modrinth, CurseForge, FTB, ATLauncher, Technic**.
+The Launcher's local imports (FTB App, legacy FTB, zip/URL) are not exposed yet.
+
+The Manager **holds no provider API keys**. Search, versions, download and install all run in
+the Launcher. Its CurseForge key is already injected at build time from the GitHub secret
+`AWAKE_CURSEFORGE_API_KEY` (`.github/workflows/awake-build.yml` → `-DLauncher_CURSEFORGE_API_KEY`
+→ `BuildConfig.FLAME_API_KEY`). So the key exists only as that secret and in the Launcher's
+compiled binary, never in this repo or the Manager's JavaScript bundle. An unkeyed Launcher
+build reports CurseForge as `available: false, unavailableReason: 'curseforge-unauthorized'`,
+and the Manager shows "CurseForge needs to be set up in Awake Launcher".
+
+Installed instances carry `InstanceSummary.pack` (provider, pack id, version), which is what a
+future "update from upstream pack" plan will diff against.
+
+To test CurseForge locally, build the Launcher with the test key (`-DLauncher_CURSEFORGE_API_KEY=…`
+or its Settings → Services field). The Manager needs no change.
 
 ## Safety assumptions the coordinator must uphold
 

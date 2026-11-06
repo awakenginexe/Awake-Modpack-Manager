@@ -3,9 +3,9 @@ import { computed, ref } from 'vue';
 import type { InstanceSummary, LoaderKind } from '../backend/contract';
 import { formatNumber, t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
-import { blockedText, loaderLabel } from '../ui/labels';
+import { blockedText, loaderLabel, packProviderNames } from '../ui/labels';
 
-const emit = defineEmits<{ manage: [] }>();
+const emit = defineEmits<{ manage: []; getPack: [] }>();
 const session = useSession();
 const { state } = session;
 const query = ref('');
@@ -70,6 +70,7 @@ async function create() {
           </select>
         </label>
         <input v-model="query" class="input" type="search" :placeholder="t('librarySearch')" :aria-label="t('librarySearch')" />
+        <button class="btn" type="button" @click="emit('getPack')">{{ t('installModpack') }}</button>
         <button
           class="btn btn-primary"
           type="button"
@@ -110,6 +111,7 @@ async function create() {
         </div>
         <dl class="facts">
           <div><dt class="sr-only">{{ t('navMods') }}</dt><dd>{{ t('instanceMods', { count: formatNumber(inst.modCount) }) }}</dd></div>
+          <div v-if="inst.pack"><dt class="sr-only">{{ t('navPacks') }}</dt><dd>{{ t('packLinked', { pack: inst.pack.packName, provider: packProviderNames[inst.pack.provider], version: inst.pack.versionName }) }}</dd></div>
           <div v-if="inst.path" class="path"><dt>{{ t('storageLocation') }}</dt><dd :title="inst.path">{{ inst.path }}</dd></div>
         </dl>
         <p v-if="!inst.manageable" class="blocked">{{ blockedText(inst) }}</p>
