@@ -3,11 +3,13 @@
 A desktop companion to Awake Launcher for building and maintaining large Minecraft modpacks
 (200–300+ mods) on the **same instances** the Launcher plays.
 
-> **Status: read-only Launcher integration (Windows x64).** The desktop app reads your real
+> **Status: read-only Launcher integration (Windows x64), write path waiting on the Launcher.** The desktop app reads your real
 > Awake Launcher instances and mod inventories over the Launcher's integration pipe (protocol 1.0,
 > experimental). It needs the `feat/modpack-manager-integration` Launcher build. Changing mods,
 > creating instances, Apply and recovery aren't available from the Launcher yet, so those stay in
-> a local draft or are disabled. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
+> a local draft or are disabled. The Manager already implements the Launcher's draft operation
+> methods behind capability checks. What it still needs is listed in
+> [docs/LAUNCHER-REQUESTS.md](docs/LAUNCHER-REQUESTS.md). See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ## Run
 

@@ -135,15 +135,36 @@ Settings → Launcher connection → Data source (applies after a restart):
 
 | Level | What | Result |
 |---|---|---|
-| Real IPC (host) | `cargo test live_ -- --ignored` with `AWAKE_MM_LIVE_PROFILE` | discovery, identity check (wrong PID refused), hello, info, list, unsupported apply |
-| Real IPC (client) | `tests/live/launcherLive.test.ts` with `AWAKE_MM_LIVE_PROFILE` (Node pipe transport) | 3 fixture instances, 322-entry inventory, 4-page paging, idle-timeout re-hello |
-| Real desktop runtime | Tauri dev app against the feature build, inspected through WebView2 CDP | library, mods, settings, Launcher crash → snapshot → auto-reconnect, cold start without Launcher, rapid navigation with and without reduced motion |
-| Fixture IPC | `tests/launcherClient.test.ts` (FakeLauncher enforces the schema rules) | 16 tests |
-| Rust unit | framing (incl. fragmented reads), pipe-name allow-list, data-root resolution, descriptor validation | 6 tests |
+| Real IPC (host) | `cargo test live_ -- --ignored` with `AWAKE_MM_LIVE_PROFILE` | discovery, identity check (wrong PID refused), hello, info, list; apply and launch.request refused; no draft method advertised true |
+| Real IPC (client) | `tests/live/launcherLive.test.ts` with `AWAKE_MM_LIVE_PROFILE` (Node pipe transport) | 3 fixture instances, 322-entry inventory, 4-page paging, idle-timeout re-hello; no draft capability mapped, none sent |
+| Real desktop runtime | Release exe against the feature build, inspected through WebView2 CDP | library, 322-mod Mods view (21 DOM rows), Play gated, Launcher exit → waiting on the same profile → restart → auto-reconnect, Start button with a stale descriptor, Thai layout without clipping |
+| Installer | NSIS per-user build, silent install, first launch, uninstall | see "Packaging" below |
+| Fixture IPC | `tests/launcherClient.test.ts` (FakeLauncher enforces the schema rules) | 26 tests, incl. the draft operation methods |
+| Rust unit | framing (incl. fragmented reads), pipe-name allow-list, data-root resolution (incl. the installer's UTF-16 data-location.txt), descriptor validation, Start target | 8 tests |
 
 Live runs used a temporary profile created under the user folder (the integration rejects folders
 writable by other principals, such as the agent sandbox's temp directory). The profile was removed
-afterwards. All 547 instance files hashed identical before and after the Manager's reads.
+afterwards. In the latest run, 541 of the 547 instance files were byte-identical afterwards. The
+other six were `instance.cfg` and `mmc-pack.json`, which the Launcher rewrote on its own first load
+of the hand-written fixtures. Its log shows the INI save 0.4 s after its start, before any Manager
+connection, and the scheduled component-list save. The Manager host has no file-write command.
+
+## Packaging
+
+`npm run desktop:build` produces `src-tauri/target/release/bundle/nsis/Awake Modpack Manager_<v>_x64-setup.exe`
+(about 1.5 MB). Tauri downloads NSIS and `nsis_tauri_utils` from the tauri-apps GitHub releases on
+the first build and verifies their hashes. Checked on Windows 11 x64:
+
+* Per-user install to `%LOCALAPPDATA%\Awake Modpack Manager` (exe and uninstaller), with a Start Menu
+  shortcut, an HKCU uninstall entry, publisher "Awake Modpack Manager Contributors", and the app icon.
+* WebView2 runtime: the installer downloads the bootstrapper if WebView2 is missing (Windows 11
+  already has it).
+* First launch opens the Library. With no running Launcher it shows "Waiting for Awake Launcher".
+* Uninstall removes the program files, the shortcut and the uninstall entry. A silent uninstall
+  keeps the WebView data in `%LOCALAPPDATA%\io.github.awakenginexe.AwakeModpackManager` (local
+  drafts and settings). The interactive uninstaller offers to delete it.
+* The build is **not code-signed**, so SmartScreen will warn. Signing needs a certificate and is
+  a release decision.
 
 To run the live tests yourself:
 
