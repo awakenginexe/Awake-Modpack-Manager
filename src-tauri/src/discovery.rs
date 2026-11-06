@@ -165,12 +165,19 @@ fn profile(source: &str, install: Option<PathBuf>, root: Result<(PathBuf, &str),
 /// `added` are folders the user chose: an installation (contains awakelauncher.exe) or a data root.
 pub fn discover(added: &[String]) -> Vec<Profile> {
     let normal = default_data_root();
+    let env = std::env::var_os("AWAKELAUNCHER_DATA_DIR").filter(|v| !v.is_empty()).map(PathBuf::from);
+    // Application.cpp: --dir, then AWAKELAUNCHER_DATA_DIR, then the installation's own resolution.
+    // An installed awakelauncher.exe started without --dir therefore uses the variable when set.
+    let installed = |dir: &Path| match &env {
+        Some(e) => Ok((e.clone(), "System environment")),
+        None => resolve_install_dir(dir, normal.clone()),
+    };
     let mut out = Vec::new();
     if let Some(dir) = registry_install_dir() {
-        out.extend(profile("registry", Some(dir.clone()), resolve_install_dir(&dir, normal.clone())));
+        out.extend(profile("registry", Some(dir.clone()), installed(&dir)));
     }
-    if let Some(env) = std::env::var_os("AWAKELAUNCHER_DATA_DIR").filter(|v| !v.is_empty()) {
-        out.extend(profile("environment", None, Ok((PathBuf::from(env), "System environment"))));
+    if let Some(e) = &env {
+        out.extend(profile("environment", None, Ok((e.clone(), "System environment"))));
     }
     if let Some(n) = normal.clone() {
         out.extend(profile("default", None, Ok((n, "Persistent data path"))));
@@ -178,7 +185,7 @@ pub fn discover(added: &[String]) -> Vec<Profile> {
     for folder in added {
         let path = PathBuf::from(folder);
         if path.join("awakelauncher.exe").is_file() {
-            out.extend(profile("added", Some(path.clone()), resolve_install_dir(&path, normal.clone())));
+            out.extend(profile("added", Some(path.clone()), installed(&path)));
         } else {
             out.extend(profile("added", None, Ok((path, "Chosen folder"))));
         }

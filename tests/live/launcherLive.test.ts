@@ -85,7 +85,11 @@ describe.skipIf(!root)('LauncherClient against a running Awake Launcher (live)',
 
     const empty = instances.find((i) => i.name === 'IPC Fixture Empty')!;
     expect((await client.getInventory(empty.id)).mods).toEqual([]);
-    await expect(client.applyPlan({ planId: 'x', planHash: 'y', idempotencyKey: 'z' })).rejects.toMatchObject({ code: 'unsupported' });
+    await expect(client.applyPlan({ planId: 'x', planHash: 'y', baseRevision: 'r', idempotencyKey: 'z' })).rejects.toMatchObject({ code: 'unsupported' });
+    // Draft operation methods: the real Launcher reports none enabled, so the client maps none and sends none.
+    for (const cap of ['operations.watch', 'operations.cancel', 'launch.request', 'instances.create', 'plan.apply', 'plan.prepare'] as const) expect(hs.capabilities).not.toContain(cap);
+    await expect(client.requestLaunch(big.id, 'live-launch-key')).rejects.toMatchObject({ code: 'unsupported' });
+    await expect(client.createInstance({ name: 'x', minecraftVersion: '1.21.1', loader: 'vanilla', idempotencyKey: 'live-create-key' })).rejects.toMatchObject({ code: 'unsupported' });
   }, 60_000);
 
   it('follows real pagination with the revision echoed', async () => {

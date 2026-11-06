@@ -128,6 +128,8 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
       throw new BackendError('identity', 'The Launcher endpoint does not match its descriptor. It may be stale; restart Awake Launcher.');
     }
     hello = result;
+    // Stay with this profile across Launcher restarts instead of falling back to discovery order.
+    preferred ??= profile.dataRoot;
   }
 
   /**
@@ -352,7 +354,8 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     },
 
     launcherProfiles: () => profiles,
-    canStartLauncher: () => !!profile?.installDir && !profile.endpoint && !!options.transport?.startLauncher,
+    // Shown only while waiting; a crashed Launcher can leave a stale descriptor behind, so ignore it.
+    canStartLauncher: () => !!profile?.installDir && !!options.transport?.startLauncher,
     async startLauncher() {
       const t = transport();
       if (!profile?.installDir || !t.startLauncher) throw new BackendError('unsupported', 'No Awake Launcher installation is known for this profile. Add the installation folder in Settings.');

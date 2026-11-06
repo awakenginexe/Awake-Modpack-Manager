@@ -40,6 +40,12 @@ mod live {
         assert!(list["result"]["instances"].as_array().unwrap().len() >= 1);
         let denied = exchange(&mut f, json!({"protocol":p,"requestId":"w1","method":"transactions.apply","params":{}}));
         assert_eq!(denied["error"]["code"], "UNSUPPORTED_CAPABILITY");
+        // Draft operation methods stay off at the pin: not advertised true, refused if sent raw.
+        for m in ["operations.get", "launch.request", "instances.create", "transactions.apply"] {
+            assert_ne!(hello["result"]["capabilities"][m], true, "{m} unexpectedly enabled");
+        }
+        let launch = exchange(&mut f, json!({"protocol":p,"requestId":"w2","method":"launch.request","params":{}}));
+        assert_eq!(launch["error"]["code"], "UNSUPPORTED_CAPABILITY");
         eprintln!("live host OK: {} instances, session {}", list["result"]["total"], d["sessionId"]);
     }
 }
