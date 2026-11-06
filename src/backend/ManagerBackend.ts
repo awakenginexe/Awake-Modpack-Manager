@@ -22,6 +22,10 @@ export interface ManagerBackend {
   launcherProfiles?(): LauncherProfile[];
   /** Remember extra Launcher folders (installation or data folder) to look in. */
   setAddedFolders?(folders: string[]): void;
+  /** Whether the selected profile has a known installation that `startLauncher` can start. */
+  canStartLauncher?(): boolean;
+  /** Start the Launcher normally for the selected profile, on an explicit user action only. */
+  startLauncher?(): Promise<void>;
   /** Prefer this Launcher data profile on the next connect. */
   setPreferredProfile?(dataRoot: string | null): void;
   listInstances(installationId: string): Promise<InstanceSummary[]>;

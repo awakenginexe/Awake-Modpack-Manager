@@ -352,6 +352,12 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     },
 
     launcherProfiles: () => profiles,
+    canStartLauncher: () => !!profile?.installDir && !profile.endpoint && !!options.transport?.startLauncher,
+    async startLauncher() {
+      const t = transport();
+      if (!profile?.installDir || !t.startLauncher) throw new BackendError('unsupported', 'No Awake Launcher installation is known for this profile. Add the installation folder in Settings.');
+      try { await t.startLauncher(profile.dataRoot, added); } catch (e) { throw toBackendError(e); }
+    },
     setAddedFolders(folders) { added = folders; },
     setPreferredProfile(dataRoot) { preferred = dataRoot; },
 

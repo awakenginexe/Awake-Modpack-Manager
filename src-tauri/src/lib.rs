@@ -49,6 +49,7 @@ pub fn run() {
         .manage(pipe::Connections::default())
         .invoke_handler(tauri::generate_handler![
             discovery::discover_profiles,
+            discovery::start_launcher,
             pipe::ipc_open,
             pipe::ipc_request,
             pipe::ipc_close,

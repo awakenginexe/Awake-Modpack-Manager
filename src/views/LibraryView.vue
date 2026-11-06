@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import { ArrowRight, Boxes, CircleAlert, Loader, TriangleAlert, Download, FolderOpen, Gamepad2, Info, Layers, Play, Plus, Search, X } from '@lucide/vue';
 import type { InstanceSummary, LoaderKind } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
@@ -29,6 +29,16 @@ const statusTone: Record<InstanceSummary['status'], string> = { ready: 'ok', run
 function manage(inst: InstanceSummary) {
   void session.selectInstance(inst.id); // Mods view shows its own loading state
   emit('manage');
+}
+
+const now = ref(Date.now());
+const clock = setInterval(() => { now.value = Date.now(); }, 5000);
+onUnmounted(() => clearInterval(clock));
+/** No endpoint 45 s after starting: it may be waiting on a Launcher dialog, or be a version without the Manager integration. */
+const launcherSlow = computed(() => !!state.launcherStartedAt && now.value - state.launcherStartedAt > 45_000);
+
+async function startLauncher() {
+  try { await session.startLauncher(); } catch (e) { notice.value = asError(e).message; }
 }
 
 async function launch(inst: InstanceSummary) {
@@ -103,10 +113,11 @@ async function create() {
       <CircleAlert v-else :size="18" />
       <div class="grow">
         <strong>{{ t(connectErrorTitle(state.connectError.code)) }}</strong>
-        <p class="small">{{ t(connectErrorHint(state.connectError.code)) }}</p>
+        <p class="small">{{ state.launcherStartedAt ? t(launcherSlow ? 'launcherStartSlow' : 'launcherStarting') : t(connectErrorHint(state.connectError.code)) }}</p>
         <details><summary class="small">{{ t('technicalDetails') }}</summary><code class="small">{{ state.connectError.message }}<template v-if="state.connectError.detail"> ({{ state.connectError.detail }})</template></code></details>
       </div>
       <button v-if="!state.waitingForLauncher" class="btn btn-small" type="button" @click="session.connect()">{{ t('retry') }}</button>
+      <button v-else-if="!state.launcherStartedAt && session.backend.canStartLauncher?.()" class="btn btn-small btn-primary" type="button" @click="startLauncher">{{ t('startLauncher') }}</button>
     </div>
 
     <details v-if="state.instanceWarnings.length" class="notice warn warnings">

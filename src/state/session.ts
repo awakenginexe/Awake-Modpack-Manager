@@ -39,6 +39,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     /** No Launcher endpoint yet; connect() keeps checking. */
     waitingForLauncher: false,
     operations: [] as OperationStatus[],
+    /** Set when the user started the Launcher from the Manager and it has not connected yet. */
+    launcherStartedAt: null as number | null,
   });
   /** Hundreds of mods: kept shallow so Vue does not make every field reactive. */
   const inventory = shallowRef<ModInventory | null>(null);
@@ -94,6 +96,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
       attempt = 0;
       state.reconnecting = false;
       state.waitingForLauncher = false;
+      state.launcherStartedAt = null;
       await refreshInstallations();
       if (state.instanceId) await loadInventory();
       await resumePending();
@@ -349,6 +352,12 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     return final;
   }
 
+  /** User asked to start Awake Launcher; connect() keeps polling for its endpoint. */
+  async function startLauncher() {
+    await backend.startLauncher?.();
+    state.launcherStartedAt = Date.now();
+  }
+
   /** Ask the Launcher to start the instance with its own account, Java and GPU settings. */
   async function launch(instanceId: string) {
     const { operationId } = await backend.requestLaunch(instanceId, crypto.randomUUID());
@@ -366,7 +375,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     connect, refreshInstances, selectInstance, loadInventory,
     setDraft, discardDraft, setPinned,
     validate, apply, acceptChangedPlan, resetReview,
-    refreshOperations, cancelOperation, createInstance, installPack, startExport, launch,
+    refreshOperations, cancelOperation, createInstance, installPack, startExport, launch, startLauncher,
   };
 }
 

@@ -103,7 +103,7 @@ export class FakeLauncher implements PipeTransport {
   }
 
   async discover(): Promise<LauncherProfile[]> {
-    return [{ source: 'default', installDir: null, dataRoot: 'C:\\Temp\\fixture-profile', resolvedBy: 'Persistent data path', exists: true, drive: this.drive, endpoint: this.running ? this.descriptor : null, endpointError: null }];
+    return [{ source: this.installDir ? 'registry' : 'default', installDir: this.installDir, dataRoot: 'C:\\Temp\\fixture-profile', resolvedBy: 'Persistent data path', exists: true, drive: this.drive, endpoint: this.running ? this.descriptor : null, endpointError: null }];
   }
 
   async open(serverName: string, pid: string): Promise<number> {
@@ -117,6 +117,11 @@ export class FakeLauncher implements PipeTransport {
   async close(id: number): Promise<void> {
     this.conns.delete(id);
   }
+
+  /** Installation folder discovery reports; null means the Manager cannot start the Launcher. */
+  installDir: string | null = null;
+  startRequests: { dataRoot: string; added: string[] }[] = [];
+  async startLauncher(dataRoot: string, added: string[]) { this.startRequests.push({ dataRoot, added }); this.start(); }
 
   /** Simulate the Launcher exiting (all pipes gone, descriptor removed). */
   stop() { this.running = false; this.conns.clear(); }

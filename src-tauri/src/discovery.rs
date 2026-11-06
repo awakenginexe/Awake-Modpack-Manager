@@ -177,6 +177,29 @@ pub fn discover_profiles(added: Vec<String>) -> Vec<Profile> {
     discover(&added)
 }
 
+/// The executable to start for `data_root`: only `awakelauncher.exe` in an installation folder that
+/// discovery itself resolved to that data root, so the frontend cannot name an arbitrary program.
+pub fn launcher_executable(profiles: &[Profile], data_root: &str) -> Result<PathBuf, String> {
+    let key = |s: &str| s.to_lowercase().trim_end_matches(['\\', '/']).to_string();
+    let p = profiles.iter().find(|p| key(&p.data_root) == key(data_root)).ok_or("This Launcher profile was not found.")?;
+    let dir = p.install_dir.as_ref().ok_or("No Awake Launcher installation is known for this profile. Add the installation folder in Settings.")?;
+    let exe = Path::new(dir).join("awakelauncher.exe");
+    let meta = fs::symlink_metadata(&exe).map_err(|_| "awakelauncher.exe was not found in the installation folder.".to_string())?;
+    if !meta.is_file() { return Err("awakelauncher.exe in the installation folder is not a regular file.".into()); }
+    Ok(exe)
+}
+
+/// Start the Launcher normally (its window may appear) for a discovered installation. Only on an
+/// explicit user action; there is no supported background start (protocol.md, Ownership).
+#[tauri::command]
+pub fn start_launcher(data_root: String, added: Vec<String>) -> Result<(), String> {
+    let profiles = discover(&added);
+    let exe = launcher_executable(&profiles, &data_root)?;
+    let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
+    // No arguments: this installation resolves to `data_root` by itself, as discovery checked.
+    std::process::Command::new(&exe).current_dir(dir).spawn().map(drop).map_err(|e| format!("Could not start Awake Launcher: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +209,24 @@ mod tests {
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         p
+    }
+
+    #[test]
+    fn starts_only_the_launcher_of_a_discovered_installation() {
+        let inst = temp("start");
+        let data = inst.join("UserData");
+        fs::create_dir_all(&data).unwrap();
+        let profiles = discover(&[inst.display().to_string()]);
+        let root = data.display().to_string();
+        assert!(launcher_executable(&profiles, &root).is_err(), "no exe yet");
+        fs::write(inst.join("awakelauncher.exe"), b"").unwrap();
+        let profiles = discover(&[inst.display().to_string()]);
+        assert_eq!(launcher_executable(&profiles, &root.to_uppercase()).unwrap(), inst.join("awakelauncher.exe"));
+        assert!(launcher_executable(&profiles, r"C:\Elsewhere").is_err());
+        // A data folder without a known installation cannot be started.
+        let bare = temp("start-bare");
+        let profiles = discover(&[bare.display().to_string()]);
+        assert!(launcher_executable(&profiles, &bare.display().to_string()).is_err());
     }
 
     #[test]

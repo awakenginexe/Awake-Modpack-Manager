@@ -195,6 +195,25 @@ describe('LauncherClient (fixture IPC)', () => {
     expect(fake.log.every((l) => ['hello', 'launcher.info', 'instances.list', 'mods.list'].includes(l.method))).toBe(true);
   });
 
+  it('starts the Launcher only on request and connects once its endpoint appears', async () => {
+    localStorage.clear();
+    fake = new FakeLauncher({ running: false });
+    const session = createSession(client(fake), { pollMs: 5 });
+    await session.connect();
+    expect(session.state.waitingForLauncher).toBe(true);
+    expect(session.backend.canStartLauncher?.()).toBe(false); // no known installation
+    fake.installDir = 'C:\\Temp\\fixture-install';
+    await session.connect();
+    expect(fake.startRequests).toEqual([]); // never started on its own
+    expect(session.backend.canStartLauncher?.()).toBe(true);
+    await session.startLauncher();
+    expect(fake.startRequests).toEqual([{ dataRoot: PROFILE_ROOT, added: [] }]);
+    expect(session.state.launcherStartedAt).not.toBeNull();
+    await session.connect();
+    expect(session.state.connection).toBe('connected');
+    expect(session.state.launcherStartedAt).toBeNull();
+  });
+
   it('marks the session disconnected when the Launcher exits, and keeps the last snapshot', async () => {
     localStorage.clear();
     fake = new FakeLauncher();

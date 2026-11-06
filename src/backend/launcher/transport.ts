@@ -29,6 +29,8 @@ export interface PipeTransport {
   open(serverName: string, pid: string): Promise<number>;
   request(connection: number, body: string, timeoutMs: number): Promise<string>;
   close(connection: number): Promise<void>;
+  /** Start awakelauncher.exe of the installation discovery resolved to this data root. */
+  startLauncher?(dataRoot: string, added: string[]): Promise<void>;
 }
 
 export const isDesktopHost = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -51,5 +53,6 @@ export function createHostTransport(): PipeTransport {
     open: (serverName, pid) => invoke('ipc_open', { serverName, pid }),
     request: (connection, body, timeoutMs) => invoke('ipc_request', { id: connection, body, timeoutMs }),
     close: (connection) => invoke('ipc_close', { id: connection }),
+    startLauncher: (dataRoot, added) => invoke('start_launcher', { dataRoot, added }),
   };
 }
