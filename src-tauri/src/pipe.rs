@@ -1,0 +1,243 @@
+//! Named-pipe transport for the Awake Launcher integration protocol 1.0.
+//!
+//! Framing (docs/modpack-manager/protocol.md, Launcher commit 058714ec7): a 4-byte unsigned
+//! big-endian length followed by one UTF-8 JSON object, at most 1 MiB, zero length invalid.
+//! One request per connection at a time; the TypeScript client serializes calls.
+
+use serde::Serialize;
+use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
+
+pub const MAX_FRAME: usize = 1 << 20;
+const SERVER_PREFIX: &str = "awake-manager-v1-";
+
+#[derive(Debug, Serialize, Clone)]
+pub struct IpcError {
+    /// not-running | busy | identity | timeout | closed | frame | invalid | io
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl IpcError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self { code, message: message.into() }
+    }
+}
+
+struct Conn {
+    file: Mutex<File>,
+    /// Raw handle value, kept to cancel a blocked read from another thread.
+    raw: usize,
+}
+
+#[derive(Default)]
+pub struct Connections {
+    next: AtomicU32,
+    map: Mutex<HashMap<u32, Arc<Conn>>>,
+}
+
+/// Only the Launcher's own pipe names may be opened, so the web view can't reach arbitrary pipes.
+pub fn valid_server_name(name: &str) -> bool {
+    name.len() <= 128
+        && name.starts_with(SERVER_PREFIX)
+        && name[SERVER_PREFIX.len()..].chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        && name.len() > SERVER_PREFIX.len()
+}
+
+pub fn encode_frame(body: &[u8]) -> Result<Vec<u8>, IpcError> {
+    if body.is_empty() || body.len() > MAX_FRAME {
+        return Err(IpcError::new("frame", "Request frame is empty or larger than 1 MiB."));
+    }
+    let mut out = Vec::with_capacity(4 + body.len());
+    out.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    out.extend_from_slice(body);
+    Ok(out)
+}
+
+pub fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, IpcError> {
+    let mut len = [0u8; 4];
+    reader.read_exact(&mut len).map_err(closed)?;
+    let len = u32::from_be_bytes(len) as usize;
+    if len == 0 || len > MAX_FRAME {
+        return Err(IpcError::new("frame", format!("Launcher sent an invalid frame length ({len}).")));
+    }
+    let mut body = vec![0u8; len];
+    reader.read_exact(&mut body).map_err(closed)?;
+    Ok(body)
+}
+
+fn closed(e: std::io::Error) -> IpcError {
+    IpcError::new("closed", format!("The Launcher connection closed: {e}"))
+}
+
+#[cfg(windows)]
+mod win {
+    use super::IpcError;
+    use std::fs::File;
+    use std::os::windows::io::AsRawHandle;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::{EqualSid, GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
+    use windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    struct Owned(HANDLE);
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { CloseHandle(self.0) };
+            }
+        }
+    }
+
+    fn token_user(process: HANDLE) -> Option<Vec<u8>> {
+        let mut token: HANDLE = null_mut();
+        if unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) } == 0 {
+            return None;
+        }
+        let token = Owned(token);
+        let mut needed = 0u32;
+        unsafe { GetTokenInformation(token.0, TokenUser, null_mut(), 0, &mut needed) };
+        if needed == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; needed as usize];
+        if unsafe { GetTokenInformation(token.0, TokenUser, buf.as_mut_ptr().cast(), needed, &mut needed) } == 0 {
+            return None;
+        }
+        Some(buf)
+    }
+
+    /// The descriptor is only a hint: confirm the pipe is served by the advertised process and that
+    /// it runs as the current Windows user (protocol.md, "Availability and client rules").
+    pub fn verify_server(file: &File, expected_pid: u32) -> Result<(), IpcError> {
+        let handle = file.as_raw_handle() as HANDLE;
+        let mut pid = 0u32;
+        if unsafe { GetNamedPipeServerProcessId(handle, &mut pid) } == 0 {
+            return Err(IpcError::new("identity", "Could not identify the process serving the Launcher pipe."));
+        }
+        if pid != expected_pid {
+            return Err(IpcError::new("identity", format!("The pipe is served by process {pid}, not the advertised Launcher process {expected_pid}.")));
+        }
+        let process = Owned(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) });
+        if process.0.is_null() {
+            return Err(IpcError::new("identity", "Could not inspect the Launcher process."));
+        }
+        let (Some(server), Some(me)) = (token_user(process.0), token_user(unsafe { GetCurrentProcess() })) else {
+            return Err(IpcError::new("identity", "Could not read the Launcher process owner."));
+        };
+        let server_sid = unsafe { (*(server.as_ptr() as *const TOKEN_USER)).User.Sid };
+        let my_sid = unsafe { (*(me.as_ptr() as *const TOKEN_USER)).User.Sid };
+        if unsafe { EqualSid(server_sid, my_sid) } == 0 {
+            return Err(IpcError::new("identity", "The Launcher pipe belongs to a different Windows user."));
+        }
+        Ok(())
+    }
+
+    pub fn cancel_io(raw: usize) {
+        unsafe { windows_sys::Win32::System::IO::CancelIoEx(raw as HANDLE, std::ptr::null()) };
+    }
+
+    pub fn raw(file: &File) -> usize {
+        file.as_raw_handle() as usize
+    }
+}
+
+#[cfg(not(windows))]
+mod win {
+    use super::IpcError;
+    use std::fs::File;
+    pub fn verify_server(_: &File, _: u32) -> Result<(), IpcError> {
+        Err(IpcError::new("invalid", "Launcher IPC is supported on Windows only."))
+    }
+    pub fn cancel_io(_: usize) {}
+    pub fn raw(_: &File) -> usize { 0 }
+}
+
+pub fn open_pipe(server_name: &str, expected_pid: u32) -> Result<File, IpcError> {
+    if !valid_server_name(server_name) {
+        return Err(IpcError::new("invalid", "Not an Awake Launcher integration endpoint."));
+    }
+    let path = format!(r"\\.\pipe\{server_name}");
+    let file = OpenOptions::new().read(true).write(true).open(&path).map_err(|e| match e.raw_os_error() {
+        Some(231) => IpcError::new("busy", "The Launcher is serving the maximum number of clients."),
+        Some(2) => IpcError::new("not-running", "The Launcher endpoint is not listening. Awake Launcher may have closed."),
+        _ => IpcError::new("io", format!("Could not open the Launcher pipe: {e}")),
+    })?;
+    win::verify_server(&file, expected_pid)?;
+    Ok(file)
+}
+
+#[tauri::command]
+pub fn ipc_open(state: tauri::State<'_, Connections>, server_name: String, pid: String) -> Result<u32, IpcError> {
+    let pid: u32 = pid.parse().map_err(|_| IpcError::new("invalid", "Descriptor pid is not a number."))?;
+    let file = open_pipe(&server_name, pid)?;
+    let id = state.next.fetch_add(1, Ordering::Relaxed) + 1;
+    let raw = win::raw(&file);
+    state.map.lock().unwrap().insert(id, Arc::new(Conn { file: Mutex::new(file), raw }));
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn ipc_request(state: tauri::State<'_, Connections>, id: u32, body: String, timeout_ms: u64) -> Result<String, IpcError> {
+    let conn = state.map.lock().unwrap().get(&id).cloned().ok_or_else(|| IpcError::new("closed", "Connection is not open."))?;
+    let frame = encode_frame(body.as_bytes())?;
+    let (tx, rx) = mpsc::channel();
+    let worker = conn.clone();
+    std::thread::spawn(move || {
+        let mut file = worker.file.lock().unwrap();
+        let result = file.write_all(&frame).and_then(|_| file.flush()).map_err(closed).and_then(|_| read_frame(&mut *file));
+        let _ = tx.send(result);
+    });
+    let timeout = Duration::from_millis(timeout_ms.clamp(1_000, 120_000));
+    let outcome = tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(timeout)).await.map_err(|e| IpcError::new("io", e.to_string()))?;
+    let result = match outcome {
+        Ok(result) => result,
+        Err(_) => {
+            win::cancel_io(conn.raw);
+            Err(IpcError::new("timeout", "Awake Launcher did not reply in time."))
+        }
+    };
+    match result {
+        Ok(bytes) => String::from_utf8(bytes).map_err(|_| IpcError::new("frame", "Launcher reply is not UTF-8.")),
+        Err(e) => {
+            // A failed exchange leaves the stream position unknown: drop the connection.
+            state.map.lock().unwrap().remove(&id);
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn ipc_close(state: tauri::State<'_, Connections>, id: u32) {
+    state.map.lock().unwrap().remove(&id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frames_round_trip_and_reject_bad_lengths() {
+        let frame = encode_frame(br#"{"a":1}"#).unwrap();
+        assert_eq!(&frame[..4], &[0, 0, 0, 7]);
+        assert_eq!(read_frame(&mut &frame[..]).unwrap(), br#"{"a":1}"#);
+        assert!(encode_frame(b"").is_err());
+        assert!(encode_frame(&vec![b' '; MAX_FRAME + 1]).is_err());
+        assert_eq!(read_frame(&mut &[0u8, 0, 0, 0][..]).unwrap_err().code, "frame");
+        assert_eq!(read_frame(&mut &[0x00u8, 0x10, 0x00, 0x01][..]).unwrap_err().code, "frame");
+        assert_eq!(read_frame(&mut &[0u8, 0, 0, 9, b'{'][..]).unwrap_err().code, "closed");
+    }
+
+    #[test]
+    fn only_launcher_pipe_names_are_accepted() {
+        assert!(valid_server_name("awake-manager-v1-3f2a9c1e-0000-4000-8000-1234567890ab"));
+        assert!(!valid_server_name("awake-manager-v1-"));
+        assert!(!valid_server_name("some-other-pipe"));
+        assert!(!valid_server_name(r"awake-manager-v1-..\x"));
+    }
+}
