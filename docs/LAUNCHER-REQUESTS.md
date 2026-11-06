@@ -15,9 +15,11 @@ architecture approval. Internal
 foundations (operation store, recovery storage, physical lease, transaction executor, game
 ownership) exist but aren't advertised, so nothing below is unblocked yet.
 
-**Standalone Manager:** see [ARCHITECTURE-STANDALONE.md](ARCHITECTURE-STANDALONE.md). If option 2
-is approved, the Manager writes only its own project workspaces, never Launcher instances. R13 is
-then the one new request it creates.
+**Also reviewed: Launcher `91d348625` (2026-11-07).** It records the shared-core feasibility probe and a
+proposed helper interface. There are no schema changes, so the pin stays `d3e6731a8`.
+
+**Standalone Manager:** see [ARCHITECTURE-STANDALONE.md](ARCHITECTURE-STANDALONE.md). The Manager now
+plans to bundle the shared core as an on-demand helper. Requests for that helper interface are H1-H4 below.
 
 ## Already implemented in the Manager (needs only the Launcher side)
 
@@ -165,16 +167,35 @@ and the Manager will add it in the same re-pin, or map it to a schema state on t
   * For `--dir` profiles, confirm that `awakelauncher.exe --dir <dataRoot>` is the supported way
     to start a specific profile.
 
-### R13. Create or update a Launcher instance from a Manager project (standalone architecture, D4)
-* **Workflow:** Projects → "Play in Awake Launcher". A Manager-only draft becomes a playable instance,
-  and the Launcher stays its only writer.
-* **Needed:** an operation such as
-  `instances.importPack {idempotencyKey, archive: {kind:"mrpack", bytesBase64 | stagedToken}, name?, targetPhysicalId?}`.
-  * With `targetPhysicalId` set, it updates an enrolled instance through the normal prepare/review flow (R4).
-  * The Launcher validates the archive, downloads, verifies the hashes and owns every file write.
-* **Open questions for Codex:**
-  * How should the archive cross the pipe? The frame limit is 1 MiB, so a large pack needs
-    chunking or a Launcher-readable staging location chosen by the Launcher, not a caller path.
-  * Should override contents travel in the same archive?
-* **Why:** without it, a standalone project reaches the Launcher only through the user exporting a
-  file and importing it by hand.
+### R13. Hand a Manager workspace to the Launcher (D4)
+* **Workflow:** Projects → "Play in Awake Launcher".
+* **Revised (pending owner decision D-W1/D-W2):** if workspaces use the native instance layout, R13
+  becomes **enrollment of an existing workspace by physical identity**. Ownership moves through the
+  quiescent gate, with no copy.
+* Copy-import of a `.mrpack` is only a fallback, for another machine or profile. It uses a staged
+  source token, not base64 in a 1 MiB frame and not a caller path.
+
+## Shared-core helper requests (from the `91d348625` proposal)
+
+### H1. Committed helper contract
+* The pipe-name prefix for the core host, so the Manager can add it to its explicit allowlist.
+* The hello extension: `role`, core/storage compatibility, instance authority, ownership generation.
+* The `ensure_backend` state enum, as a schema.
+
+### H2. Helper identity
+* A way for the Rust host to confirm that the pipe server is the bundled helper.
+  * Proposed: the spawned PID, or a descriptor PID plus an image path inside the Manager's
+    resource dir.
+  * PID and user SID alone don't distinguish the helper from any other same-user process.
+
+### H3. Staged source and output tokens
+* The inbox/outbox model for import archives and export results.
+* Size, hash and archive validation are done by the helper.
+* The Manager host only copies a user-chosen file in, or moves a finished file out to a Save As
+  target.
+
+### H4. Lifetime and upgrade
+* Who decides the helper exits (proposed: the helper, when idle with no clients and no unsettled
+  operations).
+* How an installer asks a running helper to drain before replacing its files.
+* That a helper never serves with mixed-version files.

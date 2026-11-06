@@ -1,124 +1,230 @@
-# Standalone Manager architecture: recommendation
+# Standalone Manager architecture
 
-**Status: proposal awaiting approval.** No migration has been implemented. What exists today is
-listed in "Built so far, safe under any option" at the end.
+**Status: review of Codex's shared-core feasibility results. Nothing is implemented yet.** This
+document replaces the earlier "option 2, split ownership" recommendation. That option kept
+standalone mode to drafts and a second provider engine; both are now ruled out by the owner's
+decisions D1, D3 and D6.
 
-## The requirement
+* Reviewed: Awake Launcher `feat/modpack-manager-integration` at
+  `91d348625d9d0ff431ecf98092678f7efe0bb597`, specifically `docs/modpack-manager/handoff.md`,
+  "Shared-core feasibility" and "Proposed Tauri host interface".
+* Compared with: Manager `e571545`.
+* The IPC contract pin is still `d3e6731a8`. The new commits change no schema.
 
-| Scenario | What must work | Who writes playable instance files |
+## 1. Assessment
+
+**I agree with the shared native core, delivered to the Manager as an on-demand helper process
+over IPC.** The feasibility evidence answers the main objections I raised against option 1:
+
+| Earlier objection | Evidence at `91d348625` | Remaining gap |
 |---|---|---|
-| Launcher only | Play Minecraft; no measurable cost from the integration | Launcher |
-| Manager only | Create, plan, import, export and maintain modpacks; install and update mods | **Decision D1** |
-| Both | Shared instances, Launcher profiles, coordinated changes, launch through the Launcher | Launcher only |
+| Qt in the Tauri process; C++ FFI | Not needed. The core runs as a separate `QCoreApplication` helper. The Rust host talks to it over the same pipe framing the Manager already uses. A separate Rust caller verified this. | Not yet tested from the real Tauri app or its installer. |
+| Size (I estimated 25-40 MB) | Measured subset: 0.28 MiB executable, 12.24 MiB unpacked, 4.67 MiB zipped. Startup median 148 ms (5 runs). About 3 MiB private memory in one idle sample. | Excludes provider, catalog, archive and creation services, and the MSVC runtime. It is a lower bound. |
+| Two transaction engines | One: the Launcher's `TransactionEngine`, `OperationStore` and lease, compiled unchanged. | Expected post-plan revision bug (handoff step 1) must be fixed before Apply. |
+| Licence | Not resolved. The helper is GPL-3.0-only code. See section 5. | Owner and legal decision. |
 
-The hard rule is that two uncoordinated writers never modify the same live instance.
+What the evidence does **not** establish, so the Manager treats none of it as available:
 
-## What the Launcher already has (read from its worktree, commit `6ea0bbe99`, not exposed over IPC)
+* **Ownership authority is broken across registries.** Two callers that pick different
+  registries can both hold a lease on one physical instance. Codex reproduced this
+  (non-writing). Until one per-user namespace is enforced, no Manager write can be enabled.
+* **No real provider files were installed.** Staging was tested only against a loopback artifact.
+* **No production enrollment, native quiescence or startup recovery.** Native model quiescence
+  and recovery-before-startup aren't integrated.
+* **No creation, import or export service.** These are still tied to `Application` and the GUI
+  models (handoff service-boundary table).
+* **The helper was not run under Tauri's process model, NSIS installer or upgrade path.**
 
-* Internal foundations: a durable idempotent operation store, private recovery storage, strong
-  volume/file identities, a **cross-process physical lease**, a recoverable multi-file executor,
-  game-process ownership that survives a Launcher exit, and ResourceAPI provider callbacks.
-* All of it is C++/Qt inside the GPL-3.0 Launcher, and none of it is a public capability yet.
-* The IPC contract is still the read-only protocol 1.0, pin `d3e6731a8`.
+Conclusion: the direction is sound, and **none of the helper's capabilities are ready to
+enable.** The Manager can prepare without waiting (see milestone M0 in section 6). It should not
+build anything that duplicates the core.
 
-## Options compared
+## 2. Compatibility of the helper with Tauri 2
 
-1. **Shared native core.** Extract the Launcher's transaction, lease and provider code into a
-   library that both apps ship.
-2. **Split ownership.** The Manager owns its own *project workspaces*, which are never Launcher
-   instances. Launcher-managed instances are changed only through Launcher IPC.
-3. **Manager is IPC-only.** A headless Launcher backend does all writes, including for Manager-only users.
+| Area | Fit | What has to change in the Manager |
+|---|---|---|
+| Framing | Same 4-byte BE length + JSON ≤ 1 MiB, one request in flight. `pipe.rs` `encode_frame` and the read loop reuse unchanged. | None. |
+| Server identity | `pipe.rs::verify_server` already checks pipe server PID == descriptor PID and same user SID. | For the helper, also require PID == the child the host spawned (or the helper's descriptor) **and** that the server image path is the bundled helper (`QueryFullProcessImageNameW`). A same-user process then can't pose as the helper. |
+| Pipe-name allowlist | `valid_server_name` accepts only `awake-manager-v1-<hex/->`. | Add a second, explicit prefix **only once Codex commits it in the schema**. Keep the allowlist so the web view can't open arbitrary pipes. |
+| Role and hello | `LauncherClient` checks `installationId/profileId/sessionId` against the Launcher descriptor. A core host "must not impersonate Launcher". | A role-aware hello, from the negotiated extension (role, core/storage compatibility, instance authority, ownership generation). The new client shares the operation code with `LauncherClient` rather than copying it. |
+| Operations | The Manager already has the operation flow the core uses: idempotency keys, resending an identical request after a lost reply, strict `parseOperation` with `rolling_back`, following to `isSettled`, and `recovery_required`. | Reused as-is. It's driven by the helper's capabilities instead of the Launcher's. |
+| Spawning | The host already spawns a process narrowly (`start_launcher`: a discovered exe, no args, no shell). | New `ensure_backend` / `probe_backend` commands (Codex's proposal). See below. |
+| Packaging | Tauri `bundle.resources` can carry a folder (`core-host/windows-x64/` with the exe, Qt DLLs, plugins and `qt.conf`). | Use **resources plus `std::process::Command`, not `externalBin` with the shell plugin.** `externalBin` wants a single target-suffixed binary, not a folder with DLLs. The shell plugin doesn't expose Windows creation flags (breakaway from job), and it kills children spawned from JavaScript when the app exits, which breaks "never kill accepted work on UI exit". |
+| Large payloads | 1 MiB frames can't carry a 300-mod pack or override folder. | Import: the user picks a file in a native dialog. Rust copies it into a helper-owned inbox (size-capped, SHA-256) and passes a source token. Export: the helper writes to its outbox, and Rust moves the result to the native Save As target (D7). Neither direction passes a caller path, matching Codex's "staged upload/source tokens". |
 
-| | 1. Shared native core | 2. Split ownership (recommended) | 3. IPC-only |
+**Rust command sketch.** This is Codex's proposal; the final shapes come from the committed schema.
+
+* `ensure_backend({profileToken}) -> {state, descriptor?, message?}`
+  * `state` is one of: not_installed, starting, ready, incompatible, recovery_required,
+    interaction_required.
+  * `profileToken` maps to a profile the host has already validated. It is never a path.
+* The host resolves `<resource_dir>/core-host/windows-x64/<helper>.exe` and refuses symlinks and
+  anything outside the resource dir.
+* It starts the helper with:
+  * `CREATE_NO_WINDOW`, and `CREATE_BREAKAWAY_FROM_JOB` where the job allows it, so a parent job
+    with kill-on-close can't take accepted work down with the UI;
+  * stdin closed and logs going to a private file. Codex saw a hang when stdout was captured.
+* Readiness comes from the descriptor plus hello, never from stdout.
+* A second Manager window or a racing call relies on the helper's own single-owner lock and then
+  connects to the existing helper.
+
+**Lifecycle (proposal, needs D-H1):**
+
+* The helper owns its lifetime. It exits on its own after an idle period with no client and no
+  unsettled operation.
+* The Manager never kills it: not on window close, pipe loss or a frontend timeout.
+* A crash shows up as `recovery_required` on the next `ensure_backend`, and the helper runs
+  recovery before serving anything.
+
+## 3. Changes required in the Manager
+
+**Backend (TypeScript):**
+
+* Pull the operation code out of `LauncherClient.ts` into a shared module: submit/read, the
+  known-operation list, resend, error map. Then add a `CoreHostClient` that implements
+  `ManagerBackend` against the helper.
+* **Route by instance authority.** Each instance and workspace carries an authority from the
+  negotiated extension: the Launcher (models loaded), the helper, or unavailable. The UI sends a
+  request only to the current authority. A lost connection never changes the authority.
+* **Projects become helper-owned workspaces.** `src/state/projects.ts` keeps the UI state, while
+  the data, files and history come from the helper. Local drafts get a one-time, user-started,
+  non-destructive migration: create a workspace from the draft, then resolve and download. The
+  localStorage copy is kept until the user confirms.
+* **The core is authoritative for import and export.** `zip.ts` and `packFormats.ts` stay as a
+  UI-side preview only until the helper exposes an import preview, then they are deleted. Two
+  parsers that drift apart would let a preview disagree with what gets installed. `buildExport`
+  is replaced by the helper's export, which has the override contents, hashes and distribution
+  rules.
+
+**Host (Rust):**
+
+* `ensure_backend`/`probe_backend`, plus helper-identity checks, an allowlist entry and
+  inbox/outbox token commands.
+* A native Save As dialog for exports (D7). It needs `tauri-plugin-dialog`, and the move from the
+  outbox is the host's one write path, limited to the chosen file.
+
+**Packaging:**
+
+* Add the helper folder to `bundle.resources`.
+* Ship the Qt and third-party notices, an SBOM and the source offer.
+* Ship the MSVC runtime in a form that works with the current **per-user** NSIS install (D-H2).
+* Have the installer stop or wait for a running helper before replacing its DLLs. Windows locks
+  loaded DLLs, and a mixed old/new helper must never serve.
+* Code-sign both executables before any public build. An unsigned helper started in the
+  background is a likely SmartScreen or antivirus trigger.
+
+**No change:**
+
+* the Launcher 1.0 read client;
+* discovery;
+* `Start Awake Launcher`;
+* the mock/demo backend;
+* the UI separation of projects, Launcher instances and demo data.
+
+## 4. Shared ownership and recovery concerns
+
+1. **One authority, independent of start order.** The per-user ownership namespace must be
+   **outside both products' data roots and installation folders**. Otherwise the Manager's
+   helper and the Launcher can each pick "their" registry, which is the counterexample Codex
+   found.
+   * Its location and format are Codex's to define.
+   * Its compatibility version is checked by both products. A newer storage format makes an
+     older core read-only (`incompatible`), never writable.
+2. **Mixed versions.** The Manager and the Launcher will ship different core builds. Each request
+   needs a core/storage compatibility handshake, and each enrolled instance needs an ownership
+   generation. Downgrading or unenrolling is blocked while a game or recovery record is
+   unresolved (handoff milestone 4).
+3. **Detached Minecraft.** A game launched by the Launcher can outlive it. The Manager helper must
+   honour the keeper certificate. If the evidence is missing or unknown, the answer is "blocked",
+   never "writable".
+4. **Crashes and disconnects.** These never transfer ownership. A helper crash mid-Apply leaves a
+   recovery record, and the next start rolls back or completes before anything is served. The
+   Manager shows `recovery_required` and offers only the actions the record allows (R8).
+5. **User-selected storage (D2).** If a user picks a folder that is, or sits inside, a Launcher
+   instance or data root, it must go through enrollment, or be refused. The Manager must not
+   decide this by path matching alone; the core's physical identity (volume + file id, junctions
+   resolved) decides.
+6. **Manager-side pins and exclusions.** These are intent. The authority persists them and
+   reconciles them with native locks (Codex's R5-R6 note). The Manager never writes them into
+   instance metadata itself.
+
+## 5. Licensing and distribution concerns
+
+* **The helper is GPL-3.0-only.** It is compiled from Launcher sources.
+  * Shipping it inside the Manager installer means meeting GPL-3.0 for the helper: source for
+    that exact build, licence text and build instructions.
+  * Whether the Manager UI is a separate work ("mere aggregation") or a combined work isn't
+    settled by using IPC. The helper is purpose-built for the Manager and exchanges
+    Manager-specific structures (GNU FAQ, cited in the handoff).
+  * The simplest safe route is **licensing the Manager GPL-3.0** (D-L1). That also settles the
+    GPL provider logos in `docs/LICENSING.md`. Otherwise this needs legal review before any
+    public build.
+* **Qt (LGPLv3 modules, dynamically linked):**
+  * ship the licence and notices;
+  * keep the Qt DLLs replaceable (app-local, not static);
+  * provide a source path.
+* **MSVC runtime.** Only redistributable files, from the official redistributable, may ship. The
+  per-user installer can't run `vc_redist.x64.exe` without elevation. See D-H2.
+* **CurseForge.** If provider services move into the helper, so does the API key: a build-time
+  secret injected into the helper build, never in source and never sent over IPC.
+  * An independently distributed Manager needs its own CurseForge permission to use the key and
+    download files.
+  * Each file's distribution permission must still be honoured; files whose authors disallow
+    distribution are never exported.
+  * This is unverified (D-L2).
+
+## 6. Staged Manager plan, aligned to Codex's milestones
+
+| Manager stage | Runs alongside Codex | Manager work | Exit evidence |
 |---|---|---|---|
-| Windows packaging | Manager ships Qt 6 runtime (~25-40 MB) plus a C++ library built with the Launcher's CMake/MSVC toolchain inside the Tauri build | Unchanged: Tauri + Rust host, about 1.5 MB installer | Manager-only users must install a Launcher backend anyway, which breaks scenario 2 |
-| Licence | Linking GPL-3.0 Launcher code makes the Manager GPL-3.0 | Independent. The Manager can choose any licence | Independent |
-| Instance ownership | Both apps can write the same instance, coordinated by the shared lease. Correct only while both run the same core version | Disjoint by construction. Manager workspaces are not instances, and Launcher instances are written only by the Launcher | Single writer |
-| Filesystem transactions | One implementation (the Launcher's executor) | Two implementations, on disjoint data. The Manager's is simpler: workspaces are not played, so there is no game process, no PackProfile timer and no legacy writers | One |
-| Recovery | Shared journal format, which both apps must understand at startup | Each app recovers only its own data. Workspace recovery is a small journal of staged downloads | One |
-| Provider integration | Shared ResourceAPI (Qt network stack) | The Manager needs its own provider client for standalone mode (**D3**). With the Launcher present, provider calls can go through IPC | Launcher only |
-| Performance (Launcher-only users) | Risk: a shared core changes Launcher internals both apps depend on | No effect: the Launcher is unchanged when the Manager is absent | Background service cost |
-| Cross-process locking | Shared OS lease on the same instance | The Manager takes an exclusive OS file lock on its own workspace. It refuses workspace paths inside any discovered Launcher instance root, and the Launcher never scans workspaces | Lease inside the Launcher |
-| Fit with current code | Large migration: new native build, FFI, and Qt in the Tauri process | Small: keeps `ManagerBackend`, LauncherClient and the Rust host; adds a workspace store | Needs a no-window Launcher mode, which Codex marks unsupported |
+| **M0** (no dependency on Codex) | Codex milestone 1 | <ul><li>Native Save As export (D7).</li><li>Pull the operation code out of `LauncherClient` into a shared module.</li><li>Add `schemaVersion` to drafts.</li><li>Packaging spike with a **Manager-written stub** helper (not Codex probe code): resources folder layout, per-user NSIS install, `CREATE_NO_WINDOW` + breakaway, survives UI exit, upgrade while running, uninstall.</li></ul> | Unit and Rust tests; installed-build checks on a disposable profile. Nothing writes instance data. |
+| **M1** | Codex milestones 1-2 (kernel authority, service contexts) | <ul><li>Review the namespace and compatibility design.</li><li>Contribute cross-product test cases (start orders, crash, missing records, mixed versions).</li><li>No client code against uncommitted APIs.</li></ul> | Agreed scenario list in both repos. |
+| **M2** | Codex milestone 3 (standalone materialized packs) | Against a **committed, pinned** helper contract: <ul><li>`ensure_backend`/`probe_backend`</li><li>`CoreHostClient`</li><li>workspaces (create, import by token, provider search, install, update, remove, pins, overrides, export via outbox)</li><li>draft migration</li><li>recovery UI</li></ul> | Real 300-mod create/install/update/export on private profiles with the Launcher **absent**; fault injection during apply. |
+| **M3** | Codex milestone 4 (host/Launcher/Tauri coordination) | <ul><li>Authority routing.</li><li>Helper identity checks.</li><li>Ownership transfer and enrollment UI.</li><li>R13 handoff.</li><li>Reconnect after UI exit.</li><li>Installer with the helper, runtime and notices.</li></ul> | All three scenarios (Launcher only, Manager only, both) on separate private profiles, using an agreed pin, profile and shutdown owner. |
+| **M4** | Codex milestone 5 (joint acceptance) | <ul><li>Measured Manager-only budgets: installer size, first-search latency, idle memory, helper startup in the real app.</li><li>Clean-machine install.</li></ul> | Measured numbers only. Features stay opt-in until accepted. |
 
-**Recommendation: option 2, split ownership.**
+Each stage keeps writes off until its capability is advertised. Rolling a stage back means turning
+off the capability, never deleting journals.
 
-* It meets "never two uncoordinated writers" by **partitioning data, not by sharing locks**. A
-  Manager workspace is a modpack *source*: manifest, plan, pins, overrides and a download cache.
-  It isn't a playable instance.
-* Playing a Manager project goes through the Launcher. The Manager hands it a verified
-  `.mrpack`, or asks over IPC to create or update an instance from it, and the Launcher stays its
-  only writer. Without the Launcher, the user exports the `.mrpack` and imports it into any launcher.
-* It adds nothing to Launcher-only installs, keeps the Manager's 1.5 MB footprint and licence
-  freedom, and reuses every adapter that exists today.
+## 7. Decisions needing approval
 
-**What option 2 costs:**
+Owner decisions D1-D7 from the latest brief are taken as given. These are new or narrower:
 
-* A second (Rust) provider client and a small workspace transaction layer for Manager-owned files.
-* A defined handoff from workspace to Launcher instance (request R13). Until that exists, "play
-  this project" means export then import.
+* **D-W1. What a workspace is on disk.** I recommend the **native instance layout written by the
+  shared serializers** (instance.cfg, mmc-pack.json, `mods/` with `.index`), plus a versioned
+  Manager project sidecar.
+  * A workspace is then a real playable instance that can be enrolled into the Launcher in place.
+  * The alternative is a separate Manager-only source format, which always needs a copy to play.
+* **D-W2. R13 meaning.** With D-W1, R13 becomes "enroll an existing workspace into the Launcher by
+  physical identity". Copy-import from `.mrpack` is a fallback for a different machine or
+  profile. Codex already notes that R13 copy-import must not be the required path for sharing.
+* **D-H1. Helper lifetime.**
+  * The helper decides when to exit: idle with no client and no unsettled operation.
+  * The Manager never kills it.
+  * The installer waits for or stops it, and refuses to overwrite a running helper.
+* **D-H2. MSVC runtime with a per-user install.** Choose one:
+  * ship the redistributable runtime DLLs app-local, next to the helper and the Manager (no
+    elevation; recommended);
+  * bootstrap `vc_redist` (needs admin);
+  * switch to a per-machine installer.
+* **D-H3. Where Manager-only data lives.**
+  * Helper data root: proposed `%LOCALAPPDATA%\AwakeModpackManager\core`.
+  * Default workspace root: proposed `%LOCALAPPDATA%\AwakeModpackManager\projects`, with
+    user-selected folders (D2).
+  * The shared ownership namespace is defined by Codex, outside both products.
+* **D-L1. Manager licence.** GPL-3.0 (recommended with a bundled GPL helper), or another licence
+  after legal review of aggregation.
+* **D-L2. CurseForge.** Confirm the key and download terms for an independently distributed
+  Manager, and that the key is injected only into the helper build from the GitHub secret.
+* **D-R1. Retiring TypeScript import/export.** Approve deleting `zip.ts`/`packFormats.ts`/
+  `buildExport` once the helper's preview and export are pinned, so there is one parser.
 
-## Workspace design (option 2)
+## What exists today (unchanged by this review)
 
-* **Location:** `%LOCALAPPDATA%\AwakeModpackManager\projects\<id>\` by default, or a folder the user
-  chooses. The Manager refuses folders inside a discovered Launcher instance root or data root.
-* **Contents:**
-  * `project.json`: the Manager project model (`src/domain/project.ts`)
-  * `overrides\`: config and other override files
-  * `cache\`: hash-verified provider downloads
-  * `.journal`
-* **Locking:** an exclusive Windows file handle on `<workspace>\.lock` while the Manager has the
-  project open. A second Manager window opens the project read-only.
-* **Transactions:** stage in `<workspace>\.staging`, verify the hashes, rename into place, and journal
-  the intent first. It only touches workspace files, never `instance.cfg`, `mmc-pack.json` or mods
-  in a Launcher instance.
-* **Import:** a `.mrpack` or CurseForge ZIP becomes a workspace. Overrides are copied into
-  `overrides\` after the path checks below. Mods are recorded by provider ID and hash, then
-  downloaded into `cache\`.
-* **Export:** `.mrpack` and CurseForge manifest ZIP files are built from verified project data.
-  Provider-hosted files are referenced, never bundled.
-
-## Decisions that need your approval
-
-* **D1. Ownership model.** Adopt option 2: Manager-owned workspaces, and Launcher instances changed
-  only through the Launcher.
-* **D2. Workspace format and location.** The Manager's own `project.json` with
-  `overrides\`/`cache\`, under `%LOCALAPPDATA%\AwakeModpackManager\projects`. The alternative is
-  packwiz (`pack.toml`), which interoperates with other tools but costs more to map.
-* **D3. Standalone provider client.** The Manager calls the Modrinth and CurseForge APIs directly
-  when the Launcher isn't connected. The CurseForge key stays a build-time GitHub secret, as you
-  specified earlier. With the Launcher connected, should provider calls go through the Launcher
-  (R3) or always through the Manager? Recommended: always through the Manager, so search behaves the
-  same in both scenarios. Downloads into a *Launcher* instance always go through the Launcher.
-* **D4. Play handoff (R13).** Ask Codex for an IPC method that creates or updates a Launcher
-  instance from a Manager-produced `.mrpack` (Launcher-side validation; no caller paths into
-  instance roots).
-* **D5. Licence.** Option 2 keeps the Manager independent of GPL-3.0. Choose the Manager's licence,
-  noting the GPL provider logos in `docs/LICENSING.md`.
-* **D6. Manager-only "install into a playable instance".** Under option 2, a Manager-only user
-  installs by exporting to a launcher. If you want the Manager to produce its own playable
-  instance without any launcher, that is a third writer category and reopens option 1. Not
-  recommended.
-
-* **D7. Export save location.** Today an export downloads through WebView2 straight into
-  `Downloads`, with no dialog (verified in the desktop build). A native Save As dialog needs the Tauri
-  dialog plugin plus one narrowly scoped host command that writes the chosen output file. That
-  file is not instance data, but it is the host's first write path, so it needs your approval.
-
-## Built so far, safe under any option
-
-* Manager project model and local draft persistence (`src/domain/project.ts`,
-  `src/state/projects.ts`). The data is Manager-local; nothing is written to disk outside the
-  app's storage.
-* Safe ZIP reading (`src/domain/zip.ts`):
-  * entry-count, size and ratio limits
-  * no ZIP64, encrypted or unknown methods
-  * rejects traversal, absolute paths, drive letters, alternate data streams, reserved Windows
-    names, trailing dots/spaces, case-insensitive duplicates and control characters
-  * CRC and size verification after inflating
-* `.mrpack` and CurseForge manifest parsing into a non-destructive import preview
-  (`src/domain/packFormats.ts`).
-* Export planning that lists every blocker. A `.mrpack` or CurseForge manifest ZIP is produced
-  only when every included mod has verified provider data (hashes, size and download URL for
-  `.mrpack`; project and file IDs for CurseForge). Override *contents* aren't stored yet (they need
-  the workspace in D2), so exports omit them and say so.
+* Launcher 1.0 read client; discovery; `Start Awake Launcher`; draft-method adapters, all off
+  until advertised.
+* Local project drafts, safe ZIP reading, `.mrpack`/CurseForge import preview, verified-data
+  export (`src/domain/{zip,packFormats,project}.ts`, `src/state/projects.ts`,
+  `src/views/ProjectsView.vue`).
+  * These are transitional: they don't install anything, and they are superseded by the helper
+    under D-R1.
