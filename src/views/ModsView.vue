@@ -12,6 +12,7 @@ import { addChanges, isStale, rebase, removeChange } from '../domain/draft';
 import { depState, emptyFilter, filterMods, hasUpdate, sortMods, type SortKey, type StatusFilter } from '../domain/modList';
 import { emptySelection, selectAll, selectRange, toggle } from '../domain/selection';
 import { formatNumber, t, type MessageKey } from '../i18n';
+import { compactRows } from '../state/prefs';
 import { useSession } from '../state/session';
 import { formatBytes } from '../ui/labels';
 import type { ViewId } from '../App.vue';
@@ -186,11 +187,12 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
             <p>{{ t('noMatches') }}</p>
             <button class="btn" type="button" @click="clearFilters">{{ t('clearFilters') }}</button>
           </div>
-          <VirtualList v-else :items="shown" :row-height="56" :item-key="(m) => m.key" :label="t('modsTitle')">
+          <VirtualList v-else :items="shown" :row-height="compactRows ? 42 : 56" :item-key="(m) => m.key" :label="t('modsTitle')">
             <template #default="{ item: m }">
               <div
                 class="row" role="row"
-                :class="{ selected: selection.keys.has(m.key), focused: focusedKey === m.key, off: !m.enabled, removing: pendingByKey.get(m.key)?.some((c) => c.kind === 'remove') }"
+                :style="compactRows ? { height: '42px' } : undefined"
+                :class="{ compact: compactRows, selected: selection.keys.has(m.key), focused: focusedKey === m.key, off: !m.enabled, removing: pendingByKey.get(m.key)?.some((c) => c.kind === 'remove') }"
                 @click="focusedKey = focusedKey === m.key ? null : m.key"
               >
                 <span role="cell" @click.stop>
@@ -340,6 +342,8 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
 .name-copy { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
 .title-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.row.compact .file { display: none; }
+.row.compact :deep(.avatar) { width: 26px !important; height: 26px !important; font-size: 10px !important; }
 .file { font-size: 0.78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pin { color: #93c5fd; flex-shrink: 0; }
 .tiny { font-size: 0.7rem; padding: 0 7px; }

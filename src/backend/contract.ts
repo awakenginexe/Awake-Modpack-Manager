@@ -29,6 +29,13 @@ export type Capability =
   | 'packs.search'
   | 'packs.install';
 
+/** Every capability this Manager build knows how to use. */
+export const ALL_CAPABILITIES: Capability[] = [
+  'installations.discover', 'instances.list', 'instances.create', 'mods.inventory', 'providers.search',
+  'plan.validate', 'plan.prepare', 'plan.apply', 'operations.watch', 'operations.cancel', 'operations.reconnect',
+  'recovery.status', 'files.read', 'export.mrpack', 'export.curseforge', 'launch.request', 'packs.search', 'packs.install',
+];
+
 export type ProviderId = 'modrinth' | 'curseforge';
 export type ModSource = ProviderId | 'manual';
 export type LoaderKind = 'fabric' | 'quilt' | 'forge' | 'neoforge' | 'vanilla';

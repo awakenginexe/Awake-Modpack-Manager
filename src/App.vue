@@ -3,8 +3,9 @@ import { computed, ref, watch, type Component } from 'vue';
 import { Boxes, Download, FolderOpen, History, LayoutGrid, ListChecks, PackageSearch, Search, Settings, Upload } from '@lucide/vue';
 import Avatar from './components/Avatar.vue';
 import { isTerminal } from './domain/operation';
-import { locale, localeNames, t, type Locale, type MessageKey } from './i18n';
-import { load, save } from './domain/storage';
+import { t, type MessageKey } from './i18n';
+import SettingsDialog from './components/SettingsDialog.vue';
+import { reducedMotion } from './state/prefs';
 import { useSession } from './state/session';
 import { loaderLabel } from './ui/labels';
 import awakeLogo from './assets/brand/awake.png';
@@ -22,9 +23,7 @@ export type ViewId = 'library' | 'packs' | 'mods' | 'browse' | 'review' | 'files
 const session = useSession();
 const { state } = session;
 const view = ref<ViewId>(state.instanceId ? 'mods' : 'library');
-const reducedMotion = ref(load('reducedMotion', false));
 const settingsOpen = ref(false);
-watch(reducedMotion, (v) => save('reducedMotion', v));
 // If the selected instance disappears, instance screens have nothing to show.
 watch(() => session.instance.value, (inst) => { if (!inst && view.value !== 'packs') view.value = 'library'; });
 
@@ -105,27 +104,17 @@ function open(id: ViewId) { view.value = id; }
           <span class="dot"></span><span class="conn-text">{{ connectionText }}</span>
         </div>
         <button v-if="state.connectError && state.connectError.code !== 'unsupported'" class="btn btn-small" type="button" @click="session.connect()">{{ t('retry') }}</button>
-        <div class="settings-wrap">
-          <button class="icon-btn" type="button" :aria-expanded="settingsOpen" :aria-label="t('settings')" :title="t('settings')" @click="settingsOpen = !settingsOpen">
-            <Settings :size="18" />
-          </button>
-          <Transition name="fade">
-            <div v-if="settingsOpen" class="settings glass" role="dialog" :aria-label="t('settings')" @keydown.esc="settingsOpen = false">
-              <strong>{{ t('settings') }}</strong>
-              <label class="field">
-                <span>{{ t('language') }}</span>
-                <select v-model="locale" class="select">
-                  <option v-for="(name, code) in localeNames" :key="code" :value="code as Locale">{{ name }}</option>
-                </select>
-              </label>
-              <label class="check"><input v-model="reducedMotion" type="checkbox" />{{ t('reducedMotion') }}</label>
-            </div>
-          </Transition>
-        </div>
+        <button class="icon-btn" type="button" aria-haspopup="dialog" :aria-label="t('settings')" :title="t('settings')" @click="settingsOpen = true">
+          <Settings :size="18" />
+        </button>
       </footer>
     </nav>
 
-    <main class="stage" @click="settingsOpen = false">
+    <Transition name="fade">
+      <SettingsDialog v-if="settingsOpen" @close="settingsOpen = false" />
+    </Transition>
+
+    <main class="stage">
       <div v-if="session.backend.kind === 'mock'" class="mock-banner" role="note">
         <span class="dot"></span>{{ t('connMockHint') }}
       </div>
@@ -189,8 +178,6 @@ function open(id: ViewId) { view.value = id; }
 .sidebar-footer { margin-top: auto; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-1); }
 .connection { flex: 1; min-width: 0; padding: 5px 10px; }
 .conn-text { overflow: hidden; text-overflow: ellipsis; }
-.settings-wrap { position: relative; }
-.settings { position: absolute; bottom: 44px; left: 0; width: 240px; padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); background: var(--glass-menu); border-radius: var(--radius-medium); z-index: 20; }
 .stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 .stage > :deep(.view), .stage > .empty { flex: 1; min-height: 0; }
 .mock-banner { display: inline-flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #fcd34d; padding: 4px 12px; border-radius: var(--radius-pill); background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); align-self: flex-start; }
@@ -201,6 +188,5 @@ function open(id: ViewId) { view.value = id; }
   .nav-group { flex-direction: row; flex-wrap: wrap; }
   .nav-label, .current-instance { display: none; }
   .sidebar-footer { margin-top: 0; }
-  .settings { bottom: auto; top: 44px; left: auto; right: 0; }
 }
 </style>

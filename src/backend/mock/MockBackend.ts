@@ -1,5 +1,5 @@
 import {
-  BackendError, TERMINAL_STATES,
+  ALL_CAPABILITIES, BackendError, TERMINAL_STATES,
   type Accepted, type ApplyRequest, type Capability, type ContentArea, type ContentEntry, type CreateInstanceRequest,
   type Draft, type ExportFormat, type ExportReport, type ExportRequest, type Handshake, type InstalledMod,
   type InstanceSummary, type Installation, type ModInventory, type OperationKind, type OperationState,
@@ -24,6 +24,8 @@ export interface MockOptions {
   failApply?: boolean;
 }
 
+export { ALL_CAPABILITIES };
+
 export const DEFAULT_PROVIDERS: ProviderInfo[] = [
   { id: 'modrinth', available: true },
   { id: 'curseforge', available: false, unavailableReason: 'curseforge-unauthorized' },
@@ -38,11 +40,6 @@ export const DEFAULT_PACK_PROVIDERS: PackProviderInfo[] = [
   { id: 'technic', available: true },
 ];
 
-export const ALL_CAPABILITIES: Capability[] = [
-  'installations.discover', 'instances.list', 'instances.create', 'mods.inventory', 'providers.search',
-  'plan.validate', 'plan.prepare', 'plan.apply', 'operations.watch', 'operations.cancel', 'operations.reconnect',
-  'recovery.status', 'files.read', 'export.mrpack', 'export.curseforge', 'launch.request', 'packs.search', 'packs.install',
-];
 
 interface StoredPlan { plan: ResolvedPlan; draft: Draft; drifted?: boolean }
 
