@@ -4,10 +4,11 @@ import {
   ArrowDown, ArrowUp, ArrowUpCircle, Ban, Boxes, CircleAlert, CircleCheck, CircleHelp, FileQuestion, Info, ListChecks,
   History, Lock, Pin, PinOff, Power, PowerOff, Search, Trash2, TriangleAlert, Undo2, X,
 } from '@lucide/vue';
-import type { DraftChange, InstalledMod } from '../backend/contract';
+import type { DraftChange, InstalledMod, ProjectVersion } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
 import VirtualList from '../components/VirtualList.vue';
+import VersionPicker from '../components/VersionPicker.vue';
 import { addChanges, isStale, rebase, removeChange } from '../domain/draft';
 import { depState, emptyFilter, filterMods, hasUpdate, sortMods, type SortKey, type StatusFilter } from '../domain/modList';
 import { emptySelection, selectAll, selectRange, toggle } from '../domain/selection';
@@ -81,6 +82,14 @@ function onListKey(event: KeyboardEvent) {
   } else if (event.key === 'Escape') selection.value = emptySelection();
 }
 
+/** Pick an exact version (where the serving side can list them). Choosing one pins it. */
+const canChoose = computed(() => !!session.backend.projectVersions && session.source.value === 'helper' && session.can('plan.validate'));
+const choosingFor = ref<InstalledMod | null>(null);
+function chooseVersion(m: InstalledMod, v: ProjectVersion) {
+  draftWith([{ kind: 'update', modKey: m.key, targetVersionId: v.id }]);
+  session.setPinned([m.key], true);
+  choosingFor.value = null;
+}
 function draftWith(changes: DraftChange[]) {
   const d = session.draft.value;
   if (d && changes.length) session.setDraft(addChanges(d, changes));
@@ -295,6 +304,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
 
           <div class="detail-actions">
             <button v-if="hasUpdate(focused) && !pinned.has(focused.key)" class="btn btn-primary btn-small" type="button" @click="draftWith([{ kind: 'update', modKey: focused.key, targetVersionId: focused.available!.id }])"><ArrowUpCircle :size="15" />{{ t('bulkUpdate') }}</button>
+            <button v-if="canChoose && focused.projectId" class="btn btn-small" type="button" @click="choosingFor = focused">{{ t('changeVersion') }}</button>
             <button class="btn btn-small" type="button" @click="draftWith([{ kind: focused.enabled ? 'disable' : 'enable', modKey: focused.key }])">
               <PowerOff v-if="focused.enabled" :size="15" /><Power v-else :size="15" />{{ focused.enabled ? t('bulkDisable') : t('bulkEnable') }}
             </button>
@@ -328,6 +338,9 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
         </aside>
       </Transition>
     </div>
+    <Transition name="modal">
+      <VersionPicker v-if="choosingFor" :instance-id="session.state.instanceId!" provider="modrinth" :project-id="choosingFor.projectId!" :name="choosingFor.name" :current="choosingFor.installed?.id" @pick="(v) => chooseVersion(choosingFor!, v)" @close="choosingFor = null" />
+    </Transition>
   </section>
 </template>
 

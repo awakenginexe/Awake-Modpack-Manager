@@ -14,9 +14,9 @@ use std::time::Duration;
 
 pub const MAX_FRAME: usize = 1 << 20;
 const SERVER_PREFIX: &str = "awake-manager-v1-";
-/// The Manager's own native helper. Kept apart from the Launcher prefix so neither side's commands
-/// can be pointed at the other (provisional until the helper contract is committed, H1).
-pub const HELPER_PREFIX: &str = "awake-core-v1-";
+/// The Manager's own native helper (core-protocol.md 2.0: `awake-core-v2-<session UUID>`). Kept
+/// apart from the Launcher prefix so neither side's commands can be pointed at the other.
+pub const HELPER_PREFIX: &str = "awake-core-v2-";
 
 #[derive(Debug, Serialize, Clone)]
 pub struct IpcError {
@@ -49,7 +49,8 @@ pub fn valid_server_name(name: &str) -> bool {
 }
 
 pub fn valid_helper_name(name: &str) -> bool {
-    valid_name(name, HELPER_PREFIX)
+    // core.schema.json $defs/descriptor: ^awake-core-v2-[a-f0-9-]{36}$
+    valid_name(name, HELPER_PREFIX) && name.len() == HELPER_PREFIX.len() + 36 && !name.chars().any(|c| c.is_ascii_uppercase())
 }
 
 fn valid_name(name: &str, prefix: &str) -> bool {

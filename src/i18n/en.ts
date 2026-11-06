@@ -501,6 +501,19 @@ export const en = {
   libraryShowing: "Showing",
   connHelper: "Manager helper connected",
   connHelperStub: "Test helper connected",
+  chooseVersion: "Choose version",
+  changeVersion: "Change version",
+  chooseVersionTitle: "Versions of {name}",
+  chooseVersionHint: "Only versions for this project's Minecraft version and loader are listed. The exact files are shown for review before anything is installed.",
+  noCompatibleVersions: "No version of this mod matches this Minecraft version and loader.",
+  installedNow: "Installed",
+  requiredDeps: "{count} required",
+  requiredDepsHint: "Required dependencies are added to the plan and verified before installing.",
+  useVersion: "Use this version",
+  createLoaderVersion: "Loader version",
+  rollBack: "Roll back",
+  rollingBack: "Rolling back…",
+  rollBackConfirm: "Roll back this interrupted change? The helper restores the files it backed up before the change and verifies them.",
 } as const;
 
 export type MessageKey = keyof typeof en;

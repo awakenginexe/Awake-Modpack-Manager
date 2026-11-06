@@ -380,6 +380,15 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     return track(operationId);
   }
 
+  /** Roll back an interrupted change, as the coordinator's recovery allows. Never a direct file repair. */
+  async function runRecovery(operationId: string) {
+    if (!backend.runRecovery) return null;
+    const { operationId: id } = await backend.runRecovery(operationId, crypto.randomUUID());
+    const final = await track(id);
+    void refreshOperations();
+    return final;
+  }
+
   async function startExport(req: Omit<ExportRequest, 'idempotencyKey'>) {
     const { operationId } = await backend.startExport({ ...req, idempotencyKey: crypto.randomUUID() });
     return track(operationId);
@@ -391,7 +400,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     connect, refreshInstances, selectInstance, loadInventory,
     setDraft, discardDraft, setPinned,
     validate, apply, acceptChangedPlan, resetReview,
-    refreshOperations, cancelOperation, createInstance, installPack, startExport, launch, startLauncher,
+    refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher,
   };
 }
 

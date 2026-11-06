@@ -21,6 +21,12 @@ async function refresh() {
     try { recovery.value = await session.backend.getRecoveryStatus(state.instanceId); } catch (e) { error.value = asError(e).message; }
   }
 }
+const recovering = ref<string | null>(null);
+async function rollBack(op: OperationStatus) {
+  if (!confirm(t('rollBackConfirm'))) return;
+  recovering.value = op.operationId;
+  try { await session.runRecovery(op.operationId); await refresh(); } catch (e) { error.value = asError(e).message; } finally { recovering.value = null; }
+}
 async function cancel(id: string) {
   try { await session.cancelOperation(id); } catch (e) { error.value = asError(e).message; }
 }
@@ -67,6 +73,13 @@ function stateIcon(op: OperationStatus): Component {
                   :disabled="!session.can('operations.cancel')"
                   @click="cancel(op.operationId)"
                 ><X :size="14" />{{ t('cancelOperation') }}</button>
+                <button
+                  v-if="op.state === 'recovery_required' && session.backend.runRecovery"
+                  class="btn btn-small btn-primary"
+                  type="button"
+                  :disabled="recovering === op.operationId"
+                  @click="rollBack(op)"
+                ><RotateCcw :size="14" />{{ recovering === op.operationId ? t('rollingBack') : t('rollBack') }}</button>
               </div>
               <div v-if="!isSettled(op)" class="progress"><span :style="{ width: `${Math.round((op.progress ?? 0) * 100)}%` }"></span></div>
               <div v-if="op.error" class="detail error-box">

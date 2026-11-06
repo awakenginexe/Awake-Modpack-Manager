@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import type { ProviderId, ReleaseType, SearchHit } from '../backend/contract';
+import type { ProjectVersion, ProviderId, ReleaseType, SearchHit } from '../backend/contract';
 import { addChanges } from '../domain/draft';
 import { formatNumber, t } from '../i18n';
 import { asError, useSession } from '../state/session';
@@ -8,6 +8,7 @@ import { loaderLabel } from '../ui/labels';
 import { CircleAlert, CircleCheck, Download, Gamepad2, Layers, ListChecks, Plus, Search } from '@lucide/vue';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
+import VersionPicker from '../components/VersionPicker.vue';
 import type { ViewId } from '../App.vue';
 
 const emit = defineEmits<{ navigate: [ViewId] }>();
@@ -66,6 +67,14 @@ function addToDraft(list: SearchHit[]) {
   if (!d) return;
   session.setDraft(addChanges(d, list.map((h) => ({ kind: 'install' as const, provider: h.provider, projectId: h.projectId, name: h.name, versionId: h.latest?.id }))));
   picked.value = new Map();
+}
+/** Exact version choice, where the side serving this instance can list versions. */
+const canChoose = computed(() => !!session.backend.projectVersions && session.source.value === 'helper');
+const choosing = ref<SearchHit | null>(null);
+function addVersion(hit: SearchHit, v: ProjectVersion) {
+  const d = session.draft.value;
+  if (d) session.setDraft(addChanges(d, [{ kind: 'install', provider: hit.provider, projectId: hit.projectId, name: hit.name, versionId: v.id }]));
+  choosing.value = null;
 }
 </script>
 
@@ -126,7 +135,7 @@ function addToDraft(list: SearchHit[]) {
         </label>
         <Avatar :name="hit.name" :src="hit.iconUrl" :size="52" />
         <div class="hit-copy">
-          <div class="hit-title"><strong>{{ hit.name }}</strong> <span class="muted small">{{ t('byAuthor', { author: hit.author }) }}</span></div>
+          <div class="hit-title"><strong>{{ hit.name }}</strong> <span v-if="hit.author" class="muted small">{{ t('byAuthor', { author: hit.author }) }}</span></div>
           <p class="summary">{{ hit.summary }}</p>
           <div class="meta small">
             <span v-if="hit.downloads !== undefined"><Download :size="13" />{{ formatNumber(hit.downloads) }}</span>
@@ -137,13 +146,19 @@ function addToDraft(list: SearchHit[]) {
         </div>
         <span v-if="installed.has(hit.projectId)" class="badge ok"><CircleCheck :size="13" />{{ t('alreadyInstalled') }}</span>
         <span v-else-if="inDraft.has(hit.projectId)" class="badge info">{{ t('inDraft') }}</span>
-        <button v-else class="btn btn-small" type="button" :disabled="!hit.compatible" @click="addToDraft([hit])"><Plus :size="15" />{{ t('addToDraft') }}</button>
+        <template v-else>
+          <button v-if="canChoose" class="btn btn-small" type="button" :disabled="!hit.compatible" @click="choosing = hit">{{ t('chooseVersion') }}</button>
+          <button class="btn btn-small" type="button" :disabled="!hit.compatible" @click="addToDraft([hit])"><Plus :size="15" />{{ t('addToDraft') }}</button>
+        </template>
       </li>
     </ul>
     <div v-if="!loading && !hits.length && providerInfo?.available && !error" class="empty card">
       <span class="empty-icon"><Search :size="28" /></span><p>{{ t('noResults') }}</p>
     </div>
     <button v-if="hits.length < total && !loading" class="btn load-more" type="button" @click="search(true)">{{ t('loadMore') }}</button>
+    <Transition name="modal">
+      <VersionPicker v-if="choosing" :instance-id="inst.id" :provider="choosing.provider" :project-id="choosing.projectId" :name="choosing.name" @pick="(v) => addVersion(choosing!, v)" @close="choosing = null" />
+    </Transition>
   </section>
 </template>
 

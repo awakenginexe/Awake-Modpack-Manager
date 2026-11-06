@@ -1,8 +1,9 @@
-//! awake-core-host (TEST STUB). Usage: `awake-core-host --dir <dataRoot> [--idle-secs N]`
+//! awake-core-host (TEST STUB). Usage: `awake-core-host --profile <dir> [--idle-secs N]`
 //!
-//! Stands in for the real shared-core helper so the Manager's discovery, start-on-demand,
-//! identity check, reconnect, idle exit, crash handling and installer can be tested before the
-//! real build exists. It answers hello and an empty `instances.list`; every other method is
+//! Stands in for the real native helper (core-protocol.md 2.0, role `modpack-core`) so the
+//! Manager's start-on-demand, identity check, reconnect, idle exit, crash handling and installer
+//! can be tested before the real build exists. It answers hello, core.info and an empty
+//! workspaces.list; every capability that changes anything is false, and those methods return
 //! UNSUPPORTED_CAPABILITY, so nothing it says can be shown as a real project or installation.
 
 use serde_json::{json, Value};
@@ -43,14 +44,26 @@ fn write_frame(w: &mut impl Write, v: &Value) -> bool {
     w.write_all(&out).and_then(|_| w.flush()).is_ok()
 }
 
-struct Ids { session: String }
+struct Ids { session: String, root: String }
+
+fn uuid() -> String {
+    let h = format!("{}{}", random_hex(), random_hex());
+    format!("{}-{}-4{}-8{}-{}", &h[0..8], &h[8..12], &h[13..16], &h[17..20], &h[20..32])
+}
+
+const METHODS: [&str; 24] = [
+    "hello", "core.info", "core.shutdown", "catalog.versions", "workspaces.create", "workspaces.list", "providers.search", "providers.versions",
+    "plans.prepare", "plans.get", "transactions.apply", "mods.list", "updates.check", "operations.get", "operations.list", "operations.cancel",
+    "events.poll", "recovery.list", "recovery.run", "inbox.begin", "inbox.write", "inbox.commit", "inbox.status", "outbox.read",
+];
+const STUB_METHODS: [&str; 3] = ["hello", "core.info", "workspaces.list"];
 
 fn reply(req: &Value, hello_done: &mut bool, ids: &Ids) -> Value {
-    let p = json!({"major":1,"minor":0});
+    let p = json!({"major":2,"minor":0});
     let id = req.get("requestId").cloned().unwrap_or(Value::Null);
     let err = |code: &str, msg: &str| json!({"protocol":p,"requestId":id,"error":{"code":code,"message":msg,"retryable":false}});
     if req.get("protocol") != Some(&p) {
-        return err("UNSUPPORTED_PROTOCOL", "Only protocol 1.0 is supported.");
+        return err("UNSUPPORTED_PROTOCOL", "Only protocol 2.0 is supported.");
     }
     let method = req.get("method").and_then(Value::as_str).unwrap_or("");
     if method != "hello" && !*hello_done {
@@ -61,23 +74,24 @@ fn reply(req: &Value, hello_done: &mut bool, ids: &Ids) -> Value {
         "hello" => {
             let offered = req.pointer("/params/versions").and_then(Value::as_array).is_some_and(|v| v.contains(&p));
             if !offered {
-                return err("UNSUPPORTED_PROTOCOL", "Only protocol 1.0 is supported.");
+                return err("UNSUPPORTED_PROTOCOL", "Only protocol 2.0 is supported.");
             }
             *hello_done = true;
+            let caps: serde_json::Map<String, Value> = METHODS.iter().map(|m| (m.to_string(), Value::Bool(STUB_METHODS.contains(m)))).collect();
             ok(json!({
-                "protocol": p, "installationId": "manager-core", "profileId": "manager", "sessionId": ids.session,
-                "role": "core-host", "stub": true,
-                "capabilities": {"hello": true, "instances.list": true},
-                "limits": {"frameBytes": MAX_FRAME, "clients": 8, "pageItems": 500}
+                "protocol": p, "role": "modpack-core", "coreVersion": "0.0.0-stub", "storageVersion": 1,
+                "profileId": "manager", "sessionId": ids.session, "capabilities": caps,
+                "limits": {"frameBytes": MAX_FRAME, "clients": 8, "pageItems": 200}
             }))
         }
-        "instances.list" => ok(json!({"total":0,"nextOffset":null,"instanceRevision":"stub-empty","revisionKind":"observation","instances":[],"warnings":[]})),
+        "core.info" => ok(json!({"role":"modpack-core","coreVersion":"0.0.0-stub","profileId":"manager","dataRoot":ids.root,"workspaceRoot":ids.root,"state":"ready","supportedLoaders":["vanilla"]})),
+        "workspaces.list" => ok(json!({"workspaces":[],"total":0,"nextOffset":null})),
         _ => err("UNSUPPORTED_CAPABILITY", "The test helper does not implement this."),
     }
 }
 
 fn publish(dir: &Path, descriptor: &Value) -> std::io::Result<PathBuf> {
-    let d = dir.join("integration").join("v1");
+    let d = dir.join("integration").join("core-v2");
     fs::create_dir_all(&d)?;
     let tmp = d.join(".endpoint.json.partial");
     fs::write(&tmp, descriptor.to_string())?;
@@ -122,8 +136,8 @@ mod pipe {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let arg = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
-    let Some(dir) = arg("--dir").map(PathBuf::from) else {
-        eprintln!("usage: awake-core-host --dir <dataRoot> [--idle-secs N]");
+    let Some(dir) = arg("--profile").map(PathBuf::from) else {
+        eprintln!("usage: awake-core-host --profile <dir> [--idle-secs N]");
         std::process::exit(2);
     };
     let idle = Duration::from_secs(arg("--idle-secs").and_then(|s| s.parse().ok()).unwrap_or(120));
@@ -143,9 +157,9 @@ fn main() {
             }
         }
     };
-    let ids = Arc::new(Ids { session: format!("{}-{}", random_hex(), random_hex()) });
-    let server = format!("awake-core-v1-{}", ids.session);
-    let descriptor = json!({"protocol":{"major":1,"minor":0},"serverName":server,"pid":std::process::id().to_string(),"installationId":"manager-core","profileId":"manager","sessionId":ids.session});
+    let ids = Arc::new(Ids { session: uuid(), root: dir.display().to_string() });
+    let server = format!("awake-core-v2-{}", ids.session);
+    let descriptor = json!({"protocol":{"major":2,"minor":0},"role":"modpack-core","serverName":server,"pid":std::process::id().to_string(),"profileId":"manager","sessionId":ids.session});
 
     let clients = Arc::new(AtomicUsize::new(0));
     let last = Arc::new(Mutex::new(Instant::now()));
@@ -211,17 +225,19 @@ mod tests {
 
     #[test]
     fn handshake_first_then_empty_list_and_nothing_else() {
-        let ids = Ids { session: "s".into() };
+        let ids = Ids { session: uuid(), root: "C:\\x".into() };
         let mut hello = false;
-        let p = json!({"major":1,"minor":0});
-        let r = reply(&json!({"protocol":p,"requestId":"a","method":"instances.list","params":{}}), &mut hello, &ids);
+        let p = json!({"major":2,"minor":0});
+        let r = reply(&json!({"protocol":p,"requestId":"a","method":"workspaces.list","params":{}}), &mut hello, &ids);
         assert_eq!(r["error"]["code"], "HANDSHAKE_REQUIRED");
         let r = reply(&json!({"protocol":p,"requestId":"b","method":"hello","params":{"versions":[p]}}), &mut hello, &ids);
-        assert_eq!(r["result"]["stub"], true);
-        assert_eq!(r["result"]["capabilities"]["transactions.apply"], Value::Null);
-        let r = reply(&json!({"protocol":p,"requestId":"c","method":"instances.list","params":{}}), &mut hello, &ids);
+        assert_eq!(r["result"]["role"], "modpack-core");
+        assert_eq!(r["result"]["capabilities"].as_object().unwrap().len(), 24);
+        assert_eq!(r["result"]["capabilities"]["transactions.apply"], false);
+        assert_eq!(r["result"]["sessionId"].as_str().unwrap().len(), 36);
+        let r = reply(&json!({"protocol":p,"requestId":"c","method":"workspaces.list","params":{}}), &mut hello, &ids);
         assert_eq!(r["result"]["total"], 0);
-        for m in ["transactions.apply", "instances.create", "operations.get", "providers.search"] {
+        for m in ["transactions.apply", "workspaces.create", "operations.get", "providers.search"] {
             let r = reply(&json!({"protocol":p,"requestId":"d","method":m,"params":{}}), &mut hello, &ids);
             assert_eq!(r["error"]["code"], "UNSUPPORTED_CAPABILITY");
         }

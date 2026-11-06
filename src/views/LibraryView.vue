@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { ArrowRight, Boxes, CircleAlert, Loader, TriangleAlert, Download, FolderOpen, Gamepad2, Info, Layers, Play, Plus, Search, X } from '@lucide/vue';
-import type { InstanceSummary, LoaderKind } from '../backend/contract';
+import type { InstanceSummary, LoaderKind, VersionCatalog } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
 import { formatNumber, t, type MessageKey } from '../i18n';
@@ -19,7 +19,35 @@ const notice = ref('');
 const showCreate = ref(false);
 const creating = ref(false);
 const createError = ref('');
-const form = ref({ name: '', minecraftVersion: '1.21.1', loader: 'fabric' as LoaderKind });
+const form = ref({ name: '', minecraftVersion: '1.21.1', loader: 'fabric' as LoaderKind, loaderVersion: '' });
+const ALL_LOADERS: LoaderKind[] = ['fabric', 'quilt', 'forge', 'neoforge', 'vanilla'];
+/** Real choices from the side that will create it (standalone helper); fixed lists otherwise. */
+const catalog = ref<VersionCatalog | null>(null);
+const catalogError = ref('');
+const catalogLoading = ref(false);
+async function loadCatalog() {
+  const backend = session.backend;
+  if (!backend.versionCatalog || session.source.value !== 'helper') { catalog.value = null; return; }
+  catalogLoading.value = true;
+  catalogError.value = '';
+  try {
+    const loader = form.value.loader;
+    const c = await backend.versionCatalog({ minecraftVersion: form.value.minecraftVersion || undefined, loader: loader === 'vanilla' ? undefined : loader });
+    catalog.value = c;
+    if (!c.minecraftVersions.includes(form.value.minecraftVersion)) form.value.minecraftVersion = c.minecraftVersions[0] ?? '';
+    if (!c.loaders.includes(form.value.loader)) form.value.loader = c.loaders.find((l) => l !== 'vanilla') ?? c.loaders[0] ?? 'vanilla';
+    if (form.value.loader !== 'vanilla' && !c.loaderVersions.includes(form.value.loaderVersion)) form.value.loaderVersion = c.loaderVersions[0] ?? '';
+  } catch (e) {
+    catalogError.value = asError(e).message;
+  } finally {
+    catalogLoading.value = false;
+  }
+}
+watch(showCreate, (open) => { if (open) void loadCatalog(); });
+watch(() => [form.value.minecraftVersion, form.value.loader], () => { if (showCreate.value && catalog.value) void loadCatalog(); });
+const minecraftChoices = computed(() => catalog.value?.minecraftVersions ?? ['1.21.1', '1.20.1', '1.19.2', '1.18.2']);
+const loaderChoices = computed(() => catalog.value?.loaders ?? ALL_LOADERS);
+const needsLoaderVersion = computed(() => !!catalog.value && form.value.loader !== 'vanilla');
 
 const shown = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -196,18 +224,26 @@ async function create() {
           <div class="dialog-body">
             <label class="field"><span>{{ t('createName') }}</span><input v-model="form.name" class="input" required autofocus /></label>
             <label class="field"><span>{{ t('createVersion') }}</span>
-              <select v-model="form.minecraftVersion" class="select"><option>1.21.1</option><option>1.20.1</option><option>1.19.2</option><option>1.18.2</option></select>
+              <select v-model="form.minecraftVersion" class="select" :disabled="catalogLoading && !catalog">
+                <option v-for="v in minecraftChoices" :key="v" :value="v">{{ v }}</option>
+              </select>
             </label>
             <label class="field"><span>{{ t('createLoader') }}</span>
               <select v-model="form.loader" class="select">
-                <option v-for="l in (['fabric', 'quilt', 'forge', 'neoforge', 'vanilla'] as LoaderKind[])" :key="l" :value="l">{{ loaderLabel(l) }}</option>
+                <option v-for="l in loaderChoices" :key="l" :value="l">{{ loaderLabel(l) }}</option>
               </select>
             </label>
+            <label v-if="needsLoaderVersion" class="field"><span>{{ t('createLoaderVersion') }}</span>
+              <select v-model="form.loaderVersion" class="select" :disabled="catalogLoading">
+                <option v-for="v in catalog!.loaderVersions" :key="v" :value="v">{{ v }}</option>
+              </select>
+            </label>
+            <p v-if="catalogError" class="notice error" role="alert"><CircleAlert :size="18" />{{ catalogError }}</p>
             <p v-if="createError" class="notice error" role="alert"><CircleAlert :size="18" />{{ createError }}</p>
           </div>
           <footer>
             <button class="btn" type="button" @click="showCreate = false">{{ t('cancel') }}</button>
-            <button class="btn btn-primary" type="submit" :disabled="creating || !form.name.trim()">{{ creating ? t('creating') : t('createSubmit') }}</button>
+            <button class="btn btn-primary" type="submit" :disabled="creating || !form.name.trim() || (needsLoaderVersion && !form.loaderVersion)">{{ creating ? t('creating') : t('createSubmit') }}</button>
           </footer>
         </form>
       </div>

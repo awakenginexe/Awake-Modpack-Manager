@@ -5,11 +5,11 @@
 //! never kills it: not on window close, pipe loss or a timeout, so accepted work always finishes
 //! or is recovered by the helper itself on its next start.
 //!
-//! Provisional until the helper contract is committed (docs/LAUNCHER-REQUESTS.md H1-H4): the
-//! `--dir <dataRoot>` argument, the `awake-core-v1-` pipe prefix and the descriptor location
-//! `<dataRoot>\integration\v1\endpoint.json` (the same layout the Launcher publishes).
+//! Contract: Awake Launcher docs/modpack-manager/core-protocol.md 2.0 at 861cebc1a. The helper is
+//! started with `--profile <private absolute directory>`, publishes
+//! `<profile>\integration\core-v2\endpoint.json` and serves `\\.\pipe\awake-core-v2-<session UUID>`.
 
-use crate::{discovery, pipe};
+use crate::pipe;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::fs;
@@ -76,13 +76,46 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
+const DESCRIPTOR_MAX: u64 = 16 * 1024;
+
+/// `<profile>\integration\core-v2\endpoint.json`, checked against core.schema.json $defs/descriptor.
+/// None when absent. The TypeScript client validates it again against the pinned schema.
+pub fn read_descriptor(profile: &Path) -> Result<Option<Map<String, Value>>, String> {
+    let path = profile.join("integration").join("core-v2").join("endpoint.json");
+    let meta = match fs::symlink_metadata(&path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Cannot read the helper endpoint: {e}")),
+    };
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > DESCRIPTOR_MAX {
+        return Err("The helper endpoint descriptor is not a small regular file.".into());
+    }
+    // The helper publishes atomically; a read can still briefly hit a sharing violation.
+    let bytes = (0..3)
+        .find_map(|i| {
+            if i > 0 { std::thread::sleep(Duration::from_millis(60)); }
+            fs::read(&path).ok()
+        })
+        .ok_or("The helper endpoint is being published. Retrying.")?;
+    let Ok(Value::Object(d)) = serde_json::from_slice::<Value>(&bytes) else { return Err("The helper endpoint is not a JSON object.".into()) };
+    let s = |k: &str| d.get(k).and_then(Value::as_str);
+    let ok = d.len() == 6
+        && d.get("protocol") == Some(&serde_json::json!({"major": 2, "minor": 0}))
+        && s("role") == Some("modpack-core")
+        && s("serverName").is_some_and(pipe::valid_helper_name)
+        && s("pid").is_some_and(|p| !p.is_empty() && p.len() <= 20 && p.bytes().all(|b| b.is_ascii_digit()))
+        && s("profileId").is_some_and(|p| !p.is_empty() && p.len() <= 256)
+        && s("sessionId").is_some_and(|x| x.len() == 36);
+    if !ok {
+        return Err("The helper endpoint does not match protocol 2.0.".into());
+    }
+    Ok(Some(d))
+}
+
 /// A descriptor whose process is alive and is exactly our helper executable.
 fn live_descriptor(data_root: &Path, exe: &Path) -> Result<Option<Map<String, Value>>, String> {
-    let Some(d) = discovery::read_descriptor(data_root)? else { return Ok(None) };
+    let Some(d) = read_descriptor(data_root)? else { return Ok(None) };
     let Some(pid) = d.get("pid").and_then(Value::as_str).and_then(|p| p.parse::<u32>().ok()) else { return Ok(None) };
-    if !d.get("serverName").and_then(Value::as_str).is_some_and(pipe::valid_helper_name) {
-        return Err("The helper descriptor names a pipe outside the helper allowlist.".into());
-    }
     Ok(match pipe::process_image(pid) {
         Some(image) if same_file(&image, exe) => Some(d),
         // Dead (crash, idle exit) or a reused pid belonging to another program: stale.
@@ -107,7 +140,7 @@ fn spawn(exe: &Path, data_root: &Path) -> std::io::Result<u32> {
     let run = |flags: u32| {
         let log = open_log(data_root);
         let mut cmd = Command::new(exe);
-        cmd.arg("--dir").arg(data_root).current_dir(exe.parent().unwrap_or(data_root)).creation_flags(flags).stdin(Stdio::null()).stdout(Stdio::null());
+        cmd.arg("--profile").arg(data_root).current_dir(exe.parent().unwrap_or(data_root)).creation_flags(flags).stdin(Stdio::null()).stdout(Stdio::null());
         match log {
             Some(f) => cmd.stderr(f),
             None => cmd.stderr(Stdio::null()),
@@ -222,20 +255,30 @@ mod tests {
     fn stale_descriptor_of_a_dead_process_is_ignored() {
         let res = temp("stale");
         let root = res.join("data");
-        let d = root.join("integration").join("v1");
+        let d = root.join("integration").join("core-v2");
         fs::create_dir_all(&d).unwrap();
-        fs::write(d.join("endpoint.json"), r#"{"protocol":{"major":1,"minor":0},"serverName":"awake-core-v1-ab","pid":"4294967290","installationId":"i","profileId":"p","sessionId":"s"}"#).unwrap();
-        assert!(live_descriptor(&root, Path::new("C:\\nope.exe")).unwrap().is_none());
-        // A descriptor naming a Launcher pipe is refused outright.
-        fs::write(d.join("endpoint.json"), r#"{"protocol":{"major":1,"minor":0},"serverName":"awake-manager-v1-ab","pid":"1","installationId":"i","profileId":"p","sessionId":"s"}"#).unwrap();
-        assert!(live_descriptor(&root, Path::new("C:\\nope.exe")).is_err());
+        let sid = "0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e";
+        fs::write(d.join("endpoint.json"), format!(r#"{{"protocol":{{"major":2,"minor":0}},"role":"modpack-core","serverName":"awake-core-v2-{sid}","pid":"4294967290","profileId":"p","sessionId":"{sid}"}}"#)).unwrap();
+        assert!(read_descriptor(&root).unwrap().is_some());
+        assert!(live_descriptor(&root, Path::new("C:\\nope.exe")).unwrap().is_none(), "dead pid: stale");
+        // A Launcher pipe, a 1.0 protocol, a wrong role or an extra field is refused outright.
+        for bad in [
+            format!(r#"{{"protocol":{{"major":2,"minor":0}},"role":"modpack-core","serverName":"awake-manager-v1-{sid}","pid":"1","profileId":"p","sessionId":"{sid}"}}"#),
+            format!(r#"{{"protocol":{{"major":1,"minor":0}},"role":"modpack-core","serverName":"awake-core-v2-{sid}","pid":"1","profileId":"p","sessionId":"{sid}"}}"#),
+            format!(r#"{{"protocol":{{"major":2,"minor":0}},"role":"launcher","serverName":"awake-core-v2-{sid}","pid":"1","profileId":"p","sessionId":"{sid}"}}"#),
+            format!(r#"{{"protocol":{{"major":2,"minor":0}},"role":"modpack-core","serverName":"awake-core-v2-{sid}","pid":"1","profileId":"p","sessionId":"{sid}","x":1}}"#),
+        ] {
+            fs::write(d.join("endpoint.json"), bad).unwrap();
+            assert!(read_descriptor(&root).is_err());
+        }
     }
 
     #[test]
     fn helper_and_launcher_prefixes_are_disjoint() {
-        assert!(pipe::valid_helper_name("awake-core-v1-0a1b"));
-        assert!(!pipe::valid_helper_name("awake-manager-v1-0a1b"));
-        assert!(!pipe::valid_server_name("awake-core-v1-0a1b"));
-        assert!(!pipe::valid_helper_name("awake-core-v1-..\\x"));
+        assert!(pipe::valid_helper_name("awake-core-v2-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e"));
+        assert!(!pipe::valid_helper_name("awake-core-v2-0a1b"));
+        assert!(!pipe::valid_helper_name("awake-manager-v1-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e"));
+        assert!(!pipe::valid_server_name("awake-core-v2-0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e"));
+        assert!(!pipe::valid_helper_name("awake-core-v2-..\\x"));
     }
 }
