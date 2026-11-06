@@ -114,7 +114,7 @@ async function create() {
     </div>
 
     <ul v-else class="grid">
-      <li v-for="inst in shown" :key="inst.id" class="card instance" :class="{ selected: inst.id === state.instanceId, interactive: inst.manageable }">
+      <li v-for="(inst, i) in shown" :key="inst.id" class="card instance rise" :style="{ '--i': i }" :class="{ selected: inst.id === state.instanceId, interactive: inst.manageable }">
         <div class="card-top">
           <Avatar :name="inst.name" :src="inst.iconUrl" :size="52" />
           <div class="card-copy">
@@ -151,7 +151,7 @@ async function create() {
       </li>
     </ul>
 
-    <Transition name="fade">
+    <Transition name="modal">
       <div v-if="showCreate" class="dialog-overlay" @click.self="showCreate = false" @keydown.esc="showCreate = false">
         <form class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="create-title" @submit.prevent="create">
           <header><h2 id="create-title">{{ t('createTitle') }}</h2><p class="muted small">{{ t('createHint') }}</p></header>

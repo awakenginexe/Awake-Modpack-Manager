@@ -86,7 +86,8 @@ const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? 
 
         <div class="pane">
           <!-- General -->
-          <div v-show="tab === 'general'" class="group" role="tabpanel">
+          <Transition name="swap" mode="out-in">
+          <div v-if="tab === 'general'" key="general" class="group" role="tabpanel">
             <div class="row">
               <div class="copy">
                 <label id="settings-lang-label" for="settings-lang">{{ t('language') }}</label>
@@ -100,13 +101,13 @@ const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? 
                   <span>{{ localeNames[locale] }}</span>
                   <ChevronDown :size="16" class="chevron" :class="{ open: languageOpen }" />
                 </button>
-                <div v-show="languageOpen" id="settings-lang-list" class="picker-menu" role="listbox" aria-labelledby="settings-lang-label">
+                <Transition name="menu"><div v-show="languageOpen" id="settings-lang-list" class="picker-menu" role="listbox" aria-labelledby="settings-lang-label">
                   <button
                     v-for="([code, name], i) in languages" :key="code" ref="options" type="button" tabindex="-1" role="option"
                     class="picker-option" :class="{ active: activeIndex === i }" :aria-selected="locale === code"
                     @focus="activeIndex = i" @click="chooseLanguage(code)"
                   ><span>{{ name }}</span><Check v-if="locale === code" :size="16" class="tick" /></button>
-                </div>
+                </div></Transition>
               </div>
             </div>
 
@@ -129,7 +130,7 @@ const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? 
           </div>
 
           <!-- Launcher connection -->
-          <div v-if="tab === 'connection'" class="group" role="tabpanel">
+          <div v-else-if="tab === 'connection'" key="connection" class="group" role="tabpanel">
             <div class="status-card" :class="statusTone">
               <span class="dot"></span>
               <div class="grow">
@@ -169,7 +170,7 @@ const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? 
           </div>
 
           <!-- About -->
-          <div v-if="tab === 'about'" class="group about" role="tabpanel">
+          <div v-else key="about" class="group about" role="tabpanel">
             <div class="brand">
               <img :src="awakeLogo" alt="" width="72" height="72" />
               <div>
@@ -187,6 +188,7 @@ const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? 
             </ul>
             <p class="hint">{{ t('aboutTrademarks') }}</p>
           </div>
+          </Transition>
         </div>
       </div>
     </section>

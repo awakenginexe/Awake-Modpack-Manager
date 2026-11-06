@@ -114,7 +114,7 @@ function addToDraft(list: SearchHit[]) {
       <template v-if="loading && !hits.length">
         <li v-for="n in 6" :key="`s${n}`" class="card skel"><span class="skeleton" style="width: 52px; height: 52px; border-radius: 12px"></span><span class="lines"><span class="skeleton" style="height: 14px; width: 50%"></span><span class="skeleton" style="height: 12px; width: 85%"></span></span></li>
       </template>
-      <li v-for="hit in hits" :key="hit.projectId" class="card hit" :class="{ selected: picked.has(hit.projectId), dim: !hit.compatible }">
+      <li v-for="(hit, i) in hits" :key="hit.projectId" class="card hit rise" :style="{ '--i': i % 30 }" :class="{ selected: picked.has(hit.projectId), dim: !hit.compatible }">
         <label class="pick">
           <input
             type="checkbox"

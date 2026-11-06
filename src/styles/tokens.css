@@ -73,6 +73,9 @@
 
   --duration-fast: 140ms;
   --duration-normal: 220ms;
+  --duration-slow: 320ms;
+  --duration-exit: 120ms;
+  --stagger: 28ms;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
 }

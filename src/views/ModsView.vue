@@ -231,7 +231,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
           </VirtualList>
         </div>
 
-        <Transition name="fade">
+        <Transition name="bar">
           <div v-if="selection.keys.size" class="floating-bar bulkbar" role="toolbar" :aria-label="t('selectedCount', { count: selection.keys.size })">
             <strong class="sel-count">{{ t('selectedCount', { count: formatNumber(selection.keys.size) }) }}</strong>
             <span class="divider"></span>

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch, type Component } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
 import { Boxes, Download, FolderOpen, History, LayoutGrid, ListChecks, PackageSearch, Search, Settings, Upload } from '@lucide/vue';
 import Avatar from './components/Avatar.vue';
 import { isTerminal } from './domain/operation';
 import { t, type MessageKey } from './i18n';
 import SettingsDialog from './components/SettingsDialog.vue';
-import { reducedMotion } from './state/prefs';
+import { reducedMotion, systemReducedMotion } from './state/prefs';
 import { useSession } from './state/session';
 import { loaderLabel } from './ui/labels';
 import awakeLogo from './assets/brand/awake.png';
@@ -24,6 +24,8 @@ const session = useSession();
 const { state } = session;
 const view = ref<ViewId>(state.instanceId ? 'mods' : 'library');
 const settingsOpen = ref(false);
+/** With reduced motion, page swaps skip Vue's transition entirely so they are instant. */
+const motionOff = computed(() => reducedMotion.value || systemReducedMotion);
 // If the selected instance disappears, instance screens have nothing to show.
 watch(() => session.instance.value, (inst) => { if (!inst && view.value !== 'packs') view.value = 'library'; });
 
@@ -53,11 +55,40 @@ const connectionText = computed(() => {
 const connectionTone = computed(() => (state.connection === 'connected' ? (session.backend.kind === 'mock' ? 'warn' : 'ok') : state.connection === 'connecting' || state.reconnecting ? 'info' : 'error'));
 
 function open(id: ViewId) { view.value = id; }
+
+const views: Record<ViewId, Component> = { library: LibraryView, packs: PacksView, mods: ModsView, browse: BrowseView, review: ReviewView, files: FilesView, history: HistoryView, export: ExportView };
+const needsInstance = computed(() => view.value !== 'library' && view.value !== 'packs');
+const shownView = computed(() => (needsInstance.value && !session.instance.value ? null : views[view.value]));
+// Instance screens re-enter when the instance changes, so the switch reads as a new page.
+const viewKey = computed(() => (needsInstance.value ? `${view.value}:${state.instanceId}` : view.value));
+
+/* Sliding highlight behind the active nav item. */
+const sidebar = ref<HTMLElement | null>(null);
+const indicator = ref({ x: 0, y: 0, w: 0, h: 0, visible: false, ready: false });
+function placeIndicator() {
+  const el = sidebar.value?.querySelector<HTMLElement>('.nav-item.active');
+  if (!el) { indicator.value.visible = false; return; }
+  indicator.value = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, visible: true, ready: indicator.value.ready };
+  // Enable the slide only after the first placement so it doesn't fly in from the corner.
+  if (!indicator.value.ready) requestAnimationFrame(() => { indicator.value.ready = true; });
+}
+let resize: ResizeObserver | undefined;
+onMounted(() => {
+  void nextTick(placeIndicator);
+  if (typeof ResizeObserver !== 'undefined' && sidebar.value) { resize = new ResizeObserver(placeIndicator); resize.observe(sidebar.value); }
+});
+onBeforeUnmount(() => resize?.disconnect());
+watch([view, () => session.instance.value?.id, () => state.connection], () => void nextTick(placeIndicator));
 </script>
 
 <template>
   <div class="shell" :class="{ 'reduced-motion': reducedMotion }">
-    <nav class="sidebar glass" :aria-label="t('appName')">
+    <nav ref="sidebar" class="sidebar glass" :aria-label="t('appName')">
+      <span
+        class="nav-indicator" aria-hidden="true"
+        :class="{ ready: indicator.ready, hidden: !indicator.visible }"
+        :style="{ transform: `translate3d(${indicator.x}px, ${indicator.y}px, 0)`, width: `${indicator.w}px`, height: `${indicator.h}px` }"
+      ></span>
       <header class="brand">
         <img :src="awakeLogo" alt="" class="brand-logo" width="38" height="38" />
         <div><strong>Awake</strong><span>Modpack Manager</span></div>
@@ -76,7 +107,8 @@ function open(id: ViewId) { view.value = id; }
 
       <div class="nav-group">
         <span class="nav-label">{{ t('navSectionInstance') }}</span>
-        <button v-if="session.instance.value" class="current-instance" type="button" :title="t('switchInstance')" @click="open('library')">
+        <Transition name="swap" mode="out-in" @after-enter="placeIndicator" @after-leave="placeIndicator">
+        <button v-if="session.instance.value" :key="session.instance.value.id" class="current-instance" type="button" :title="t('switchInstance')" @click="open('library')">
           <Avatar :name="session.instance.value.name" :src="session.instance.value.iconUrl" :size="36" />
           <span class="current-copy">
             <span class="current-name">{{ session.instance.value.name }}</span>
@@ -87,6 +119,7 @@ function open(id: ViewId) { view.value = id; }
           <PackageSearch :size="18" aria-hidden="true" />
           <span>{{ t('noInstance') }}</span>
         </button>
+        </Transition>
         <button
           v-for="item in instanceNav" :key="item.id" type="button" class="nav-item"
           :class="{ active: view === item.id }" :aria-current="view === item.id ? 'page' : undefined"
@@ -94,8 +127,8 @@ function open(id: ViewId) { view.value = id; }
         >
           <component :is="item.icon" :size="18" aria-hidden="true" />
           <span class="nav-text">{{ t(item.label) }}</span>
-          <span v-if="item.id === 'review' && draftCount" class="badge info">{{ draftCount }}</span>
-          <span v-if="item.id === 'history' && activeOps" class="badge info"><span class="dot pulse"></span>{{ activeOps }}</span>
+          <span v-if="item.id === 'review' && draftCount" :key="draftCount" class="badge info pop">{{ draftCount }}</span>
+          <span v-if="item.id === 'history' && activeOps" :key="activeOps" class="badge info pop"><span class="dot pulse"></span>{{ activeOps }}</span>
         </button>
       </div>
 
@@ -110,7 +143,7 @@ function open(id: ViewId) { view.value = id; }
       </footer>
     </nav>
 
-    <Transition name="fade">
+    <Transition name="modal">
       <SettingsDialog v-if="settingsOpen" @close="settingsOpen = false" />
     </Transition>
 
@@ -118,22 +151,18 @@ function open(id: ViewId) { view.value = id; }
       <div v-if="session.backend.kind === 'mock'" class="mock-banner" role="note">
         <span class="dot"></span>{{ t('connMockHint') }}
       </div>
-      <LibraryView v-if="view === 'library'" @manage="open('mods')" @get-pack="open('packs')" />
-      <PacksView v-else-if="view === 'packs'" @manage="open('mods')" />
-      <template v-else-if="session.instance.value">
-        <ModsView v-if="view === 'mods'" @navigate="open" />
-        <BrowseView v-else-if="view === 'browse'" @navigate="open" />
-        <ReviewView v-else-if="view === 'review'" @navigate="open" />
-        <FilesView v-else-if="view === 'files'" />
-        <HistoryView v-else-if="view === 'history'" />
-        <ExportView v-else-if="view === 'export'" />
-      </template>
-      <div v-else class="empty glass">
-        <span class="empty-icon"><PackageSearch :size="28" /></span>
-        <h2>{{ t('noInstance') }}</h2>
-        <p>{{ t('chooseInstanceHint') }}</p>
-        <button class="btn btn-primary" type="button" @click="open('library')">{{ t('goToLibrary') }}</button>
-      </div>
+      <Transition name="page" :mode="motionOff ? 'default' : 'out-in'" :css="!motionOff">
+        <component
+          :is="shownView" v-if="shownView" :key="viewKey"
+          @manage="open('mods')" @get-pack="open('packs')" @navigate="open"
+        />
+        <div v-else key="empty" class="empty glass">
+          <span class="empty-icon"><PackageSearch :size="28" /></span>
+          <h2>{{ t('noInstance') }}</h2>
+          <p>{{ t('chooseInstanceHint') }}</p>
+          <button class="btn btn-primary" type="button" @click="open('library')">{{ t('goToLibrary') }}</button>
+        </div>
+      </Transition>
     </main>
   </div>
 </template>
@@ -146,7 +175,7 @@ function open(id: ViewId) { view.value = id; }
   height: 100vh;
   padding: var(--space-4);
 }
-.sidebar { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-4) var(--space-3); min-height: 0; overflow-y: auto; }
+.sidebar { position: relative; display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-4) var(--space-3); min-height: 0; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-2); }
 .brand-logo { border-radius: 10px; filter: drop-shadow(0 4px 12px rgba(37, 99, 235, 0.35)); }
 .brand div { display: flex; flex-direction: column; line-height: 1.15; }
@@ -171,7 +200,15 @@ function open(id: ViewId) { view.value = id; }
 }
 .nav-text { flex: 1; }
 .nav-item:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
-.nav-item.active { background: var(--surface-selected); color: #fff; border-color: rgba(96, 165, 250, 0.24); box-shadow: inset 3px 0 0 #3b82f6; }
+.nav-item { position: relative; z-index: 1; }
+.nav-item.active { color: #fff; }
+/* Active highlight lives on one element that slides between items. */
+.nav-indicator {
+  position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; border-radius: var(--radius-control);
+  background: var(--surface-selected); border: 1px solid rgba(96, 165, 250, 0.24); box-shadow: inset 3px 0 0 #3b82f6, 0 4px 14px rgba(37, 99, 235, 0.18);
+}
+.nav-indicator.ready { transition: transform var(--duration-slow) var(--ease), width var(--duration-slow) var(--ease), height var(--duration-slow) var(--ease), opacity var(--duration-fast) var(--ease); }
+.nav-indicator.hidden { opacity: 0; }
 .nav-item:disabled { opacity: 0.38; cursor: not-allowed; }
 .pulse { animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.35; } }

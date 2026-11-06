@@ -64,7 +64,7 @@ watch(area, load, { immediate: true });
         <p v-else-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ error }}</p>
         <div v-else-if="!entries.length" class="empty"><span class="empty-icon"><FolderOpen :size="26" /></span><p>{{ t('filesEmpty') }}</p></div>
         <ul v-else class="entries">
-          <li v-for="e in entries" :key="e.path" :class="{ on: included.has(e.path) }">
+          <li v-for="(e, i) in entries" :key="e.path" class="rise" :class="{ on: included.has(e.path) }" :style="{ '--i': i }">
             <component :is="e.kind === 'directory' ? Folder : FileText" :size="16" class="muted" />
             <span class="path" :title="e.path">{{ e.path }}</span>
             <span class="muted small size">{{ formatBytes(e.sizeBytes) }}</span>

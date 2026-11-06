@@ -141,10 +141,70 @@ button.card { text-align: left; cursor: pointer; color: inherit; }
 .dialog .dialog-body { padding: 0 var(--space-5) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
 .dialog footer { display: flex; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--border-subtle); }
 
-.fade-enter-active, .fade-leave-active { transition: opacity var(--duration-normal) var(--ease); }
+/* ---------- Motion ----------
+ * Timing and easing follow Awake Launcher (140/220/320ms, ease-out-expo). Only transform and
+ * opacity animate so long lists stay smooth. Everything below is switched off by reduced motion.
+ */
+@keyframes rise { from { opacity: 0; transform: translate3d(0, 10px, 0); } to { opacity: 1; transform: none; } }
+@keyframes pop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes drop { from { opacity: 0; transform: translate3d(0, -6px, 0); } to { opacity: 1; transform: none; } }
+@keyframes sheen { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+/* Items that appear in a list fade up one after another (index via --i, capped so long lists don't drag). */
+.rise { animation: rise var(--duration-slow) var(--ease) backwards; animation-delay: calc(min(var(--i, 0), 14) * var(--stagger)); }
+.pop { animation: pop 260ms var(--ease) backwards; }
+.notice { animation: drop var(--duration-normal) var(--ease) backwards; }
+.pill-count { animation: pop 240ms var(--ease) backwards; }
+
+/* Running progress gets a moving highlight so a long step never looks frozen. */
+.progress > span { position: relative; overflow: hidden; }
+.progress > span::after { content: ''; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent); animation: sheen 1.4s ease-in-out infinite; }
+
+.card .avatar { transition: transform var(--duration-normal) var(--ease); }
+button.card:hover .avatar, .card.interactive:hover .avatar { transform: scale(1.05); }
+.btn:active:not(:disabled), .icon-btn:active:not(:disabled) { transform: scale(0.97); }
+
+/* Vue transitions */
+.fade-enter-active { transition: opacity var(--duration-normal) var(--ease); }
+.fade-leave-active { transition: opacity var(--duration-exit) var(--ease-in); }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-.slide-enter-active, .slide-leave-active { transition: opacity var(--duration-normal) var(--ease), transform var(--duration-normal) var(--ease); }
-.slide-enter-from, .slide-leave-to { opacity: 0; transform: translateX(12px); }
+
+/* Page change: the old screen fades out quickly, the new one rises in. */
+.page-enter-active { transition: opacity var(--duration-slow) var(--ease), transform var(--duration-slow) var(--ease); }
+.page-leave-active { transition: opacity var(--duration-exit) var(--ease-in), transform var(--duration-exit) var(--ease-in); }
+.page-enter-from { opacity: 0; transform: translate3d(0, 12px, 0); }
+.page-leave-to { opacity: 0; transform: translate3d(0, -4px, 0); }
+
+/* Side panels slide in from the right. */
+.slide-enter-active { transition: opacity var(--duration-slow) var(--ease), transform var(--duration-slow) var(--ease); }
+.slide-leave-active { transition: opacity var(--duration-exit) var(--ease-in), transform var(--duration-exit) var(--ease-in); }
+.slide-enter-from { opacity: 0; transform: translate3d(24px, 0, 0); }
+.slide-leave-to { opacity: 0; transform: translate3d(16px, 0, 0); }
+
+/* Floating bars rise from the bottom edge. */
+.bar-enter-active { transition: opacity var(--duration-normal) var(--ease), transform var(--duration-slow) var(--ease); }
+.bar-leave-active { transition: opacity var(--duration-exit) var(--ease-in), transform var(--duration-exit) var(--ease-in); }
+.bar-enter-from, .bar-leave-to { opacity: 0; transform: translate3d(0, 16px, 0) scale(0.98); }
+
+/* Dropdown menus */
+.menu-enter-active { transition: opacity var(--duration-fast) var(--ease), transform var(--duration-normal) var(--ease); transform-origin: top; }
+.menu-leave-active { transition: opacity 90ms var(--ease-in), transform 90ms var(--ease-in); transform-origin: top; }
+.menu-enter-from, .menu-leave-to { opacity: 0; transform: translate3d(0, -4px, 0) scale(0.98); }
+
+/* Dialogs: backdrop fades, the panel lifts and scales in (Launcher's modal motion). */
+.modal-enter-active { transition: opacity var(--duration-normal) var(--ease); }
+.modal-leave-active { transition: opacity var(--duration-exit) var(--ease-in); }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
+.modal-enter-active > .dialog, .modal-enter-active > .glass { transition: transform var(--duration-slow) var(--ease), opacity var(--duration-slow) var(--ease); }
+.modal-leave-active > .dialog, .modal-leave-active > .glass { transition: transform var(--duration-exit) var(--ease-in), opacity var(--duration-exit) var(--ease-in); }
+.modal-enter-from > .dialog, .modal-enter-from > .glass { transform: translate3d(0, 10px, 0) scale(0.97); opacity: 0; }
+.modal-leave-to > .dialog, .modal-leave-to > .glass { transform: translate3d(0, 4px, 0) scale(0.99); opacity: 0; }
+
+/* Crossfade for tab panels and swapped content */
+.swap-enter-active { transition: opacity var(--duration-normal) var(--ease), transform var(--duration-normal) var(--ease); }
+.swap-leave-active { transition: opacity 90ms var(--ease-in); }
+.swap-enter-from { opacity: 0; transform: translate3d(6px, 0, 0); }
+.swap-leave-to { opacity: 0; }
 
 /* Reduced motion: honour the OS setting and the in-app preference. */
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }

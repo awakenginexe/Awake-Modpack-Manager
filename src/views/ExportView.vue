@@ -102,10 +102,10 @@ async function run() {
 
     <template v-if="report">
       <div class="summary">
-        <div class="stat card"><Link2 :size="20" class="ok" /><strong>{{ byStatus['provider-reference'].length }}</strong><span class="muted small">{{ t('distReference') }}</span></div>
-        <div class="stat card"><PackageCheck :size="20" class="info" /><strong>{{ include.size }}</strong><span class="muted small">{{ t('statBundled') }}</span></div>
-        <div class="stat card"><Ban :size="20" class="danger" /><strong>{{ excluded.length }}</strong><span class="muted small">{{ t('statExcluded') }}</span></div>
-        <div class="stat card"><FolderOpen :size="20" class="muted" /><strong>{{ overrides.length }}</strong><span class="muted small">{{ t('statOverrides') }}</span></div>
+        <div class="stat card rise" style="--i: 0"><Link2 :size="20" class="ok" /><strong>{{ byStatus['provider-reference'].length }}</strong><span class="muted small">{{ t('distReference') }}</span></div>
+        <div class="stat card rise" style="--i: 1"><PackageCheck :size="20" class="info" /><strong>{{ include.size }}</strong><span class="muted small">{{ t('statBundled') }}</span></div>
+        <div class="stat card rise" style="--i: 2"><Ban :size="20" class="danger" /><strong>{{ excluded.length }}</strong><span class="muted small">{{ t('statExcluded') }}</span></div>
+        <div class="stat card rise" style="--i: 3"><FolderOpen :size="20" class="muted" /><strong>{{ overrides.length }}</strong><span class="muted small">{{ t('statOverrides') }}</span></div>
       </div>
 
       <section v-if="needsPermission.length" class="card panel">

@@ -137,7 +137,7 @@ onMounted(() => void search());
           <template v-if="loading && !hits.length">
             <li v-for="n in 6" :key="`s${n}`" class="card skel"><span class="skeleton" style="width: 64px; height: 64px; border-radius: 14px"></span><span class="skeleton-lines"><span class="skeleton" style="height: 14px; width: 55%"></span><span class="skeleton" style="height: 12px; width: 85%"></span></span></li>
           </template>
-          <li v-for="hit in hits" :key="hit.packId">
+          <li v-for="(hit, i) in hits" :key="hit.packId" class="rise" :style="{ '--i': i % PAGE }">
             <button type="button" class="card hit" :class="{ selected: picked?.packId === hit.packId }" :aria-pressed="picked?.packId === hit.packId" @click="pick(hit)">
               <Avatar :name="hit.name" :src="hit.iconUrl" :size="64" />
               <span class="hit-copy">
@@ -180,7 +180,7 @@ onMounted(() => void search());
             </div>
             <p v-else-if="!versions.length && !installError" class="muted small">{{ t('packNoVersions') }}</p>
             <div v-else class="version-list" role="radiogroup">
-              <label v-for="v in versions" :key="v.id" class="version" :class="{ active: v.id === versionId }">
+              <label v-for="(v, i) in versions" :key="v.id" class="version rise" :style="{ '--i': i }" :class="{ active: v.id === versionId }">
                 <input v-model="versionId" type="radio" name="pack-version" :value="v.id" />
                 <span class="version-copy">
                   <span class="version-name">{{ v.name }}

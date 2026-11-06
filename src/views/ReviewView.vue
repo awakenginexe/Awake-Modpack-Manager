@@ -111,7 +111,7 @@ function reasonText(i: PlanItem) {
           <button class="btn btn-small" type="button" @click="refreshDraft">{{ t('staleDraftAction') }}</button>
         </div>
         <ul class="list">
-          <li v-for="(c, i) in changes" :key="i" class="item">
+          <li v-for="(c, i) in changes" :key="i" class="item rise" :style="{ '--i': i }">
             <Avatar :name="nameOf(c)" :size="28" />
             <span class="grow">
               <span class="item-name">{{ nameOf(c) }}</span>
@@ -145,7 +145,7 @@ function reasonText(i: PlanItem) {
           <div v-for="g in groups" :key="g.action" class="group">
             <h3 :class="g.action"><component :is="actionIcon[g.action]" :size="15" />{{ t(planActionKey[g.action]) }} <span class="badge">{{ g.items.length }}</span></h3>
             <ul class="list">
-              <li v-for="item in g.items" :key="item.modKey" class="item">
+              <li v-for="(item, i) in g.items" :key="item.modKey" class="item rise" :style="{ '--i': i }">
                 <Avatar :name="item.name" :size="28" />
                 <span class="grow">
                   <span class="item-name">{{ item.name }}</span>
@@ -164,7 +164,7 @@ function reasonText(i: PlanItem) {
           <div v-if="plan.issues.length" class="group">
             <h3>{{ t('issues') }} <span class="badge">{{ plan.issues.length }}</span></h3>
             <ul class="issues">
-              <li v-for="(issue, i) in plan.issues" :key="i" :class="severityTone[issue.severity]">
+              <li v-for="(issue, i) in plan.issues" :key="i" class="rise" :class="severityTone[issue.severity]" :style="{ '--i': i }">
                 <component :is="severityIcon[issue.severity]" :size="16" />
                 <span class="grow"><strong class="sev">{{ t(severityKey[issue.severity]) }}</strong> {{ issue.message }}</span>
               </li>
@@ -175,7 +175,7 @@ function reasonText(i: PlanItem) {
             <h3>{{ t('optionalTitle') }}</h3>
             <p class="muted small">{{ t('optionalHint') }}</p>
             <ul class="list">
-              <li v-for="o in plan.optional" :key="o.projectId" class="item">
+              <li v-for="(o, i) in plan.optional" :key="o.projectId" class="item rise" :style="{ '--i': i }">
                 <Avatar :name="o.name" :size="28" />
                 <span class="grow"><span class="item-name">{{ o.name }}</span><span class="muted small">{{ t('reasonOptional', { names: o.suggestedBy.join(', ') }) }}</span></span>
                 <button class="btn btn-small" type="button" :disabled="busy" @click="addOptional(o)">{{ t('addOptional') }}</button>
@@ -229,6 +229,7 @@ function reasonText(i: PlanItem) {
 .steps { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .steps li { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 0.9rem; font-weight: 500; }
 .steps li + li::before { content: ''; width: 32px; height: 1px; background: var(--border-subtle); margin-right: var(--space-2); }
+.steps li, .step-num { transition: color var(--duration-normal) var(--ease), background-color var(--duration-normal) var(--ease), border-color var(--duration-normal) var(--ease); }
 .step-num { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--control-border); font-size: 0.8rem; }
 .steps li.current { color: var(--text); }
 .steps li.current .step-num { background: var(--accent-gradient); border-color: transparent; color: #fff; }

@@ -52,7 +52,7 @@ function stateIcon(op: OperationStatus): Component {
           <p>{{ t('historyEmpty') }}</p>
         </div>
         <ol class="timeline">
-          <li v-for="op in ops" :key="op.operationId" class="op" :class="opStateTone[op.state]">
+          <li v-for="(op, i) in ops" :key="op.operationId" class="op rise" :class="opStateTone[op.state]" :style="{ '--i': i }">
             <span class="node"><component :is="stateIcon(op)" :size="16" :class="{ spin: !isTerminal(op) }" /></span>
             <div class="op-body">
               <div class="op-head">
