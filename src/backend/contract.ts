@@ -312,20 +312,17 @@ export interface ResolvedPlan {
 
 /* ---------- Operations ---------- */
 
+/** Exactly the Launcher contract's operation states (requests.schema.json $defs/operation). */
 export type OperationState =
-  | 'preparing'
-  | 'waiting'
-  | 'applying'
-  | 'verifying'
-  | 'completed'
-  | 'cancelled'
-  | 'recovering'
-  | 'rolled_back'
-  | 'needs_attention';
+  | 'queued' | 'resolving' | 'downloading' | 'prepared'
+  | 'acquiring' | 'revalidating' | 'backing_up' | 'applying' | 'verifying'
+  | 'completed' | 'cancelled' | 'failed' | 'rolled_back'
+  /** Nonterminal: blocks unsafe use until the Launcher's recovery has run. */
+  | 'recovery_required';
 
-export const TERMINAL_STATES: readonly OperationState[] = ['completed', 'cancelled', 'rolled_back', 'needs_attention'];
+export const TERMINAL_STATES: readonly OperationState[] = ['completed', 'cancelled', 'failed', 'rolled_back'];
 
-export type OperationKind = 'apply-plan' | 'create-instance' | 'install-pack' | 'export';
+export type OperationKind = 'apply-plan' | 'create-instance' | 'install-pack' | 'export' | 'launch';
 
 export interface OperationStatus {
   operationId: string;
@@ -428,7 +425,11 @@ export type BackendErrorCode =
   /** Profile location the Launcher cannot publish an endpoint for (removable, network...). */
   | 'unsupported-profile'
   /** The pipe or hello did not match the descriptor / current user. */
-  | 'identity';
+  | 'identity'
+  /** The Launcher needs the user to act in its own window first (sign-in, a dialog). */
+  | 'interaction-required'
+  /** An interrupted change must be recovered in the Launcher before this instance is used. */
+  | 'recovery-required';
 
 export class BackendError extends Error {
   constructor(readonly code: BackendErrorCode, message: string, readonly detail?: string) {

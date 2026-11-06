@@ -164,7 +164,7 @@ describe('LauncherClient (fixture IPC)', () => {
       c.createInstance({ name: 'x', minecraftVersion: '1.21.1', loader: 'fabric', idempotencyKey: 'k' }),
       c.applyPlan({ planId: 'p', planHash: 'h', idempotencyKey: 'k' }),
       c.validateDraft({ instanceId: key('phys-0001'), baseRevision: 'r', changes: [], pinnedKeys: [] }),
-      c.preparePlan('p'), c.requestLaunch(key('phys-0001')), c.installPack({ provider: 'modrinth', packId: 'a', versionId: 'b', instanceName: 'c', idempotencyKey: 'k' }),
+      c.preparePlan('p'), c.requestLaunch(key('phys-0001'), 'k'), c.installPack({ provider: 'modrinth', packId: 'a', versionId: 'b', instanceName: 'c', idempotencyKey: 'k' }),
       c.search({ text: '', provider: 'modrinth', minecraftVersion: '', loader: 'fabric', releaseTypes: [], compatibleOnly: false, offset: 0, limit: 1 }),
       c.listContent(key('phys-0001'), 'config'), c.cancelOperation('o'), c.getRecoveryStatus(key('phys-0001')),
     ];

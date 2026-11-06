@@ -2,14 +2,16 @@ import type { InstanceSummary, LoaderKind, ModSource, OperationKind, OperationSt
 import { t, type MessageKey } from '../i18n';
 
 export const opStateKey: Record<OperationState, MessageKey> = {
-  preparing: 'opPreparing', waiting: 'opWaiting', applying: 'opApplying', verifying: 'opVerifying', completed: 'opCompleted',
-  cancelled: 'opCancelled', recovering: 'opRecovering', rolled_back: 'opRolledBack', needs_attention: 'opNeedsAttention',
+  queued: 'opQueued', resolving: 'opResolving', downloading: 'opDownloading', prepared: 'opPrepared',
+  acquiring: 'opWaiting', revalidating: 'opRevalidating', backing_up: 'opBackingUp', applying: 'opApplying', verifying: 'opVerifying',
+  completed: 'opCompleted', cancelled: 'opCancelled', failed: 'opFailed', rolled_back: 'opRolledBack', recovery_required: 'opRecoveryRequired',
 };
 export const opStateTone: Record<OperationState, string> = {
-  preparing: 'info', waiting: 'info', applying: 'info', verifying: 'info', completed: 'ok',
-  cancelled: '', recovering: 'warn', rolled_back: 'warn', needs_attention: 'error',
+  queued: 'info', resolving: 'info', downloading: 'info', prepared: 'info',
+  acquiring: 'info', revalidating: 'info', backing_up: 'info', applying: 'info', verifying: 'info',
+  completed: 'ok', cancelled: '', failed: 'error', rolled_back: 'warn', recovery_required: 'error',
 };
-export const opKindKey: Record<OperationKind, MessageKey> = { 'apply-plan': 'kindApply', 'create-instance': 'kindCreate', 'install-pack': 'kindInstallPack', export: 'kindExport' };
+export const opKindKey: Record<OperationKind, MessageKey> = { 'apply-plan': 'kindApply', 'create-instance': 'kindCreate', 'install-pack': 'kindInstallPack', export: 'kindExport', launch: 'kindLaunch' };
 export const packProviderNames: Record<PackProviderId, string> = { modrinth: 'Modrinth', curseforge: 'CurseForge', ftb: 'FTB', atlauncher: 'ATLauncher', technic: 'Technic' };
 export const planActionKey: Record<PlanAction, MessageKey> = { install: 'planInstall', update: 'planUpdate', remove: 'planRemove', enable: 'planEnable', disable: 'planDisable', keep: 'planKeep' };
 

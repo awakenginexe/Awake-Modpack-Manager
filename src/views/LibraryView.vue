@@ -33,8 +33,10 @@ function manage(inst: InstanceSummary) {
 
 async function launch(inst: InstanceSummary) {
   try {
-    await session.backend.requestLaunch(inst.id);
     notice.value = t('launchRequested', { name: inst.name });
+    const final = await session.launch(inst.id);
+    if (final?.state === 'completed') notice.value = t('launchStarted', { name: inst.name });
+    else if (final) notice.value = final.error?.message ?? t('launchFailed', { name: inst.name });
   } catch (e) {
     notice.value = asError(e).message;
   }

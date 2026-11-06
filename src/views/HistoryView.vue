@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue';
-import { Archive, Ban, CircleAlert, CircleCheck, Download, FolderOpen, History, LifeBuoy, Loader, PackagePlus, RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, Upload, Wrench, X } from '@lucide/vue';
+import { Archive, Ban, CircleAlert, CircleCheck, Download, FolderOpen, History, LifeBuoy, Loader, PackagePlus, Play, RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, Upload, Wrench, X } from '@lucide/vue';
 import type { OperationKind, OperationStatus, RecoveryStatus } from '../backend/contract';
-import { isTerminal } from '../domain/operation';
+import { isSettled } from '../domain/operation';
 import { formatDate, t } from '../i18n';
 import { asError, useSession } from '../state/session';
 import { opKindKey, opStateKey, opStateTone } from '../ui/labels';
@@ -26,10 +26,10 @@ async function cancel(id: string) {
 }
 onMounted(refresh);
 
-const kindIcon: Record<OperationKind, Component> = { 'apply-plan': Wrench, 'create-instance': PackagePlus, 'install-pack': Download, export: Upload };
+const kindIcon: Record<OperationKind, Component> = { 'apply-plan': Wrench, 'create-instance': PackagePlus, 'install-pack': Download, export: Upload, launch: Play };
 function stateIcon(op: OperationStatus): Component {
-  if (!isTerminal(op)) return op.state === 'recovering' ? RotateCcw : Loader;
-  return { completed: CircleCheck, cancelled: Ban, rolled_back: RotateCcw, needs_attention: CircleAlert }[op.state as 'completed'] ?? CircleCheck;
+  if (!isSettled(op)) return Loader;
+  return { completed: CircleCheck, cancelled: Ban, rolled_back: RotateCcw, failed: CircleAlert, recovery_required: CircleAlert }[op.state as 'completed'] ?? CircleCheck;
 }
 </script>
 
@@ -53,7 +53,7 @@ function stateIcon(op: OperationStatus): Component {
         </div>
         <ol class="timeline">
           <li v-for="(op, i) in ops" :key="op.operationId" class="op rise" :class="opStateTone[op.state]" :style="{ '--i': i }">
-            <span class="node"><component :is="stateIcon(op)" :size="16" :class="{ spin: !isTerminal(op) }" /></span>
+            <span class="node"><component :is="stateIcon(op)" :size="16" :class="{ spin: !isSettled(op) }" /></span>
             <div class="op-body">
               <div class="op-head">
                 <component :is="kindIcon[op.kind]" :size="16" class="muted" />
@@ -61,14 +61,14 @@ function stateIcon(op: OperationStatus): Component {
                 <span class="badge" :class="opStateTone[op.state]">{{ t(opStateKey[op.state]) }}</span>
                 <span class="muted small grow">{{ formatDate(op.startedAt) }}</span>
                 <button
-                  v-if="!isTerminal(op) && op.cancellable"
+                  v-if="!isSettled(op) && op.cancellable"
                   class="btn btn-small btn-danger"
                   type="button"
                   :disabled="!session.can('operations.cancel')"
                   @click="cancel(op.operationId)"
                 ><X :size="14" />{{ t('cancelOperation') }}</button>
               </div>
-              <div v-if="!isTerminal(op)" class="progress"><span :style="{ width: `${Math.round((op.progress ?? 0) * 100)}%` }"></span></div>
+              <div v-if="!isSettled(op)" class="progress"><span :style="{ width: `${Math.round((op.progress ?? 0) * 100)}%` }"></span></div>
               <div v-if="op.error" class="detail error-box">
                 <strong>{{ t('errorDetails') }}</strong>
                 <p>{{ op.error.message }}</p>

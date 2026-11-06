@@ -378,7 +378,7 @@ export class MockBackend implements ManagerBackend {
     const existing = this.byIdempotency.get(idempotencyKey);
     if (existing) return { operationId: existing };
     const operationId = `op-${++this.seq}`;
-    const status: OperationStatus = { operationId, kind, instanceId, planHash, state: 'preparing', progress: 0, startedAt: now(), updatedAt: now(), cancellable: true };
+    const status: OperationStatus = { operationId, kind, instanceId, planHash, state: 'queued', progress: 0, startedAt: now(), updatedAt: now(), cancellable: true };
     this.operations.set(operationId, status);
     this.byIdempotency.set(idempotencyKey, operationId);
     if (instanceId) this.instance(instanceId).status = 'busy';
@@ -387,8 +387,13 @@ export class MockBackend implements ManagerBackend {
   }
 
   private async runOperation(status: OperationStatus, commit: () => OperationStatus['result']) {
-    const steps: [OperationState, number, string][] = [['waiting', 0.05, 'gate'], ['applying', 0.3, 'download'], ['applying', 0.6, 'stage'], ['applying', 0.85, 'swap'], ['verifying', 0.95, 'verify']];
-    const fail = this.opts.failApply;
+    // Same state order as the Launcher contract; a launch completes at process start.
+    const steps: [OperationState, number, string][] = status.kind === 'launch'
+      ? [['acquiring', 0.3, 'gate'], ['applying', 0.7, 'prelaunch']]
+      : status.kind === 'apply-plan'
+        ? [['acquiring', 0.05, 'gate'], ['revalidating', 0.15, 'baseline'], ['backing_up', 0.3, 'backup'], ['applying', 0.6, 'stage'], ['applying', 0.85, 'swap'], ['verifying', 0.95, 'verify']]
+        : [['resolving', 0.1, 'resolve'], ['downloading', 0.4, 'download'], ['applying', 0.8, 'install'], ['verifying', 0.95, 'verify']];
+    const fail = this.opts.failApply && status.kind === 'apply-plan';
     for (const [state, progress, step] of steps) {
       await this.delay(this.opts.stepMs);
       if (status.state === 'cancelled') return this.finish(status);
@@ -397,9 +402,7 @@ export class MockBackend implements ManagerBackend {
     }
     await this.delay(this.opts.stepMs);
     if (fail) {
-      this.update(status, { state: 'recovering', step: 'restore', error: { code: 'verify-failed', message: 'A downloaded file did not match its expected hash.' } });
-      await this.delay(this.opts.stepMs);
-      this.update(status, { state: 'rolled_back', recovery: { backupId: `bk-${status.operationId}`, restored: true, message: 'The instance was restored to how it was before this change.' } });
+      this.update(status, { state: 'rolled_back', error: { code: 'INTEGRITY_FAILED', message: 'A downloaded file did not match its expected hash.' }, recovery: { backupId: `bk-${status.operationId}`, restored: true, message: 'The instance was restored to how it was before this change.' } });
     } else {
       const result = commit();
       this.update(status, { state: 'completed', progress: 1, step: 'done', result });
@@ -492,7 +495,13 @@ export class MockBackend implements ManagerBackend {
     return this.call(() => this.startOperation('export', request.idempotencyKey, request.instanceId, undefined, () => ({ exportPath: `C:\\Users\\Player\\Documents\\${request.name}-${request.version}.${request.format === 'mrpack' ? 'mrpack' : 'zip'}` })));
   }
 
-  requestLaunch(instanceId: string): Promise<void> {
-    return this.call(() => { this.instance(instanceId); });
+  requestLaunch(instanceId: string, idempotencyKey: string): Promise<Accepted> {
+    return this.call(() => {
+      const inst = this.instance(instanceId);
+      if (inst.status === 'busy') throw new BackendError('instance-busy', 'This instance is busy. Try again when the current change has finished.');
+      const accepted = this.startOperation('launch', idempotencyKey, undefined, undefined, () => ({}));
+      inst.status = 'running';
+      return accepted;
+    });
   }
 }

@@ -5,7 +5,7 @@ import {
 } from '../backend/contract';
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
 import { newDraft } from '../domain/draft';
-import { followOperation, isTerminal } from '../domain/operation';
+import { followOperation, isSettled } from '../domain/operation';
 import { load, save } from '../domain/storage';
 import { prune, emptySelection, type Selection } from '../domain/selection';
 
@@ -317,7 +317,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
       const ops = await backend.listOperations();
       state.operations = ops;
       // Reattach to anything still running (another window, or before a reconnect).
-      for (const op of ops) if (!isTerminal(op)) void track(op.operationId);
+      for (const op of ops) if (!isSettled(op)) void track(op.operationId);
     } catch {
       /* shown via connection state */
     }
@@ -344,6 +344,12 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     return final;
   }
 
+  /** Ask the Launcher to start the instance with its own account, Java and GPU settings. */
+  async function launch(instanceId: string) {
+    const { operationId } = await backend.requestLaunch(instanceId, crypto.randomUUID());
+    return track(operationId);
+  }
+
   async function startExport(req: Omit<ExportRequest, 'idempotencyKey'>) {
     const { operationId } = await backend.startExport({ ...req, idempotencyKey: crypto.randomUUID() });
     return track(operationId);
@@ -355,7 +361,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     connect, refreshInstances, selectInstance, loadInventory,
     setDraft, discardDraft, setPinned,
     validate, apply, acceptChangedPlan, resetReview,
-    refreshOperations, cancelOperation, createInstance, installPack, startExport,
+    refreshOperations, cancelOperation, createInstance, installPack, startExport, launch,
   };
 }
 

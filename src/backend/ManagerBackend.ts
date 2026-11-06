@@ -58,5 +58,6 @@ export interface ManagerBackend {
   checkExport(instanceId: string, format: ExportFormat): Promise<ExportReport>;
   startExport(request: ExportRequest): Promise<Accepted>;
 
-  requestLaunch(instanceId: string): Promise<void>;
+  /** Accepting is not "started": follow the operation until the Launcher reports process-started. */
+  requestLaunch(instanceId: string, idempotencyKey: string): Promise<Accepted>;
 }
