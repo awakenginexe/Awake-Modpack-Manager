@@ -32,6 +32,14 @@ Client behaviour the Launcher can rely on:
 
 ## Requests
 
+### R0. Operation state enum (seen in Launcher `f59f2ba6e`)
+`launcher/awake/integration/OperationStore.cpp` (internal, not advertised) uses a state
+`rolling_back` that isn't in `requests.schema.json` `$defs/operation`. The Manager validates
+states strictly against the schema, so a record in that state would be rejected as a protocol
+violation. Please either add `rolling_back` (nonterminal) to the schema when the store is exposed,
+and the Manager will add it in the same re-pin, or map it to a schema state on the wire.
+`createdAt`, which the store already keeps, would also cover part of R7.
+
 ### R1. Instance details in `instances.list`
 * **Workflow:** Library cards, Browse compatibility filters, dependency checks, export metadata.
 * **Fields per instance:** `minecraftVersion` (string), `loader` (`{uid, version}` from the native
