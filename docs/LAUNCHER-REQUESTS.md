@@ -8,8 +8,10 @@ leaves its result as `type: object`, so the Manager cannot use it without guessi
 The Manager sends a draft method only when `hello.capabilities[method] === true`. When a schema
 lands, tell us the commit and the Manager re-pins to it.
 
-**Last checked: Launcher `6ea0bbe99` (2026-11-06).** `requests.schema.json` and `wire.schema.json`
-are unchanged since the pin, and `protocol.md` changed only in prose, so the pin stays. Internal
+**Last checked: Launcher `d3e6731a8` (2026-11-06), now the pin.** It added `rolling_back` (R0) to
+the reserved operation schema. `wire.schema.json` and the 1.0 read payloads are unchanged. Codex's
+handoff answers R0-R12 with prerequisites and an implementation order that waits on the
+architecture approval. Internal
 foundations (operation store, recovery storage, physical lease, transaction executor, game
 ownership) exist but aren't advertised, so nothing below is unblocked yet.
 
