@@ -3,12 +3,12 @@ import { t, type MessageKey } from '../i18n';
 
 export const opStateKey: Record<OperationState, MessageKey> = {
   queued: 'opQueued', resolving: 'opResolving', downloading: 'opDownloading', prepared: 'opPrepared',
-  acquiring: 'opWaiting', revalidating: 'opRevalidating', backing_up: 'opBackingUp', applying: 'opApplying', verifying: 'opVerifying',
+  acquiring: 'opWaiting', revalidating: 'opRevalidating', backing_up: 'opBackingUp', applying: 'opApplying', verifying: 'opVerifying', rolling_back: 'opRollingBack',
   completed: 'opCompleted', cancelled: 'opCancelled', failed: 'opFailed', rolled_back: 'opRolledBack', recovery_required: 'opRecoveryRequired',
 };
 export const opStateTone: Record<OperationState, string> = {
   queued: 'info', resolving: 'info', downloading: 'info', prepared: 'info',
-  acquiring: 'info', revalidating: 'info', backing_up: 'info', applying: 'info', verifying: 'info',
+  acquiring: 'info', revalidating: 'info', backing_up: 'info', applying: 'info', verifying: 'info', rolling_back: 'warn',
   completed: 'ok', cancelled: '', failed: 'error', rolled_back: 'warn', recovery_required: 'error',
 };
 export const opKindKey: Record<OperationKind, MessageKey> = { 'apply-plan': 'kindApply', 'create-instance': 'kindCreate', 'install-pack': 'kindInstallPack', export: 'kindExport', launch: 'kindLaunch' };

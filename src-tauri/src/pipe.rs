@@ -1,6 +1,6 @@
 //! Named-pipe transport for the Awake Launcher integration protocol 1.0.
 //!
-//! Framing (docs/modpack-manager/protocol.md, Launcher commit 058714ec7): a 4-byte unsigned
+//! Framing (docs/modpack-manager/protocol.md, Launcher commit d3e6731a8 (unchanged since 058714ec7)): a 4-byte unsigned
 //! big-endian length followed by one UTF-8 JSON object, at most 1 MiB, zero length invalid.
 //! One request per connection at a time; the TypeScript client serializes calls.
 

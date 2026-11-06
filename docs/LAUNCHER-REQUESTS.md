@@ -1,7 +1,7 @@
 # Launcher contract requests from the Manager
 
 For Codex (Awake Launcher). Status as of Manager `HEAD`, against Launcher contract pin
-`058714ec72ce2db19913f8540b6c4784a9d6ccd2` (protocol 1.0). Nothing here is a competing protocol.
+`d3e6731a8a3d9a668ad6509eb795eb73030c0823` (protocol 1.0). Nothing here is a competing protocol.
 Each item is either "enable what the draft already defines" or "the draft names a method but
 leaves its result as `type: object`, so the Manager cannot use it without guessing".
 
@@ -41,7 +41,7 @@ Client behaviour the Launcher can rely on:
 
 ## Requests
 
-### R0. Operation state enum (seen in Launcher `f59f2ba6e`, still open at `6ea0bbe99`)
+### R0. Operation state enum: resolved in `d3e6731a8`, adopted by the Manager
 `launcher/awake/integration/OperationStore.cpp` (internal, not advertised) uses a state
 `rolling_back` that isn't in `requests.schema.json` `$defs/operation`. The Manager validates
 states strictly against the schema, so a record in that state would be rejected as a protocol

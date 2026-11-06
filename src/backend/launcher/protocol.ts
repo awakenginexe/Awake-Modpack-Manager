@@ -2,12 +2,12 @@
  * Awake Launcher integration protocol 1.0 (experimental), read-only subset.
  *
  * Source of truth: Awake Launcher docs/modpack-manager/{protocol.md, wire.schema.json,
- * requests.schema.json} at commit 058714ec72ce2db19913f8540b6c4784a9d6ccd2 (branch
+ * requests.schema.json} at commit d3e6731a8a3d9a668ad6509eb795eb73030c0823 (branch
  * feat/modpack-manager-integration). Types below mirror those schemas; do not add fields or
  * methods that are not in them.
  */
 
-export const CONTRACT_COMMIT = '058714ec72ce2db19913f8540b6c4784a9d6ccd2';
+export const CONTRACT_COMMIT = 'd3e6731a8a3d9a668ad6509eb795eb73030c0823';
 export const SUPPORTED_VERSIONS = [{ major: 1, minor: 0 }] as const;
 export const PAGE_LIMIT = 500;
 
@@ -25,7 +25,7 @@ export type DraftMethod = 'operations.get' | 'operations.cancel' | 'launch.reque
 export type Method = ReadMethod | DraftMethod;
 
 export const OPERATION_STATES = [
-  'queued', 'resolving', 'downloading', 'prepared', 'acquiring', 'revalidating', 'backing_up', 'applying', 'verifying',
+  'queued', 'resolving', 'downloading', 'prepared', 'acquiring', 'revalidating', 'backing_up', 'applying', 'verifying', 'rolling_back',
   'completed', 'cancelled', 'failed', 'rolled_back', 'recovery_required',
 ] as const;
 export type WireOperationState = (typeof OPERATION_STATES)[number];

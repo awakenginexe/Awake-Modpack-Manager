@@ -337,6 +337,7 @@ export const zhTW: Catalog = {
   opCompleted: '已完成',
   opCancelled: '已取消',
   opRolledBack: '已還原',
+  opRollingBack: "還原中",
   kindApply: '模組變更',
   kindCreate: '建立實例',
   kindExport: '匯出',

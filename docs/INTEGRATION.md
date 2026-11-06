@@ -5,7 +5,7 @@ also implements the draft operation methods whose fields the contract fully defi
 them only when the Launcher reports them enabled, which it doesn't yet. What the Manager still
 needs from the Launcher is in [LAUNCHER-REQUESTS.md](LAUNCHER-REQUESTS.md).
 
-Contract pin: Awake Launcher `058714ec72ce2db19913f8540b6c4784a9d6ccd2`
+Contract pin: Awake Launcher `d3e6731a8a3d9a668ad6509eb795eb73030c0823` (re-pinned from `058714ec7`: the reserved operation schema gained the nonterminal `rolling_back` state and an enforced terminal flag; 1.0 read payloads and framing are unchanged)
 (branch `feat/modpack-manager-integration`), files `docs/modpack-manager/protocol.md`,
 `wire.schema.json`, `requests.schema.json`. The Launcher handoff names the same pin. Later Launcher
 commits that change only prose or tests don't change this contract. Re-pin explicitly when the

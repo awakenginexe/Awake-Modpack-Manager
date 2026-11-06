@@ -335,6 +335,7 @@ export const en = {
   opCompleted: 'Completed',
   opCancelled: 'Cancelled',
   opRolledBack: 'Rolled back',
+  opRollingBack: "Rolling back",
   kindApply: 'Mod changes',
   kindCreate: 'Create instance',
   kindExport: 'Export',

@@ -337,6 +337,7 @@ export const th: Catalog = {
   opCompleted: 'เสร็จสิ้น',
   opCancelled: 'ยกเลิกแล้ว',
   opRolledBack: 'ย้อนกลับแล้ว',
+  opRollingBack: "กำลังย้อนกลับ",
   kindApply: 'เปลี่ยนแปลงม็อด',
   kindCreate: 'สร้างอินสแตนซ์',
   kindExport: 'ส่งออก',

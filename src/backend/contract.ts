@@ -316,6 +316,8 @@ export interface ResolvedPlan {
 export type OperationState =
   | 'queued' | 'resolving' | 'downloading' | 'prepared'
   | 'acquiring' | 'revalidating' | 'backing_up' | 'applying' | 'verifying'
+  /** Nonterminal: the Launcher is undoing a failed apply. */
+  | 'rolling_back'
   | 'completed' | 'cancelled' | 'failed' | 'rolled_back'
   /** Nonterminal: blocks unsafe use until the Launcher's recovery has run. */
   | 'recovery_required';

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BackendError } from '../src/backend/contract';
 import { createLauncherClient } from '../src/backend/launcher/LauncherClient';
-import { buildRequest, parseResponse, ProtocolError, WireViolation } from '../src/backend/launcher/protocol';
+import { buildRequest, parseOperation, parseResponse, ProtocolError, WireViolation } from '../src/backend/launcher/protocol';
 import { createSession } from '../src/state/session';
 import { DRAFT_CAPABILITIES, FakeLauncher, instance, mods } from './fixtures/fakeLauncher';
 
@@ -322,5 +322,15 @@ describe('LauncherClient draft operations (fixture only)', () => {
     await session.backend.applyPlan({ planId: '00000000-0000-4000-8000-00000000abcd', planHash: digest, baseRevision: 'rev-1', idempotencyKey: 'apply-1' });
     expect(fake.log.find((l) => l.method === 'transactions.apply')?.params).toEqual({ idempotencyKey: 'apply-1', operationId: '00000000-0000-4000-8000-00000000abcd', planDigest: digest, instanceRevision: 'rev-1' });
     await expect(session.backend.applyPlan({ planId: 'other', planHash: digest, baseRevision: 'rev-1', idempotencyKey: 'apply-1' })).rejects.toMatchObject({ code: 'rejected', detail: 'IDEMPOTENCY_CONFLICT' });
+  });
+});
+
+describe('operation records (pin d3e6731a8)', () => {
+  it('accepts the nonterminal rolling_back state and enforces the terminal flag', () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    expect(parseOperation({ operationId: id, state: 'rolling_back', terminal: false }).state).toBe('rolling_back');
+    expect(() => parseOperation({ operationId: id, state: 'rolling_back', terminal: true })).toThrow(WireViolation);
+    expect(() => parseOperation({ operationId: id, state: 'rolled_back', terminal: false })).toThrow(WireViolation);
+    expect(() => parseOperation({ operationId: id, state: 'rolling-back', terminal: false })).toThrow(WireViolation);
   });
 });

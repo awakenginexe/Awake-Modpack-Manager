@@ -1,7 +1,7 @@
 //! Finds Awake Launcher data profiles and their integration endpoint descriptors.
 //!
 //! Mirrors Launcher data-root resolution (launcher/Application.cpp + launcher/awake/DataLocation.h
-//! at commit 058714ec7) for the places the protocol allows a client to look: the installer's
+//! at commit d3e6731a8 (unchanged since 058714ec7)) for the places the protocol allows a client to look: the installer's
 //! registry entry, AWAKELAUNCHER_DATA_DIR, the default %APPDATA%\AwakeLauncher, and folders the user
 //! added. No disk scanning. `--dir` profiles are reached by adding that folder explicitly.
 

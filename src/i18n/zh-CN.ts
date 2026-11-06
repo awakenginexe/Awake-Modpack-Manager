@@ -337,6 +337,7 @@ export const zhCN: Catalog = {
   opCompleted: '已完成',
   opCancelled: '已取消',
   opRolledBack: '已回滚',
+  opRollingBack: "回滚中",
   kindApply: '模组更改',
   kindCreate: '创建版本',
   kindExport: '导出',

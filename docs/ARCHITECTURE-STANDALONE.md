@@ -19,7 +19,7 @@ The hard rule is that two uncoordinated writers never modify the same live insta
   volume/file identities, a **cross-process physical lease**, a recoverable multi-file executor,
   game-process ownership that survives a Launcher exit, and ResourceAPI provider callbacks.
 * All of it is C++/Qt inside the GPL-3.0 Launcher, and none of it is a public capability yet.
-* The IPC contract is still the read-only protocol 1.0, pin `058714ec7`.
+* The IPC contract is still the read-only protocol 1.0, pin `d3e6731a8`.
 
 ## Options compared
 
