@@ -18,8 +18,12 @@
   theme. Because these files come from the GPL-3.0 Launcher repository, either keep the Manager
   GPL-compatible or swap them for each provider's official brand-kit assets before a non-GPL
   release.
-* **Runtime dependencies:** Vue 3.5.43 (MIT) and @lucide/vue 1.59.0 icons (ISC). See
-  `THIRD-PARTY-NOTICES.txt`.
+* **Runtime dependencies:** Vue 3.5.43 (MIT), @lucide/vue 1.59.0 icons (ISC) and @tauri-apps/api
+  2.12.4 (MIT/Apache-2.0). See `THIRD-PARTY-NOTICES.txt`.
+* **Desktop host (Rust):** tauri 2.12.5, serde/serde_json and windows-sys 0.61, all MIT or
+  Apache-2.0, plus their transitive crates (pinned in `src-tauri/Cargo.lock`). Before a public
+  release, generate the full crate notice list (e.g. with cargo-about) and ship it with the
+  installer.
 * **Project licence:** none chosen yet (`"private": true`). Needs an owner decision before any
   public release.
 * **Mod redistribution:** Export never assumes a mod can be redistributed. Provider-hosted files

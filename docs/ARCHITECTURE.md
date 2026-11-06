@@ -33,9 +33,12 @@ inventories.
 
 ## Desktop shell decision
 
-The frontend is shell-agnostic today and runs as a **frontend-only development build**
-(`npm run dev`). No shell has been added yet, deliberately, because the right shell depends on
-the coordinator's transport, which is not defined.
+**Decided: Tauri 2** (`src-tauri/`). The Launcher's protocol 1.0 turned out to be language-neutral
+local IPC: a Windows named pipe with length-prefixed JSON. That was the condition below for
+choosing Tauri. The Rust host only does discovery, pipe I/O and server-identity checks; protocol
+logic stays in TypeScript behind `ManagerBackend`. See [INTEGRATION.md](INTEGRATION.md).
+
+The comparison that led there:
 
 | | Tauri 2 + Vue | Qt WebEngine + Vue |
 |---|---|---|
