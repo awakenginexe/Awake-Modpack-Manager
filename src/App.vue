@@ -23,6 +23,8 @@ import { useProjects } from './state/projects';
 export type ViewId = 'library' | 'packs' | 'projects' | 'mods' | 'browse' | 'review' | 'files' | 'history' | 'export';
 
 const session = useSession();
+/** Dev-only protocol fixture (?mock=core): label it like demo data. */
+const devFixture = import.meta.env.DEV && location.search.includes('mock=core');
 const { state } = session;
 // Start on the library; jump to Mods only once the remembered instance has actually loaded.
 const view = ref<ViewId>('library');
@@ -172,7 +174,7 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
     </Transition>
 
     <main class="stage">
-      <div v-if="session.backend.kind === 'mock' && view !== 'projects'" class="mock-banner" role="note">
+      <div v-if="(session.backend.kind === 'mock' || devFixture) && view !== 'projects'" class="mock-banner" role="note">
         <span class="dot"></span>{{ t('connMockHint') }}
       </div>
       <Transition name="page" :mode="motionOff ? 'default' : 'out-in'" :css="!motionOff">

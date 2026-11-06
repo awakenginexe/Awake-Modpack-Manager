@@ -293,6 +293,7 @@ export const zhTW: Catalog = {
 
   reviewTitle: '檢查並套用',
   reviewSubtitle: '在 Awake Launcher 套用之前，逐項檢查所有變更。',
+  reviewSubtitleHelper: "在 Manager 助手下載、驗證並套用之前，逐項檢查所有變更。",
   reviewEmpty: '草稿是空的。',
   reviewEmptyHint: '在「模組」或「瀏覽模組」中選擇模組來建立計畫。',
   resolve: '檢查計畫',
@@ -513,6 +514,7 @@ export const zhTW: Catalog = {
   requiredDepsHint: "必要的相依項目會加入計畫，並在安裝前驗證。",
   useVersion: "使用此版本",
   createLoaderVersion: "載入器版本",
+  createHelperHint: "Manager 會在自己的專案資料夾中依這些確切版本建立它，不需要 Awake Launcher。",
   rollBack: "還原",
   rollingBack: "正在還原…",
   rollBackConfirm: "要還原這次被中斷的變更嗎？助手會復原變更前備份的檔案並進行驗證。",

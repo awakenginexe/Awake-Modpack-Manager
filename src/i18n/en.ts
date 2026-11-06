@@ -291,6 +291,7 @@ export const en = {
 
   reviewTitle: 'Review & apply',
   reviewSubtitle: 'Check every change before Awake Launcher applies it.',
+  reviewSubtitleHelper: "Check every change before the Manager's helper downloads, verifies and applies it.",
   reviewEmpty: 'Your draft is empty.',
   reviewEmptyHint: 'Pick mods in Mods or Browse to build a plan.',
   resolve: 'Check plan',
@@ -511,6 +512,7 @@ export const en = {
   requiredDepsHint: "Required dependencies are added to the plan and verified before installing.",
   useVersion: "Use this version",
   createLoaderVersion: "Loader version",
+  createHelperHint: "The Manager creates it in its own project folder with exactly these versions. Awake Launcher isn't needed.",
   rollBack: "Roll back",
   rollingBack: "Rolling back…",
   rollBackConfirm: "Roll back this interrupted change? The helper restores the files it backed up before the change and verifies them.",

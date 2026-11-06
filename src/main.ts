@@ -17,6 +17,8 @@ import './styles/base.css';
  * - Real: the Manager's own native helper (standalone projects) plus Awake Launcher when it is
  *   installed, as two separate connections (desktop app only).
  * - Demo: built-in sample data. Dev scenarios: ?mock=drift,fail,cf (forces demo).
+ * - Dev only (`npm run dev`): ?mock=core runs the real helper client against the protocol 2.0 test
+ *   fixture, to check the standalone screens. Never part of a production build.
  */
 function pickBackend(): ManagerBackend {
   const flags = new URLSearchParams(location.search).get('mock');
@@ -42,6 +44,18 @@ function pickBackend(): ManagerBackend {
   });
 }
 
-const session = createSession(pickBackend());
-createApp(App).provide(SessionKey, session).mount('#app');
-void session.connect();
+async function devCoreBackend(): Promise<ManagerBackend> {
+  const { FakeCore } = await import('../tests/fixtures/fakeCore');
+  const core = new FakeCore({ mods: 240 });
+  return createCompositeBackend(
+    createHelperClient({ transport: core, clientVersion: pkg.version, pollMs: 120 }),
+    createLauncherClient({ transport: null, clientVersion: pkg.version }),
+  );
+}
+
+const devCore = import.meta.env.DEV && new URLSearchParams(location.search).get('mock') === 'core';
+void (async () => {
+  const session = createSession(devCore ? await devCoreBackend() : pickBackend());
+  createApp(App).provide(SessionKey, session).mount('#app');
+  void session.connect();
+})();

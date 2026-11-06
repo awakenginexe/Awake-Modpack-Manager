@@ -293,6 +293,7 @@ export const zhCN: Catalog = {
 
   reviewTitle: '检查并应用',
   reviewSubtitle: '在 Awake Launcher 应用之前，逐项检查所有更改。',
+  reviewSubtitleHelper: "在 Manager 助手下载、校验并应用之前，逐项检查所有更改。",
   reviewEmpty: '草稿为空。',
   reviewEmptyHint: '在“模组”或“浏览模组”中选择模组来制定计划。',
   resolve: '检查计划',
@@ -513,6 +514,7 @@ export const zhCN: Catalog = {
   requiredDepsHint: "必需的依赖会加入计划，并在安装前校验。",
   useVersion: "使用此版本",
   createLoaderVersion: "加载器版本",
+  createHelperHint: "Manager 会在自己的项目文件夹中按这些确切版本创建它，无需 Awake Launcher。",
   rollBack: "回滚",
   rollingBack: "正在回滚…",
   rollBackConfirm: "要回滚这次被中断的更改吗？助手会恢复更改前备份的文件并进行校验。",

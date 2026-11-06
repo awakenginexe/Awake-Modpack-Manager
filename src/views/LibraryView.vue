@@ -190,7 +190,7 @@ async function create() {
 
         <div class="meta">
           <span v-if="inst.minecraftVersion" :title="t('createVersion')"><Gamepad2 :size="15" />{{ inst.minecraftVersion }}</span>
-          <span v-if="inst.loader" :title="t('createLoader')"><Layers :size="15" />{{ loaderLabel(inst.loader.kind) }}<template v-if="inst.loader.version"> {{ inst.loader.version }}</template></span>
+          <span v-if="inst.loader" :title="t('createLoader')"><Layers :size="15" />{{ inst.loader.version ? `${loaderLabel(inst.loader.kind)} ${inst.loader.version}` : loaderLabel(inst.loader.kind) }}</span>
           <span v-if="!inst.minecraftVersion && !inst.loader" class="unknown" :title="t('versionUnknownHint')"><Gamepad2 :size="15" />{{ t('versionUnknown') }}</span>
           <span><Boxes :size="15" />{{ inst.modCount === undefined ? t('modsUnknown') : t('instanceMods', { count: formatNumber(inst.modCount) }) }}</span>
         </div>
@@ -220,7 +220,7 @@ async function create() {
     <Transition name="modal">
       <div v-if="showCreate" class="dialog-overlay" @click.self="showCreate = false" @keydown.esc="showCreate = false">
         <form class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="create-title" @submit.prevent="create">
-          <header><h2 id="create-title">{{ t('createTitle') }}</h2><p class="muted small">{{ t('createHint') }}</p></header>
+          <header><h2 id="create-title">{{ helper ? t('projNew') : t('createTitle') }}</h2><p class="muted small">{{ helper ? t('createHelperHint') : t('createHint') }}</p></header>
           <div class="dialog-body">
             <label class="field"><span>{{ t('createName') }}</span><input v-model="form.name" class="input" required autofocus /></label>
             <label class="field"><span>{{ t('createVersion') }}</span>

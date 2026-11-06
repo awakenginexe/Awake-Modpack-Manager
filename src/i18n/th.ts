@@ -293,6 +293,7 @@ export const th: Catalog = {
 
   reviewTitle: 'ตรวจสอบและนำไปใช้',
   reviewSubtitle: 'ตรวจสอบทุกการเปลี่ยนแปลงก่อนให้ Awake Launcher นำไปใช้',
+  reviewSubtitleHelper: "ตรวจสอบทุกการเปลี่ยนแปลงก่อนที่ตัวช่วยของ Manager จะดาวน์โหลด ตรวจสอบ และนำไปใช้",
   reviewEmpty: 'ฉบับร่างยังว่างอยู่',
   reviewEmptyHint: 'เลือกม็อดจากหน้าม็อดหรือหน้าค้นหาเพื่อสร้างแผน',
   resolve: 'ตรวจสอบแผน',
@@ -513,6 +514,7 @@ export const th: Catalog = {
   requiredDepsHint: "ม็อดที่จำเป็นจะถูกเพิ่มในแผนและตรวจสอบก่อนติดตั้ง",
   useVersion: "ใช้เวอร์ชันนี้",
   createLoaderVersion: "เวอร์ชันตัวโหลด",
+  createHelperHint: "Manager จะสร้างโปรเจกต์ในโฟลเดอร์ของตัวเองด้วยเวอร์ชันเหล่านี้ทุกประการ ไม่ต้องใช้ Awake Launcher",
   rollBack: "ย้อนกลับ",
   rollingBack: "กำลังย้อนกลับ…",
   rollBackConfirm: "ย้อนกลับการเปลี่ยนแปลงที่ถูกขัดจังหวะนี้หรือไม่ ตัวช่วยจะกู้คืนไฟล์ที่สำรองไว้ก่อนการเปลี่ยนแปลงและตรวจสอบไฟล์เหล่านั้น",

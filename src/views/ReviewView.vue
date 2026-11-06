@@ -69,7 +69,7 @@ function reasonText(i: PlanItem) {
     <header class="view-header">
       <div>
         <h1>{{ t('reviewTitle') }}</h1>
-        <p>{{ t('reviewSubtitle') }}</p>
+        <p>{{ session.source.value === 'helper' ? t('reviewSubtitleHelper') : t('reviewSubtitle') }}</p>
       </div>
       <div v-if="changes.length" class="toolbar">
         <template v-if="confirmDiscard">
@@ -130,7 +130,7 @@ function reasonText(i: PlanItem) {
       <section class="panel card plan-panel" :aria-label="t('planTitle')" aria-live="polite">
         <h2 class="panel-title">{{ t('planTitle') }}</h2>
         <p v-if="!plan && review.phase !== 'failed'" class="placeholder muted"><Sparkles :size="18" />{{ t('planPlaceholder') }}</p>
-        <div v-if="session.planOutdated.value" class="notice warn small" role="alert"><TriangleAlert :size="18" />{{ t('planNeedsCheck') }}</div>
+        <div v-if="session.planOutdated.value && review.phase !== 'done'" class="notice warn small" role="alert"><TriangleAlert :size="18" />{{ t('planNeedsCheck') }}</div>
         <div v-if="review.phase === 'changed'" class="notice warn" role="alert">
           <TriangleAlert :size="18" /><span class="grow">{{ t('planChanged') }}</span>
           <button class="btn btn-small" type="button" @click="session.acceptChangedPlan()">{{ t('reviewChanges') }}</button>
@@ -187,9 +187,9 @@ function reasonText(i: PlanItem) {
         <div v-if="review.operation" class="operation">
           <div class="op-row">
             <span class="badge" :class="opStateTone[review.operation.state]">{{ t(opStateKey[review.operation.state]) }}</span>
-            <span class="muted small">{{ Math.round((review.operation.progress ?? 0) * 100) }}%</span>
+            <span class="muted small">{{ Math.round((review.operation.state === 'completed' ? 1 : review.operation.progress ?? 0) * 100) }}%</span>
           </div>
-          <div class="progress"><span :style="{ width: `${Math.round((review.operation.progress ?? 0) * 100)}%` }"></span></div>
+          <div class="progress"><span :style="{ width: `${Math.round((review.operation.state === 'completed' ? 1 : review.operation.progress ?? 0) * 100)}%` }"></span></div>
           <p v-if="review.operation.error" class="small">{{ review.operation.error.message }}</p>
           <p v-if="review.operation.recovery" class="small">{{ review.operation.recovery.message }}</p>
         </div>
