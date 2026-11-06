@@ -100,6 +100,11 @@ The hard rule is that two uncoordinated writers never modify the same live insta
   instance without any launcher, that is a third writer category and reopens option 1. Not
   recommended.
 
+* **D7. Export save location.** Today an export downloads through WebView2 straight into
+  `Downloads`, with no dialog (verified in the desktop build). A native Save As dialog needs the Tauri
+  dialog plugin plus one narrowly scoped host command that writes the chosen output file. That
+  file is not instance data, but it is the host's first write path, so it needs your approval.
+
 ## Built so far, safe under any option
 
 * Manager project model and local draft persistence (`src/domain/project.ts`,
