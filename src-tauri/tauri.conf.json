@@ -30,6 +30,13 @@
     "publisher": "Awake Modpack Manager Contributors",
     "targets": ["nsis"],
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
-    "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } }
+    "resources": {
+      "helper-stage/": "core-host/windows-x64/",
+      "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "installMode": "currentUser", "installerHooks": "./installer-hooks.nsh" }
+    }
   }
 }

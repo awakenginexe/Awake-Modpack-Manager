@@ -98,7 +98,7 @@ async function create() {
       <label v-if="state.installations.length > 1" class="field inline">
         <span>{{ t('libraryInstallation') }}</span>
         <select v-model="state.installationId" class="select" @change="state.installationId !== 'manager' && (preferredProfile = state.installationId); session.refreshInstances()">
-          <option v-for="inst in state.installations" :key="inst.id" :value="inst.id">{{ inst.displayName }}{{ inst.available === false ? ` (${t('profileNotRunning')})` : '' }}</option>
+          <option v-for="inst in state.installations" :key="inst.id" :value="inst.id">{{ inst.id === 'manager' ? t('managerInstallation') : inst.displayName }}{{ inst.available === false ? ` (${t('profileNotRunning')})` : '' }}</option>
         </select>
       </label>
       <span class="muted small count">{{ t('instanceCount', { count: shown.length }) }}</span>

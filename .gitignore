@@ -4,3 +4,6 @@ dist/
 .vite/
 coverage/
 .claude/
+
+# Staged native helper (scripts/stage-helper.mjs)
+src-tauri/helper-stage/

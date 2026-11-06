@@ -135,14 +135,34 @@ const blockerSummary = computed(() => {
   for (const b of exportPlan.value?.blockers ?? []) groups.set(b.code, (groups.get(b.code) ?? 0) + 1);
   return [...groups];
 });
-function download() {
+const savedTo = ref('');
+const saving = ref(false);
+/** Desktop: native Save As, written atomically by the host. Browser: a normal download. */
+async function download() {
   const p = project.value;
   const plan = exportPlan.value;
   if (!p || !plan?.ready) return;
   const blob = store.exportArchive(p, plan.format, new Set(plan.excluded));
+  const name = `${p.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}-${p.version}.${plan.format === 'mrpack' ? 'mrpack' : 'zip'}`;
+  if ('__TAURI_INTERNALS__' in window) {
+    saving.value = true;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+      const path = await invoke<string | null>('save_export', { fileName: name, format: plan.format, bytes });
+      if (path === null) return; // cancelled: keep the dialog open
+      savedTo.value = path;
+      showExport.value = false;
+    } catch (e) {
+      error.value = t('projExportFailed', { reason: String(e) });
+    } finally {
+      saving.value = false;
+    }
+    return;
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${p.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}-${p.version}.${plan.format === 'mrpack' ? 'mrpack' : 'zip'}`;
+  a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   showExport.value = false;
@@ -169,6 +189,12 @@ function removeProject() {
 
     <p v-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ error }}</p>
     <p v-if="store.saveError.value" class="notice error" role="alert"><CircleAlert :size="18" />{{ t('projSaveFailed', { reason: store.saveError.value }) }}</p>
+    <p v-if="store.readOnly.value === 'newer'" class="notice warn" role="alert"><Lock :size="18" />{{ t('projStoreNewer') }}</p>
+    <div v-if="store.legacyPending.value" class="notice" role="note">
+      <Info :size="18" /><span class="grow">{{ t('projLegacyFound', { count: store.projects.value.length }) }}</span>
+      <button class="btn btn-small btn-primary" type="button" @click="store.moveLegacy()">{{ t('projLegacyMove') }}</button>
+    </div>
+    <p v-if="savedTo" class="notice" role="status"><Info :size="18" /><span class="grow">{{ t('projExportSaved', { path: savedTo }) }}</span><button class="icon-btn" type="button" :aria-label="t('dismiss')" @click="savedTo = ''"><X :size="16" /></button></p>
 
     <div v-if="!store.projects.value.length" class="empty card">
       <span class="empty-icon"><FolderKanban :size="26" /></span>
@@ -364,7 +390,7 @@ function removeProject() {
           </div>
           <footer>
             <button class="btn" type="button" @click="showExport = false">{{ t('cancel') }}</button>
-            <button class="btn btn-primary" type="button" :disabled="!exportPlan.ready" @click="download">{{ t('projDownload') }}</button>
+            <button class="btn btn-primary" type="button" :disabled="!exportPlan.ready || saving" @click="download">{{ t('projDownload') }}</button>
           </footer>
         </div>
       </div>

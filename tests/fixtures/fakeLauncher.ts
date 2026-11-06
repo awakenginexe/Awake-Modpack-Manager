@@ -79,6 +79,8 @@ export class FakeLauncher implements PipeTransport {
   closeAfterNextRequest = false;
   staleOnceAtOffset: number | null = null;
   helloSessionOverride: string | null = null;
+  /** Extra hello fields, e.g. `role` / `stub` for a Manager helper. */
+  helloExtra: Record<string, unknown> = {};
   malformedNext = false;
   busyNext = false;
   /** Process the next request, then lose its reply (connection drops). */
@@ -170,7 +172,7 @@ export class FakeLauncher implements PipeTransport {
       if (!Array.isArray(versions) || !versions.length || !client?.name || typeof client.version !== 'string' || Object.keys(params).length !== 2) this.violation('hello params');
       c.helloDone = true;
       this.hellos++;
-      return this.reply(rid, { result: { protocol: { major: 1, minor: 0 }, installationId: this.descriptor.installationId, profileId: this.descriptor.profileId, sessionId: this.helloSessionOverride ?? this.descriptor.sessionId, capabilities: this.capabilities, limits: { frameBytes: 1048576, clients: 8, pageItems: 500 } } });
+      return this.reply(rid, { result: { protocol: { major: 1, minor: 0 }, installationId: this.descriptor.installationId, profileId: this.descriptor.profileId, sessionId: this.helloSessionOverride ?? this.descriptor.sessionId, capabilities: this.capabilities, limits: { frameBytes: 1048576, clients: 8, pageItems: 500 }, ...this.helloExtra } });
     }
     if (!c.helloDone) { this.violation(`${method} before hello`); return this.err(rid, 'HANDSHAKE_REQUIRED'); }
     if (this.busyNext) { this.busyNext = false; return this.err(rid, 'BUSY', true); }

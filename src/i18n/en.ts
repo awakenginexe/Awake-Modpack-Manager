@@ -483,6 +483,18 @@ export const en = {
   projExportReady: "Ready to export.",
   projOverridesOmitted: "{count} override files are not included (contents not stored).",
   projDownload: "Save file",
+  helperUnavailable: "Manager helper unavailable",
+  helperUnavailableHint: "Standalone projects need the Manager's background helper. Reinstall Awake Modpack Manager if this keeps happening.",
+  helperStubTitle: "Test helper build.",
+  helperStubNotice: "This build contains a placeholder helper. Standalone projects can't be created or installed until the real Awake native core is included.",
+  helperPendingNotice: "Installing, updating and removing mods in standalone projects isn't available in this helper version yet.",
+  backendStandalone: "Manager helper + Awake Launcher (optional)",
+  managerInstallation: "Manager projects (standalone)",
+  projStoreNewer: "These projects were saved by a newer Awake Modpack Manager. They are read-only here; update the Manager to change them.",
+  projLegacyFound: "{count} projects are still stored where earlier versions kept them. Move them to your project folder so they survive reinstalling. The old copy is kept.",
+  projLegacyMove: "Move to project folder",
+  projExportSaved: "Saved to {path}",
+  projExportFailed: "The export couldn't be saved: {reason}",
 } as const;
 
 export type MessageKey = keyof typeof en;
