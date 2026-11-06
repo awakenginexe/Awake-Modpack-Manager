@@ -34,6 +34,21 @@ fn default_data_root() -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|p| PathBuf::from(p).join("AwakeLauncher"))
 }
 
+/// Like Qt's QTextStream used by DataLocation.h: honour a UTF-8/UTF-16 BOM, else UTF-8. The
+/// Launcher installer writes this file with `FileWriteUTF16LE /BOM`.
+fn decode_text(bytes: &[u8]) -> Option<String> {
+    let utf16 = |b: &[u8], le: bool| {
+        let units: Vec<u16> = b.chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) }).collect();
+        String::from_utf16(&units).ok()
+    };
+    match bytes {
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, true),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, false),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8(rest.to_vec()).ok(),
+        _ => String::from_utf8(bytes.to_vec()).ok(),
+    }
+}
+
 /// Same order as Application.cpp for an installed (non --dir) launch: UserData, portable.txt,
 /// then data-location.txt (normal | compact | custom + absolute path), else the persistent path.
 pub fn resolve_install_dir(install: &Path, normal: Option<PathBuf>) -> Result<(PathBuf, &'static str), String> {
@@ -48,7 +63,8 @@ pub fn resolve_install_dir(install: &Path, normal: Option<PathBuf>) -> Result<(P
     if !config.exists() {
         return Ok((normal, "Persistent data path"));
     }
-    let text = fs::read_to_string(&config).map_err(|e| format!("Cannot read data-location.txt: {e}"))?;
+    let bytes = fs::read(&config).map_err(|e| format!("Cannot read data-location.txt: {e}"))?;
+    let text = decode_text(&bytes).ok_or("Cannot read data-location.txt: unknown text encoding")?;
     let mut lines = text.lines();
     match lines.next().unwrap_or("").trim_end_matches('\r') {
         "normal" => Ok((normal, "Persistent data path")),
@@ -209,6 +225,23 @@ mod tests {
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         p
+    }
+
+    #[test]
+    fn reads_data_location_written_by_the_installer_as_utf16le_bom() {
+        let a = temp("utf16");
+        let normal = Some(PathBuf::from(r"C:\Normal"));
+        let utf16 = |s: &str| [0xFF, 0xFE].into_iter().chain(s.encode_utf16().flat_map(u16::to_le_bytes)).collect::<Vec<u8>>();
+        fs::write(a.join("data-location.txt"), utf16("compact\r\nE:\\AwakeLauncher\\AwakeLauncherData\r\n")).unwrap();
+        assert_eq!(resolve_install_dir(&a, normal.clone()).unwrap().0, a.join("AwakeLauncherData"));
+        fs::write(a.join("data-location.txt"), utf16("custom\r\nD:\\Games\\Awake\r\n")).unwrap();
+        assert_eq!(resolve_install_dir(&a, normal.clone()).unwrap().0, PathBuf::from(r"D:\Games\Awake"));
+        let mut bom8 = vec![0xEF, 0xBB, 0xBF];
+        bom8.extend_from_slice(b"normal\n");
+        fs::write(a.join("data-location.txt"), bom8).unwrap();
+        assert_eq!(resolve_install_dir(&a, normal.clone()).unwrap().0, PathBuf::from(r"C:\Normal"));
+        fs::write(a.join("data-location.txt"), [0xFF, 0xFE, 0x00, 0xD8]).unwrap(); // lone surrogate
+        assert!(resolve_install_dir(&a, normal).is_err());
     }
 
     #[test]
