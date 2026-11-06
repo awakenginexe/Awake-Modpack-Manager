@@ -22,12 +22,17 @@ export type ViewId = 'library' | 'packs' | 'mods' | 'browse' | 'review' | 'files
 
 const session = useSession();
 const { state } = session;
-const view = ref<ViewId>(state.instanceId ? 'mods' : 'library');
+// Start on the library; jump to Mods only once the remembered instance has actually loaded.
+const view = ref<ViewId>('library');
+let restored = false;
 const settingsOpen = ref(false);
 /** With reduced motion, page swaps skip Vue's transition entirely so they are instant. */
 const motionOff = computed(() => reducedMotion.value || systemReducedMotion);
 // If the selected instance disappears, instance screens have nothing to show.
-watch(() => session.instance.value, (inst) => { if (!inst && view.value !== 'packs') view.value = 'library'; });
+watch(() => session.instance.value, (inst) => {
+  if (inst && !restored) { restored = true; if (view.value === 'library') view.value = 'mods'; }
+  if (!inst && view.value !== 'packs') view.value = 'library';
+}, { immediate: true });
 
 interface NavItem { id: ViewId; label: MessageKey; icon: Component }
 const libraryNav: NavItem[] = [
@@ -47,12 +52,17 @@ const draftCount = computed(() => session.draft.value?.changes.length ?? 0);
 const activeOps = computed(() => state.operations.filter((o) => !isTerminal(o)).length);
 const connectionText = computed(() => {
   if (state.connectError?.code === 'unsupported') return t('connUnsupported');
+  if (state.waitingForLauncher) return t('launcherNotRunning');
   if (state.reconnecting) return t('connReconnecting');
   if (state.connection === 'connecting') return t('connConnecting');
   if (state.connection === 'connected') return session.backend.kind === 'mock' ? t('connMock') : t('connConnected');
   return state.connectError ? t('connFailed') : t('connDisconnected');
 });
-const connectionTone = computed(() => (state.connection === 'connected' ? (session.backend.kind === 'mock' ? 'warn' : 'ok') : state.connection === 'connecting' || state.reconnecting ? 'info' : 'error'));
+const connectionTone = computed(() => {
+  if (state.waitingForLauncher) return 'warn';
+  if (state.connection === 'connected') return session.backend.kind === 'mock' ? 'warn' : 'ok';
+  return state.connection === 'connecting' || state.reconnecting ? 'info' : 'error';
+});
 
 function open(id: ViewId) { view.value = id; }
 
@@ -136,7 +146,7 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
         <div class="connection badge" :class="connectionTone" role="status" :title="session.backend.kind === 'mock' ? t('connMockHint') : undefined">
           <span class="dot"></span><span class="conn-text">{{ connectionText }}</span>
         </div>
-        <button v-if="state.connectError && state.connectError.code !== 'unsupported'" class="btn btn-small" type="button" @click="session.connect()">{{ t('retry') }}</button>
+        <button v-if="state.connectError && state.connectError.code !== 'unsupported' && !state.waitingForLauncher" class="btn btn-small" type="button" @click="session.connect()">{{ t('retry') }}</button>
         <button class="icon-btn" type="button" aria-haspopup="dialog" :aria-label="t('settings')" :title="t('settings')" @click="settingsOpen = true">
           <Settings :size="18" />
         </button>

@@ -6,6 +6,15 @@ import { createSession } from '../src/state/session';
 import { FakeLauncher, instance, mods } from './fixtures/fakeLauncher';
 
 const client = (fake: FakeLauncher | null) => createLauncherClient({ transport: fake, clientVersion: 'test', heartbeatMs: 0 });
+const PROFILE_ROOT = 'C:\\Temp\\fixture-profile';
+/** Instance keys are scoped by profile: `${profileId}|${physicalId}` (handoff.md). */
+const key = (physicalId: string) => `prof-id|${physicalId}`;
+async function ready(fake: FakeLauncher) {
+  const c = client(fake);
+  await c.connect();
+  await c.listInstances(PROFILE_ROOT);
+  return c;
+}
 let fake: FakeLauncher;
 afterEach(() => expect(fake?.violations ?? []).toEqual([]));
 
@@ -51,7 +60,7 @@ describe('LauncherClient (fixture IPC)', () => {
     expect(unloaded.manageable).toBe(false);
     expect(unloaded.status).toBe('unknown');
     expect(instances.find((i) => i.launcher?.instanceId === 'inst5')!.status).toBe('running');
-    expect(instances.find((i) => i.id === 'phys-0000')!.modCount).toBe(7);
+    expect(instances.find((i) => i.id === key('phys-0000'))!.modCount).toBe(7);
     expect(unloaded.modCount).toBeUndefined();
     expect(instances[0]!.minecraftVersion).toBeUndefined(); // not in protocol 1.0: never invented
     expect(c.instanceWarnings?.()).toEqual([{ code: 'duplicate-instance-id', path: 'C:\\Temp\\fixture\\instances\\inst3' }]);
@@ -59,13 +68,12 @@ describe('LauncherClient (fixture IPC)', () => {
 
   it('pages a large inventory, echoing the revision and reporting progress', async () => {
     fake = new FakeLauncher({ instances: [instance(1)], inventories: { 'phys-0001': mods(1234) } });
-    const c = client(fake);
-    await c.connect();
+    const c = await ready(fake);
     const progress: number[] = [];
-    const inv = await c.getInventory('phys-0001', (loaded) => progress.push(loaded));
+    const inv = await c.getInventory(key('phys-0001'), (loaded) => progress.push(loaded));
     expect(inv.mods).toHaveLength(1234);
     expect(progress).toEqual([500, 1000, 1234]);
-    const calls = fake.log.filter((l) => l.method === 'mods.list');
+    const calls = fake.log.filter((l) => l.method === 'mods.list' && l.params.limit !== 1) /* skip library count reads */;
     expect(calls.map((l) => l.params.offset ?? 0)).toEqual([0, 500, 1000]);
     expect(calls.slice(1).every((l) => l.params.instanceRevision === calls[1]!.params.instanceRevision)).toBe(true);
   });
@@ -75,10 +83,10 @@ describe('LauncherClient (fixture IPC)', () => {
       ...mods(4),
       { fileName: 'shared.jar', enabled: true, size: '5', modifiedMs: '-1', kind: 'jar', linked: true, metadataState: 'conflict', metadata: null },
       { fileName: 'notes', enabled: true, size: '0', modifiedMs: '0', kind: 'directory', linked: false, metadataState: 'unindexed', metadata: null },
+      { fileName: 'huge.jar', enabled: true, size: '9007199254740993', modifiedMs: '1', kind: 'jar', linked: false, metadataState: 'unindexed', metadata: null },
     ] } });
-    const c = client(fake);
-    await c.connect();
-    const { mods: list } = await c.getInventory('phys-0001');
+    const c = await ready(fake);
+    const { mods: list } = await c.getInventory(key('phys-0001'));
     const indexed = list.find((m) => m.fileName === 'mod-0001.jar')!;
     expect(indexed).toMatchObject({ name: 'Mod 1', source: 'modrinth', projectId: 'p1', installed: { id: 'v1', name: '1.1.0' }, metadataState: 'indexed', sizeBytes: 1001 });
     expect(indexed.available).toBeUndefined();
@@ -87,16 +95,16 @@ describe('LauncherClient (fixture IPC)', () => {
     expect(list.find((m) => m.fileName === 'mod-0003.jar.disabled')).toMatchObject({ enabled: false, name: 'Mod 3' });
     expect(list.find((m) => m.fileName === 'shared.jar')).toMatchObject({ source: 'manual', metadataState: 'conflict', linked: true });
     expect(list.find((m) => m.fileName === 'notes')).toMatchObject({ kind: 'directory', name: 'notes' });
+    expect(list.find((m) => m.fileName === 'huge.jar')!.sizeBytes).toBeUndefined(); // beyond 2^53: unknown, not rounded
   });
 
   it('restarts paging when the instance changes mid-read', async () => {
     fake = new FakeLauncher({ instances: [instance(1)], inventories: { 'phys-0001': mods(800) } });
-    const c = client(fake);
-    await c.connect();
+    const c = await ready(fake);
     fake.staleOnceAtOffset = 500;
-    const inv = await c.getInventory('phys-0001');
+    const inv = await c.getInventory(key('phys-0001'));
     expect(inv.mods).toHaveLength(800);
-    expect(fake.log.filter((l) => l.method === 'mods.list').map((l) => l.params.offset ?? 0)).toEqual([0, 500, 0, 500]);
+    expect(fake.log.filter((l) => l.method === 'mods.list' && l.params.limit !== 1) /* skip library count reads */.map((l) => l.params.offset ?? 0)).toEqual([0, 500, 0, 500]);
   });
 
   it('reconnects with hello after the idle timeout closes the pipe', async () => {
@@ -104,15 +112,14 @@ describe('LauncherClient (fixture IPC)', () => {
     const c = client(fake);
     await c.connect();
     fake.closeAfterNextRequest = true;
-    await c.listInstances('C:\\Temp\\fixture-profile');
+    await c.listInstances(PROFILE_ROOT);
     expect(fake.hellos).toBe(2);
   });
 
   it('serializes concurrent reads (one request in flight per connection)', async () => {
     fake = new FakeLauncher();
-    const c = client(fake);
-    await c.connect();
-    await Promise.all([c.getInventory('phys-0001'), c.getInventory('phys-0002'), c.listInstances('C:\\Temp\\fixture-profile')]);
+    const c = await ready(fake);
+    await Promise.all([c.getInventory(key('phys-0001')), c.getInventory(key('phys-0002')), c.listInstances(PROFILE_ROOT)]);
     expect(fake.maxInFlight).toBe(1);
   });
 
@@ -137,13 +144,15 @@ describe('LauncherClient (fixture IPC)', () => {
 
   it('fails closed on malformed replies and maps Launcher errors', async () => {
     fake = new FakeLauncher();
-    const c = client(fake);
-    await c.connect();
+    const c = await ready(fake);
     fake.malformedNext = true;
-    await expect(c.getInventory('phys-0001')).rejects.toMatchObject({ code: 'protocol' });
-    await expect(c.getInventory('phys-9999')).rejects.toMatchObject({ code: 'rejected', detail: 'NOT_FOUND' });
+    await expect(c.getInventory(key('phys-0001'))).rejects.toMatchObject({ code: 'protocol' });
+    await expect(c.getInventory(key('phys-9999'))).rejects.toMatchObject({ code: 'rejected', detail: 'NOT_FOUND' });
+    fake.instances.push(instance(9999, { loaded: false }));
+    await c.listInstances(PROFILE_ROOT);
+    await expect(c.getInventory(key('phys-9999'))).rejects.toMatchObject({ code: 'rejected', detail: 'NOT_FOUND' });
     fake.busyNext = true;
-    await expect(c.getInventory('phys-0001')).rejects.toMatchObject({ code: 'instance-busy' });
+    await expect(c.getInventory(key('phys-0001'))).rejects.toMatchObject({ code: 'instance-busy' });
   });
 
   it('refuses every write-side operation without sending anything', async () => {
@@ -154,10 +163,10 @@ describe('LauncherClient (fixture IPC)', () => {
     const writes = [
       c.createInstance({ name: 'x', minecraftVersion: '1.21.1', loader: 'fabric', idempotencyKey: 'k' }),
       c.applyPlan({ planId: 'p', planHash: 'h', idempotencyKey: 'k' }),
-      c.validateDraft({ instanceId: 'phys-0001', baseRevision: 'r', changes: [], pinnedKeys: [] }),
-      c.preparePlan('p'), c.requestLaunch('phys-0001'), c.installPack({ provider: 'modrinth', packId: 'a', versionId: 'b', instanceName: 'c', idempotencyKey: 'k' }),
+      c.validateDraft({ instanceId: key('phys-0001'), baseRevision: 'r', changes: [], pinnedKeys: [] }),
+      c.preparePlan('p'), c.requestLaunch(key('phys-0001')), c.installPack({ provider: 'modrinth', packId: 'a', versionId: 'b', instanceName: 'c', idempotencyKey: 'k' }),
       c.search({ text: '', provider: 'modrinth', minecraftVersion: '', loader: 'fabric', releaseTypes: [], compatibleOnly: false, offset: 0, limit: 1 }),
-      c.listContent('phys-0001', 'config'), c.cancelOperation('o'), c.getRecoveryStatus('phys-0001'),
+      c.listContent(key('phys-0001'), 'config'), c.cancelOperation('o'), c.getRecoveryStatus(key('phys-0001')),
     ];
     for (const w of writes) await expect(w).rejects.toMatchObject({ code: 'unsupported' });
     expect(fake.log.length).toBe(before);
@@ -176,7 +185,7 @@ describe('LauncherClient (fixture IPC)', () => {
     await session.connect();
     expect(session.state.connection).toBe('connected');
     expect(session.state.instances.map((i) => i.name)).toEqual(['Instance 1', 'Instance 2']);
-    await session.selectInstance('phys-0001');
+    await session.selectInstance(key('phys-0001'));
     expect(session.inventory.value?.mods).toHaveLength(305);
     expect(session.state.inventoryObservedAt).not.toBeNull();
     for (const cap of ['plan.validate', 'plan.apply', 'instances.create', 'launch.request', 'operations.watch'] as const) expect(session.can(cap)).toBe(false);
@@ -191,7 +200,7 @@ describe('LauncherClient (fixture IPC)', () => {
     fake = new FakeLauncher();
     const session = createSession(client(fake), { pollMs: 5 });
     await session.connect();
-    await session.selectInstance('phys-0001');
+    await session.selectInstance(key('phys-0001'));
     fake.stop();
     await session.loadInventory();
     expect(session.state.connection).toBe('disconnected');

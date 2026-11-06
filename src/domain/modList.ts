@@ -31,7 +31,7 @@ export function filterMods(mods: readonly InstalledMod[], filter: ModFilter, pin
       case 'disabled': if (m.enabled) return false; break;
       case 'pinned': if (!pinned.has(m.key)) return false; break;
       case 'manual': if (m.source !== 'manual') return false; break;
-      case 'issues': if (depState(m) === 'ok') return false; break;
+      case 'issues': if (!hasIssue(m)) return false; break; // unknown dependencies are not issues
     }
     return !text || m.name.toLowerCase().includes(text) || m.fileName.toLowerCase().includes(text);
   });

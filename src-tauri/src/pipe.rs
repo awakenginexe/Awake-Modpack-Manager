@@ -233,6 +233,28 @@ mod tests {
         assert_eq!(read_frame(&mut &[0u8, 0, 0, 9, b'{'][..]).unwrap_err().code, "closed");
     }
 
+    /// A reader that returns one byte per read, like a fragmented pipe response.
+    struct Trickle<'a>(&'a [u8]);
+    impl Read for Trickle<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.0.is_empty() || buf.is_empty() { return Ok(0); }
+            buf[0] = self.0[0];
+            self.0 = &self.0[1..];
+            Ok(1)
+        }
+    }
+
+    #[test]
+    fn fragmented_frames_are_reassembled() {
+        let body = br#"{"protocol":{"major":1,"minor":0},"requestId":"r1","result":{}}"#;
+        let mut frame = encode_frame(body).unwrap();
+        frame.extend(encode_frame(b"{}").unwrap());
+        let mut r = Trickle(&frame);
+        assert_eq!(read_frame(&mut r).unwrap(), body);
+        assert_eq!(read_frame(&mut r).unwrap(), b"{}");
+        assert_eq!(read_frame(&mut r).unwrap_err().code, "closed");
+    }
+
     #[test]
     fn only_launcher_pipe_names_are_accepted() {
         assert!(valid_server_name("awake-manager-v1-3f2a9c1e-0000-4000-8000-1234567890ab"));

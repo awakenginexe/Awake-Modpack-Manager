@@ -21,6 +21,8 @@ export interface LauncherClientOptions {
   requestTimeoutMs?: number;
   /** Liveness check interval while connected. 0 disables (tests). */
   heartbeatMs?: number;
+  /** Items per page, 1-500 (protocol maximum). Smaller values exercise paging in tests. */
+  pageLimit?: number;
 }
 
 /**
@@ -30,6 +32,7 @@ export interface LauncherClientOptions {
  */
 export function createLauncherClient(options: LauncherClientOptions): ManagerBackend {
   const timeout = options.requestTimeoutMs ?? 15_000;
+  const pageLimit = Math.min(Math.max(options.pageLimit ?? PAGE_LIMIT, 1), PAGE_LIMIT);
   const listeners = new Set<(s: ConnectionState) => void>();
   let state: ConnectionState = 'disconnected';
   let added = options.addedFolders ?? [];
@@ -153,7 +156,7 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
       let revision: string | undefined;
       try {
         for (;;) {
-          const params = offset === 0 ? { ...base, limit: PAGE_LIMIT } : { ...base, limit: PAGE_LIMIT, offset, instanceRevision: revision };
+          const params = offset === 0 ? { ...base, limit: pageLimit } : { ...base, limit: pageLimit, offset, instanceRevision: revision };
           const page = await call<Record<string, unknown>>(method, params);
           assertPage(page, listKey);
           const r = page as unknown as R;
@@ -183,10 +186,23 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     }
   };
 
+  /** Manager-side instance key: profile + physicalId (handoff.md: never folder ID or UUID alone). */
+  const physicalIds = new Map<string, string>();
+  const instanceKey = (physicalId: string) => {
+    const key = `${hello?.profileId ?? 'profile'}|${physicalId}`;
+    physicalIds.set(key, physicalId);
+    return key;
+  };
+  const physicalIdOf = (key: string) => {
+    const physicalId = physicalIds.get(key);
+    if (!physicalId) throw new BackendError('rejected', 'This instance is not in the current Launcher profile. Refresh the library.', 'NOT_FOUND');
+    return physicalId;
+  };
+
   function toInstance(i: WireInstance, revision: string): InstanceSummary {
     const viewable = i.loaded && i.identityStatus === 'verified';
     return {
-      id: i.physicalId,
+      id: instanceKey(i.physicalId),
       name: i.name || i.instanceId,
       status: statusOf(i),
       path: i.canonicalPath,
@@ -203,6 +219,7 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     const md = it.metadataState === 'indexed' ? it.metadata : null;
     const size = Number(it.size);
     const modified = Number(it.modifiedMs);
+    // Decimal strings: keep only values a JS number represents exactly (no silent precision loss).
     return {
       key: it.fileName,
       fileName: it.fileName,
@@ -211,8 +228,8 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
       projectId: md?.projectId,
       installed: md ? { id: md.versionId, name: md.version || md.versionId } : null,
       enabled: it.enabled,
-      sizeBytes: Number.isFinite(size) ? size : undefined,
-      modifiedMs: Number.isFinite(modified) ? modified : undefined,
+      sizeBytes: Number.isSafeInteger(size) ? size : undefined,
+      modifiedMs: Number.isSafeInteger(modified) ? modified : undefined,
       metadataState: it.metadataState,
       kind: it.kind,
       linked: it.linked,
@@ -299,7 +316,7 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
       for (const inst of instances) {
         if (!inst.manageable) continue;
         try {
-          const page = await call<InventoryResult>('mods.list', { physicalId: inst.id, limit: 1 });
+          const page = await call<InventoryResult>('mods.list', { physicalId: physicalIdOf(inst.id), limit: 1 });
           inst.modCount = page.total;
         } catch { /* count stays unknown */ }
       }
@@ -309,7 +326,7 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     instanceWarnings: () => warnings,
 
     async getInventory(instanceId, onProgress): Promise<ModInventory> {
-      const { items, revision } = await paged<InventoryResult, InventoryItem>('mods.list', { physicalId: instanceId }, 'items', (loaded, total) => onProgress?.(loaded, total));
+      const { items, revision } = await paged<InventoryResult, InventoryItem>('mods.list', { physicalId: physicalIdOf(instanceId) }, 'items', (loaded, total) => onProgress?.(loaded, total));
       return { instanceId, revision, mods: items.map(toMod) };
     },
 

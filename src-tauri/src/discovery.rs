@@ -107,7 +107,14 @@ pub fn read_descriptor(data_root: &Path) -> Result<Option<Map<String, Value>>, S
     if meta.len() > DESCRIPTOR_MAX {
         return Err("The endpoint descriptor is too large.".into());
     }
-    let value: Value = serde_json::from_slice(&fs::read(&path).map_err(|e| e.to_string())?).map_err(|_| "The endpoint descriptor is not valid JSON.".to_string())?;
+    // The Launcher publishes with QSaveFile; a read can briefly hit a sharing violation (handoff.md).
+    let bytes = (0..3)
+        .find_map(|attempt| {
+            if attempt > 0 { std::thread::sleep(std::time::Duration::from_millis(60)); }
+            fs::read(&path).ok()
+        })
+        .ok_or_else(|| "The endpoint descriptor could not be read; it may be being published. Retrying.".to_string())?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| "The endpoint descriptor is not valid JSON.".to_string())?;
     let Value::Object(map) = value else { return Err("The endpoint descriptor is not a JSON object.".into()) };
     for field in DESCRIPTOR_FIELDS {
         if !map.get(field).is_some_and(Value::is_string) {

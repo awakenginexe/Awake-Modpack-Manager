@@ -59,6 +59,7 @@ const hs = computed(() => state.handshake);
 const isMock = session.backend.kind === 'mock';
 const statusText = computed(() => {
   if (state.connectError?.code === 'unsupported') return t('connUnsupported');
+  if (state.waitingForLauncher) return t('launcherNotRunning');
   if (state.reconnecting) return t('connReconnecting');
   if (state.connection === 'connecting') return t('connConnecting');
   if (state.connection === 'connected') return isMock ? t('connMock') : t('connConnected');
