@@ -12,8 +12,9 @@ export interface ModFilter {
 export const emptyFilter = (): ModFilter => ({ text: '', status: 'all', source: 'all' });
 
 export const hasUpdate = (m: InstalledMod) => !!m.available && !!m.installed && m.available.id !== m.installed.id;
-export const hasIssue = (m: InstalledMod) => m.dependencies.some((d) => d.kind === 'required' && (d.state === 'missing' || d.state === 'conflict'));
+export const hasIssue = (m: InstalledMod) => (m.dependencies ?? []).some((d) => d.kind === 'required' && (d.state === 'missing' || d.state === 'conflict'));
 export const depState = (m: InstalledMod): 'ok' | 'missing' | 'conflict' | 'unknown' => {
+  if (!m.dependencies) return 'unknown'; // not reported (e.g. Launcher protocol 1.0)
   const req = m.dependencies.filter((d) => d.kind === 'required' || d.kind === 'incompatible');
   if (req.some((d) => d.state === 'conflict')) return 'conflict';
   if (req.some((d) => d.state === 'missing')) return 'missing';

@@ -1,15 +1,16 @@
 import type {
   Accepted, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
-  ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, Installation, ModInventory,
+  ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
   OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery,
 } from './contract';
+import type { LauncherProfile } from './launcher/transport';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected';
 
 /**
  * The only surface Vue code talks to. Implementations: MockBackend (development and tests)
- * and LauncherClient (real coordinator, blocked on the Codex contract). Transport framing
- * lives inside implementations, never in components.
+ * and LauncherClient (real Awake Launcher over its integration pipe, read-only protocol 1.0).
+ * Transport framing lives inside implementations, never in components.
  */
 export interface ManagerBackend {
   readonly kind: 'mock' | 'launcher';
@@ -17,9 +18,18 @@ export interface ManagerBackend {
   onConnectionChange(listener: (state: ConnectionState) => void): () => void;
 
   listInstallations(): Promise<Installation[]>;
+  /** Launcher profiles the user can choose between (desktop only). */
+  launcherProfiles?(): LauncherProfile[];
+  /** Remember extra Launcher folders (installation or data folder) to look in. */
+  setAddedFolders?(folders: string[]): void;
+  /** Prefer this Launcher data profile on the next connect. */
+  setPreferredProfile?(dataRoot: string | null): void;
   listInstances(installationId: string): Promise<InstanceSummary[]>;
   createInstance(request: CreateInstanceRequest): Promise<Accepted>;
-  getInventory(instanceId: string): Promise<ModInventory>;
+  /** Loads the full inventory; `onProgress` reports paged loading for large instances. */
+  getInventory(instanceId: string, onProgress?: (loaded: number, total: number) => void): Promise<ModInventory>;
+  /** Warnings from the last instance listing (collisions, aliased/shared roots). */
+  instanceWarnings?(): InstanceWarning[];
 
   search(query: SearchQuery): Promise<SearchPage>;
 

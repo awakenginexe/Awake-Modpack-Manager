@@ -1,7 +1,7 @@
 import { computed, inject, reactive, ref, shallowRef, watch, type InjectionKey } from 'vue';
 import {
   BackendError, type Capability, type CreateInstanceRequest, type Draft, type ExportRequest, type Handshake,
-  type InstallPackRequest, type InstanceSummary, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan,
+  type InstallPackRequest, type InstanceSummary, type InstanceWarning, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan,
 } from '../backend/contract';
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
 import { newDraft } from '../domain/draft';
@@ -30,6 +30,13 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     instanceId: load<string | null>('instance', null),
     inventoryLoading: false,
     inventoryError: null as BackendError | null,
+    /** Paged loading progress for large inventories. */
+    inventoryProgress: null as { loaded: number; total: number } | null,
+    /** When the shown inventory was read; it becomes a snapshot once the Launcher disconnects. */
+    inventoryObservedAt: null as number | null,
+    instanceWarnings: [] as InstanceWarning[],
+    /** No Launcher endpoint yet; connect() keeps checking. */
+    waitingForLauncher: false,
     operations: [] as OperationStatus[],
   });
   /** Hundreds of mods: kept shallow so Vue does not make every field reactive. */
@@ -85,12 +92,16 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
       state.handshake = await backend.connect();
       attempt = 0;
       state.reconnecting = false;
+      state.waitingForLauncher = false;
       await refreshInstallations();
       if (state.instanceId) await loadInventory();
       await resumePending();
       await refreshOperations();
     } catch (e) {
       state.connectError = asError(e);
+      // Launcher not started yet (or restarting): keep looking for its endpoint without user action.
+      state.waitingForLauncher = state.connectError.code === 'not-running';
+      if (state.waitingForLauncher) { clearTimeout(reconnectTimer); reconnectTimer = setTimeout(() => void connect(), 5000); return; }
       // Retry transport failures; an unsupported build will not start working by retrying.
       if (state.reconnecting && state.connectError.code !== 'unsupported') scheduleReconnect();
     }
@@ -101,7 +112,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   async function refreshInstallations() {
     if (!can('installations.discover')) return;
     state.installations = await backend.listInstallations();
-    if (!state.installations.some((i) => i.id === state.installationId)) state.installationId = state.installations[0]?.id ?? null;
+    if (!state.installations.some((i) => i.id === state.installationId)) state.installationId = (state.installations.find((i) => i.available !== false) ?? state.installations[0])?.id ?? null;
     await refreshInstances();
   }
 
@@ -110,6 +121,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     state.instancesLoading = true;
     try {
       state.instances = await backend.listInstances(state.installationId);
+      state.instanceWarnings = backend.instanceWarnings?.() ?? [];
       // A remembered instance may have been deleted in the Launcher.
       if (state.instanceId && !state.instances.some((i) => i.id === state.instanceId)) state.instanceId = null;
     } finally {
@@ -131,11 +143,15 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     const id = state.instanceId;
     if (!id || !can('mods.inventory')) return;
     state.inventoryLoading = true;
+    state.inventoryProgress = null;
     state.inventoryError = null;
     try {
-      const inv = await backend.getInventory(id);
+      const inv = await backend.getInventory(id, (loaded, total) => {
+        if (state.instanceId === id) state.inventoryProgress = { loaded, total };
+      });
       if (state.instanceId !== id) return;
       inventory.value = inv;
+      state.inventoryObservedAt = Date.now();
       selection.value = prune(selection.value, new Set(inv.mods.map((m) => m.key)));
     } catch (e) {
       state.inventoryError = asError(e);

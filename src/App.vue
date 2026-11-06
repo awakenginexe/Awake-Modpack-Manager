@@ -7,7 +7,7 @@ import { t, type MessageKey } from './i18n';
 import SettingsDialog from './components/SettingsDialog.vue';
 import { reducedMotion, systemReducedMotion } from './state/prefs';
 import { useSession } from './state/session';
-import { loaderLabel } from './ui/labels';
+import { instanceSubtitle } from './ui/labels';
 import awakeLogo from './assets/brand/awake.png';
 import LibraryView from './views/LibraryView.vue';
 import ModsView from './views/ModsView.vue';
@@ -112,7 +112,7 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
           <Avatar :name="session.instance.value.name" :src="session.instance.value.iconUrl" :size="36" />
           <span class="current-copy">
             <span class="current-name">{{ session.instance.value.name }}</span>
-            <span class="current-meta">{{ session.instance.value.minecraftVersion }} · {{ loaderLabel(session.instance.value.loader.kind) }}</span>
+            <span class="current-meta">{{ instanceSubtitle(session.instance.value) }}</span>
           </span>
         </button>
         <button v-else class="current-instance empty-instance" type="button" @click="open('library')">

@@ -1,24 +1,37 @@
 import { createApp } from 'vue';
 import App from './App.vue';
-import { createLauncherClient } from './backend/LauncherClient';
+import { createLauncherClient } from './backend/launcher/LauncherClient';
+import { createHostTransport, isDesktopHost } from './backend/launcher/transport';
 import { MockBackend } from './backend/mock/MockBackend';
 import type { ManagerBackend } from './backend/ManagerBackend';
+import { addedFolders, dataSource, preferredProfile } from './state/prefs';
 import { createSession, SessionKey } from './state/session';
+import pkg from '../package.json';
 import './styles/tokens.css';
 import './styles/base.css';
 
 /**
- * Backend selection. Default is the mock: no live Launcher integration exists yet.
- * Dev scenarios: ?mock=drift (plan changes on prepare), ?mock=fail (apply rolls back),
- * ?mock=cf (CurseForge available). Combine with commas.
+ * Backend selection is explicit and never silent: the UI always labels demo data.
+ * - Launcher: real Awake Launcher over its integration pipe (desktop app only).
+ * - Demo: built-in sample data. Dev scenarios: ?mock=drift,fail,cf (forces demo).
  */
 function pickBackend(): ManagerBackend {
-  if (import.meta.env.VITE_BACKEND === 'launcher') return createLauncherClient();
-  const flags = new Set((new URLSearchParams(location.search).get('mock') ?? '').split(','));
+  const flags = new URLSearchParams(location.search).get('mock');
+  const demo = flags !== null || dataSource.value === 'demo' || (dataSource.value === 'auto' && !isDesktopHost());
+  if (!demo) {
+    return createLauncherClient({
+      transport: isDesktopHost() ? createHostTransport() : null,
+      clientVersion: pkg.version,
+      addedFolders: addedFolders.value,
+      preferredProfile: preferredProfile.value,
+      heartbeatMs: 20_000,
+    });
+  }
+  const set = new Set((flags ?? '').split(','));
   return new MockBackend({
-    driftOnPrepare: flags.has('drift'),
-    failApply: flags.has('fail'),
-    providers: flags.has('cf') ? [{ id: 'modrinth', available: true }, { id: 'curseforge', available: true }] : undefined,
+    driftOnPrepare: set.has('drift'),
+    failApply: set.has('fail'),
+    providers: set.has('cf') ? [{ id: 'modrinth', available: true }, { id: 'curseforge', available: true }] : undefined,
   });
 }
 

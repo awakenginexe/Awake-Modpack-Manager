@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { ArrowRight, Boxes, CircleAlert, Download, FolderOpen, Gamepad2, Info, Layers, Play, Plus, Search, X } from '@lucide/vue';
+import { ArrowRight, Boxes, CircleAlert, Loader, TriangleAlert, Download, FolderOpen, Gamepad2, Info, Layers, Play, Plus, Search, X } from '@lucide/vue';
 import type { InstanceSummary, LoaderKind } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
 import { formatNumber, t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
-import { blockedText, loaderLabel } from '../ui/labels';
+import { blockedText, connectErrorHint, connectErrorTitle, loaderLabel } from '../ui/labels';
+import { preferredProfile } from '../state/prefs';
 
 const emit = defineEmits<{ manage: []; getPack: [] }>();
 const session = useSession();
@@ -22,8 +23,8 @@ const shown = computed(() => {
   const q = query.value.trim().toLowerCase();
   return q ? state.instances.filter((i) => i.name.toLowerCase().includes(q)) : state.instances;
 });
-const statusKey: Record<InstanceSummary['status'], MessageKey> = { ready: 'statusReady', running: 'statusRunning', busy: 'statusBusy', broken: 'statusBroken' };
-const statusTone: Record<InstanceSummary['status'], string> = { ready: 'ok', running: 'info', busy: 'warn', broken: 'error' };
+const statusKey: Record<InstanceSummary['status'], MessageKey> = { ready: 'statusReady', running: 'statusRunning', busy: 'statusBusy', broken: 'statusBroken', unknown: 'statusUnknown' };
+const statusTone: Record<InstanceSummary['status'], string> = { ready: 'ok', running: 'info', busy: 'warn', broken: 'error', unknown: '' };
 
 function manage(inst: InstanceSummary) {
   void session.selectInstance(inst.id); // Mods view shows its own loading state
@@ -84,8 +85,8 @@ async function create() {
       </label>
       <label v-if="state.installations.length > 1" class="field inline">
         <span>{{ t('libraryInstallation') }}</span>
-        <select v-model="state.installationId" class="select" @change="session.refreshInstances()">
-          <option v-for="inst in state.installations" :key="inst.id" :value="inst.id">{{ inst.displayName }}</option>
+        <select v-model="state.installationId" class="select" @change="preferredProfile = state.installationId; session.refreshInstances()">
+          <option v-for="inst in state.installations" :key="inst.id" :value="inst.id">{{ inst.displayName }}{{ inst.available === false ? ` (${t('profileNotRunning')})` : '' }}</option>
         </select>
       </label>
       <span class="muted small count">{{ t('instanceCount', { count: shown.length }) }}</span>
@@ -95,13 +96,24 @@ async function create() {
       <Info :size="18" /><span class="grow">{{ notice }}</span>
       <button class="icon-btn" type="button" :aria-label="t('dismiss')" @click="notice = ''"><X :size="16" /></button>
     </div>
-    <div v-if="state.connectError" class="notice error" role="alert">
-      <CircleAlert :size="18" />
+    <div v-if="state.connectError" class="notice" :class="state.waitingForLauncher ? 'warn' : 'error'" role="alert">
+      <Loader v-if="state.waitingForLauncher" :size="18" class="spin" />
+      <CircleAlert v-else :size="18" />
       <div class="grow">
-        <strong>{{ state.connectError.code === 'unsupported' ? t('connUnsupported') : t('connFailed') }}</strong>
-        <details><summary class="small">{{ t('technicalDetails') }}</summary><code class="small">{{ state.connectError.message }}</code></details>
+        <strong>{{ t(connectErrorTitle(state.connectError.code)) }}</strong>
+        <p class="small">{{ t(connectErrorHint(state.connectError.code)) }}</p>
+        <details><summary class="small">{{ t('technicalDetails') }}</summary><code class="small">{{ state.connectError.message }}<template v-if="state.connectError.detail"> ({{ state.connectError.detail }})</template></code></details>
       </div>
+      <button v-if="!state.waitingForLauncher" class="btn btn-small" type="button" @click="session.connect()">{{ t('retry') }}</button>
     </div>
+
+    <details v-if="state.instanceWarnings.length" class="notice warn warnings">
+      <summary><TriangleAlert :size="18" /><strong>{{ t('discoveryWarnings', { count: state.instanceWarnings.length }) }}</strong></summary>
+      <p class="small">{{ t('discoveryWarningsHint') }}</p>
+      <ul>
+        <li v-for="(w, i) in state.instanceWarnings" :key="i" class="small"><code>{{ w.code }}</code> <span class="muted">{{ w.path }}</span></li>
+      </ul>
+    </details>
 
     <ul v-if="state.instancesLoading && !state.instances.length" class="grid" aria-busy="true">
       <li v-for="n in 6" :key="n" class="card skeleton-card"><span class="skeleton" style="width: 52px; height: 52px; border-radius: 12px"></span><span class="skeleton" style="height: 14px; width: 60%"></span><span class="skeleton" style="height: 12px; width: 40%"></span></li>
@@ -119,14 +131,18 @@ async function create() {
           <Avatar :name="inst.name" :src="inst.iconUrl" :size="52" />
           <div class="card-copy">
             <h2 :title="inst.name">{{ inst.name }}</h2>
-            <span class="badge" :class="statusTone[inst.status]"><span class="dot"></span>{{ t(statusKey[inst.status]) }}</span>
+            <span class="badges">
+              <span class="badge" :class="statusTone[inst.status]"><span class="dot"></span>{{ t(statusKey[inst.status]) }}</span>
+              <span v-if="inst.launcher?.identityStatus === 'conflict'" class="badge warn" :title="t('blockedConflict')"><TriangleAlert :size="12" />{{ t('identityConflict') }}</span>
+            </span>
           </div>
         </div>
 
         <div class="meta">
-          <span :title="t('createVersion')"><Gamepad2 :size="15" />{{ inst.minecraftVersion }}</span>
-          <span :title="t('createLoader')"><Layers :size="15" />{{ loaderLabel(inst.loader.kind) }}<template v-if="inst.loader.version"> {{ inst.loader.version }}</template></span>
-          <span><Boxes :size="15" />{{ t('instanceMods', { count: formatNumber(inst.modCount) }) }}</span>
+          <span v-if="inst.minecraftVersion" :title="t('createVersion')"><Gamepad2 :size="15" />{{ inst.minecraftVersion }}</span>
+          <span v-if="inst.loader" :title="t('createLoader')"><Layers :size="15" />{{ loaderLabel(inst.loader.kind) }}<template v-if="inst.loader.version"> {{ inst.loader.version }}</template></span>
+          <span v-if="!inst.minecraftVersion && !inst.loader" class="unknown" :title="t('versionUnknownHint')"><Gamepad2 :size="15" />{{ t('versionUnknown') }}</span>
+          <span><Boxes :size="15" />{{ inst.modCount === undefined ? t('modsUnknown') : t('instanceMods', { count: formatNumber(inst.modCount) }) }}</span>
         </div>
         <div v-if="inst.pack" class="pack-link chip" :title="t('packLinked', { pack: inst.pack.packName, version: inst.pack.versionName, provider: inst.pack.provider })">
           <ProviderLogo :provider="inst.pack.provider" :size="15" />
@@ -190,6 +206,15 @@ async function create() {
 .pack-link { align-self: flex-start; max-width: 100%; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .path { display: flex; align-items: center; gap: 6px; color: var(--text-muted); min-width: 0; }
+.badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.unknown { color: var(--text-muted); }
+.warnings summary { display: flex; align-items: center; gap: var(--space-3); cursor: pointer; list-style: none; }
+.warnings summary::-webkit-details-marker { display: none; }
+.warnings { display: block; }
+.warnings > p, .warnings ul { margin: 8px 0 0 30px; }
+.warnings ul { padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+.spin { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .blocked { display: flex; align-items: center; gap: 6px; color: #fcd34d; }
 .card-actions { display: flex; gap: var(--space-2); margin-top: auto; padding-top: var(--space-1); }
 .grow { flex: 1; }

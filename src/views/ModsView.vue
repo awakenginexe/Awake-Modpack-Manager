@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import {
   ArrowDown, ArrowUp, ArrowUpCircle, Ban, Boxes, CircleAlert, CircleCheck, CircleHelp, FileQuestion, Info, ListChecks,
-  Pin, PinOff, Power, PowerOff, Search, Trash2, TriangleAlert, Undo2, X,
+  History, Lock, Pin, PinOff, Power, PowerOff, Search, Trash2, TriangleAlert, Undo2, X,
 } from '@lucide/vue';
 import type { DraftChange, InstalledMod } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
@@ -11,7 +11,7 @@ import VirtualList from '../components/VirtualList.vue';
 import { addChanges, isStale, rebase, removeChange } from '../domain/draft';
 import { depState, emptyFilter, filterMods, hasUpdate, sortMods, type SortKey, type StatusFilter } from '../domain/modList';
 import { emptySelection, selectAll, selectRange, toggle } from '../domain/selection';
-import { formatNumber, t, type MessageKey } from '../i18n';
+import { formatDate, formatNumber, t, type MessageKey } from '../i18n';
 import { compactRows } from '../state/prefs';
 import { useSession } from '../state/session';
 import { formatBytes } from '../ui/labels';
@@ -28,6 +28,8 @@ const focusedKey = ref<string | null>(null);
 const droppedNotice = ref(0);
 
 const mods = computed(() => inventory.value?.mods ?? []);
+/** Launcher dropped while we still show its last answer: say so instead of implying it's live. */
+const snapshot = computed(() => !!inventory.value && state.connection !== 'connected' && state.inventoryObservedAt !== null);
 const shown = computed(() => sortMods(filterMods(mods.value, filter.value, pinned.value), sortKey.value, descending.value));
 const shownKeys = computed(() => shown.value.map((m) => m.key));
 const focused = computed(() => mods.value.find((m) => m.key === focusedKey.value) ?? null);
@@ -132,6 +134,17 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
       </div>
     </header>
 
+    <div v-if="session.backend.kind === 'launcher' && snapshot" class="notice warn" role="status">
+      <History :size="18" /><span class="grow">{{ t('snapshotNotice', { time: formatDate(new Date(state.inventoryObservedAt!).toISOString()) }) }}</span>
+    </div>
+    <div v-else-if="session.backend.kind === 'launcher' && !session.can('plan.apply')" class="notice" role="note">
+      <Lock :size="18" /><span class="grow">{{ t('readOnlyNotice') }}</span>
+    </div>
+    <div v-if="state.inventoryError" class="notice error" role="alert">
+      <CircleAlert :size="18" /><span class="grow">{{ t('inventoryFailed') }} <code class="small">{{ state.inventoryError.message }}</code></span>
+      <button class="btn btn-small" type="button" @click="session.loadInventory()">{{ t('retry') }}</button>
+    </div>
+
     <div v-if="stale" class="notice warn" role="alert">
       <TriangleAlert :size="18" /><span class="grow">{{ t('staleDraft') }}</span>
       <button class="btn btn-small" type="button" @click="refreshDraft">{{ t('staleDraftAction') }}</button>
@@ -174,6 +187,9 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
               <template v-else>{{ t(c.label) }}</template>
             </span>
           </div>
+          <p v-if="state.inventoryLoading && state.inventoryProgress && state.inventoryProgress.total > 0" class="load-progress small muted" role="status">
+            {{ t('loadingProgress', { loaded: formatNumber(state.inventoryProgress.loaded), total: formatNumber(state.inventoryProgress.total) }) }}
+          </p>
           <div v-if="state.inventoryLoading && !mods.length" class="skeleton-rows" aria-busy="true">
             <div v-for="n in 8" :key="n" class="row"><span></span><span class="skeleton" style="height: 14px; width: 70%"></span><span class="skeleton" style="height: 12px; width: 60%"></span></div>
           </div>
@@ -206,6 +222,10 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
                       <Pin v-if="pinned.has(m.key)" :size="13" class="pin" :aria-label="t('pinned')" />
                       <span v-for="c in pendingByKey.get(m.key) ?? []" :key="c.kind" class="badge info tiny">{{ t(pendingLabel[c.kind]) }}</span>
                       <span v-if="m.locallyModified" class="badge warn tiny">{{ t('locallyModified') }}</span>
+                      <span v-if="m.metadataState === 'conflict'" class="badge warn tiny" :title="t('metadataConflictHint')">{{ t('metadataConflict') }}</span>
+                      <span v-if="m.kind === 'directory'" class="badge tiny">{{ t('kindFolder') }}</span>
+                      <span v-if="m.linked" class="badge tiny" :title="t('linkedHint')">{{ t('linkedFile') }}</span>
+                      <Lock v-if="m.updateLocked" :size="13" class="pin" :aria-label="t('lockedInLauncher')" />
                     </span>
                     <span class="file">{{ m.fileName }}</span>
                   </span>
@@ -213,7 +233,8 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
                 <span role="cell" class="mono c-installed">{{ m.installed?.name ?? t('noVersion') }}</span>
                 <span role="cell" class="mono">
                   <span v-if="hasUpdate(m)" class="update"><ArrowUpCircle :size="14" />{{ m.available?.name }}</span>
-                  <span v-else-if="m.source !== 'manual'" class="uptodate"><CircleCheck :size="14" />{{ t('upToDate') }}</span>
+                  <span v-else-if="m.available" class="uptodate"><CircleCheck :size="14" />{{ t('upToDate') }}</span>
+                  <span v-else-if="m.source !== 'manual'" class="muted" :title="t('updateUnknownHint')">{{ t('updateUnknown') }}</span>
                   <span v-else class="muted">{{ t('noVersion') }}</span>
                 </span>
                 <span role="cell"><ProviderLogo :provider="m.source" :size="16" label /></span>
@@ -256,13 +277,16 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
               <span class="meta small"><ProviderLogo :provider="focused.source" :size="15" label /><span v-if="focused.sizeBytes">{{ formatBytes(focused.sizeBytes) }}</span></span>
             </div>
           </div>
-          <p v-if="focused.source === 'manual'" class="notice warn small"><FileQuestion :size="18" />{{ t('manualFileHint') }}</p>
+          <p v-if="focused.metadataState === 'conflict'" class="notice warn small"><TriangleAlert :size="18" />{{ t('metadataConflictHint') }}</p>
+          <p v-else-if="focused.source === 'manual'" class="notice warn small"><FileQuestion :size="18" />{{ t('manualFileHint') }}</p>
+          <p v-if="focused.updateLocked" class="muted small hint"><Lock :size="13" />{{ t('lockedInLauncherHint') }}</p>
 
           <dl class="facts">
             <dt>{{ t('detailFile') }}</dt><dd class="mono-text">{{ focused.fileName }}</dd>
+            <template v-if="focused.modifiedMs !== undefined"><dt>{{ t('detailModified') }}</dt><dd>{{ formatDate(new Date(focused.modifiedMs).toISOString()) }}</dd></template>
             <template v-if="focused.projectId"><dt>{{ t('detailProject') }}</dt><dd class="mono-text">{{ focused.projectId }}</dd></template>
             <dt>{{ t('colInstalled') }}</dt>
-            <dd>{{ focused.installed?.name ?? t('noVersion') }} <span v-if="focused.installed" class="badge">{{ t(focused.installed.releaseType) }}</span></dd>
+            <dd>{{ focused.installed?.name ?? t('noVersion') }} <span v-if="focused.installed?.releaseType" class="badge">{{ t(focused.installed.releaseType) }}</span></dd>
             <template v-if="hasUpdate(focused)"><dt>{{ t('colAvailable') }}</dt><dd class="update"><ArrowUpCircle :size="14" />{{ focused.available?.name }}</dd></template>
           </dl>
 
@@ -286,7 +310,8 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
           </div>
 
           <h3>{{ t('detailDeps') }}</h3>
-          <ul v-if="focused.dependencies.length" class="deps">
+          <p v-if="!focused.dependencies" class="muted small">{{ t('depsNotReported') }}</p>
+          <ul v-else-if="focused.dependencies.length" class="deps">
             <li v-for="(d, i) in focused.dependencies" :key="i">
               <CircleCheck v-if="d.state === 'satisfied'" :size="16" class="ok" />
               <Ban v-else-if="d.kind === 'incompatible'" :size="16" class="danger" />
@@ -353,6 +378,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
 .state { display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--text-muted); }
 .state.on { color: #6ee7b7; }
 .skeleton-rows .row { cursor: default; }
+.load-progress { padding: 8px var(--space-4) 0; }
 .bulkbar { margin: 0 auto; }
 .sel-count { padding: 0 var(--space-2); }
 .divider { width: 1px; height: 20px; background: var(--border-subtle); }

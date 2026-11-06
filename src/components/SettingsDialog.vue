@@ -4,9 +4,10 @@ import { Check, ChevronDown, CircleCheck, CircleMinus, Info, Plug, RefreshCw, Se
 import { ALL_CAPABILITIES } from '../backend/contract';
 import ProviderLogo from './ProviderLogo.vue';
 import { locale, localeNames, t, type Locale, type MessageKey } from '../i18n';
-import { compactRows, reducedMotion, systemReducedMotion } from '../state/prefs';
+import { addedFolders, compactRows, dataSource, preferredProfile, reducedMotion, systemReducedMotion, type DataSource } from '../state/prefs';
+import type { LauncherProfile } from '../backend/launcher/transport';
 import { useSession } from '../state/session';
-import { packProviderNames } from '../ui/labels';
+import { connectErrorHint, connectErrorTitle, packProviderNames } from '../ui/labels';
 import awakeLogo from '../assets/brand/awake.png';
 import pkg from '../../package.json';
 
@@ -65,7 +66,42 @@ const statusText = computed(() => {
 });
 const statusTone = computed(() => (state.connection === 'connected' ? (isMock ? 'warn' : 'ok') : state.connection === 'connecting' || state.reconnecting ? 'info' : 'error'));
 const supported = computed(() => hs.value?.capabilities.length ?? 0);
-const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : reason ?? t('unavailable'));
+const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : reason === 'launcher-read-only' ? t('launcherReadOnly') : reason ?? t('unavailable'));
+
+/* Data source and Launcher profiles */
+const sources: { id: DataSource; label: MessageKey; hint: MessageKey }[] = [
+  { id: 'auto', label: 'dsAuto', hint: 'dsAutoHint' },
+  { id: 'launcher', label: 'dsLauncher', hint: 'dsLauncherHint' },
+  { id: 'demo', label: 'dsDemo', hint: 'dsDemoHint' },
+];
+function chooseSource(id: DataSource) {
+  if (id === dataSource.value) return;
+  dataSource.value = id;
+  location.reload(); // the backend is chosen once at startup, so switching restarts the app
+}
+const profiles = ref<LauncherProfile[]>(session.backend.launcherProfiles?.() ?? []);
+const refreshProfiles = () => { profiles.value = session.backend.launcherProfiles?.() ?? []; };
+const sourceKey: Record<LauncherProfile['source'], MessageKey> = { registry: 'sourceRegistry', environment: 'sourceEnvironment', default: 'sourceDefault', added: 'sourceAdded' };
+const newFolder = ref('');
+async function reconnect() { await session.connect(); refreshProfiles(); }
+async function useProfile(p: LauncherProfile) {
+  preferredProfile.value = p.dataRoot;
+  session.backend.setPreferredProfile?.(p.dataRoot);
+  await reconnect();
+}
+async function addFolder() {
+  const folder = newFolder.value.trim();
+  if (!folder || addedFolders.value.includes(folder)) return;
+  addedFolders.value = [...addedFolders.value, folder];
+  session.backend.setAddedFolders?.(addedFolders.value);
+  newFolder.value = '';
+  await reconnect();
+}
+async function removeFolder(folder: string) {
+  addedFolders.value = addedFolders.value.filter((f) => f !== folder);
+  session.backend.setAddedFolders?.(addedFolders.value);
+  await reconnect();
+}
 </script>
 
 <template>
@@ -137,13 +173,44 @@ const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? 
                 <strong>{{ statusText }}</strong>
                 <span class="hint">{{ isMock ? t('connMockHint') : t('connectionHint') }}</span>
               </div>
-              <button class="btn btn-small" type="button" :disabled="state.connection === 'connecting'" @click="session.connect()"><RefreshCw :size="14" />{{ t('reconnect') }}</button>
+              <button class="btn btn-small" type="button" :disabled="state.connection === 'connecting'" @click="reconnect()"><RefreshCw :size="14" />{{ t('reconnect') }}</button>
             </div>
+            <p v-if="state.connectError" class="hint error-text">{{ t(connectErrorTitle(state.connectError.code)) }}. {{ t(connectErrorHint(state.connectError.code)) }}</p>
+
+            <h3>{{ t('dataSourceLabel') }}</h3>
+            <div class="sources" role="radiogroup" :aria-label="t('dataSourceLabel')">
+              <label v-for="s in sources" :key="s.id" class="source" :class="{ active: dataSource === s.id }">
+                <input type="radio" name="data-source" :checked="dataSource === s.id" @change="chooseSource(s.id)" />
+                <span><strong>{{ t(s.label) }}</strong><span class="hint">{{ t(s.hint) }}</span></span>
+              </label>
+            </div>
+            <p class="hint">{{ t('dataSourceHint') }}</p>
+
+            <template v-if="session.backend.kind === 'launcher'">
+              <h3>{{ t('profilesLabel') }}</h3>
+              <ul class="profiles">
+                <li v-for="p in profiles.filter((x) => x.exists || x.source === 'added')" :key="p.dataRoot" :class="{ active: state.installationId === p.dataRoot }">
+                  <span class="dot" :class="p.endpoint ? 'on' : ''"></span>
+                  <span class="grow profile-copy">
+                    <span class="path" :title="p.dataRoot">{{ p.dataRoot }}</span>
+                    <span class="hint">{{ t(sourceKey[p.source]) }} · {{ p.endpoint ? t('profileRunning') : p.exists ? t('profileNotRunning') : t('profileMissing') }}<template v-if="p.drive === 'removable' || p.drive === 'remote'"> · {{ t('profileUnsupported') }}</template></span>
+                  </span>
+                  <span v-if="state.installationId === p.dataRoot && state.connection === 'connected'" class="badge ok">{{ t('profileSelected') }}</span>
+                  <button v-else-if="p.exists" class="btn btn-small" type="button" @click="useProfile(p)">{{ t('profileUse') }}</button>
+                  <button v-if="p.source === 'added'" class="icon-btn" type="button" :aria-label="t('removeFolder')" :title="t('removeFolder')" @click="removeFolder(p.installDir ?? p.dataRoot)"><X :size="14" /></button>
+                </li>
+              </ul>
+              <form class="add-folder" @submit.prevent="addFolder">
+                <label class="field grow"><span>{{ t('addFolderLabel') }}</span><input v-model="newFolder" class="input" placeholder="C:\Games\AwakeLauncher" /></label>
+                <button class="btn" type="submit" :disabled="!newFolder.trim()">{{ t('addFolder') }}</button>
+              </form>
+              <p class="hint">{{ t('addFolderHint') }}</p>
+            </template>
 
             <dl class="facts">
               <div><dt>{{ t('connBackend') }}</dt><dd>{{ isMock ? t('backendMock') : t('backendLauncher') }}</dd></div>
-              <div v-if="hs && !isMock"><dt>{{ t('launcherVersion') }}</dt><dd>{{ hs.launcherVersion }}</dd></div>
-              <div v-if="hs && !isMock"><dt>{{ t('contractVersion') }}</dt><dd>{{ hs.contract }}</dd></div>
+              <div v-if="hs && !isMock"><dt>{{ t('launcherExecutable') }}</dt><dd class="path" :title="hs.launcherVersion">{{ hs.launcherVersion }}</dd></div>
+              <div v-if="hs && !isMock"><dt>{{ t('contractVersion') }}</dt><dd>{{ t('contractPinned', { version: hs.contract }) }}</dd></div>
               <div v-if="state.installations[0]"><dt>{{ t('libraryInstallation') }}</dt><dd class="path" :title="state.installations[0].path">{{ state.installations[0].path }}</dd></div>
               <div v-if="hs"><dt>{{ t('capabilitiesLabel') }}</dt><dd>{{ t('capabilitiesCount', { count: supported, total: ALL_CAPABILITIES.length }) }}</dd></div>
             </dl>
@@ -249,6 +316,20 @@ const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? 
 .providers { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
 .providers li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: var(--radius-control); background: rgba(255, 255, 255, 0.035); font-size: 0.92rem; }
 .providers li > :first-child { flex: 0 1 auto; }
+
+.sources { display: flex; flex-direction: column; gap: 6px; }
+.source { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius-control); border: 1px solid var(--border-subtle); background: rgba(255, 255, 255, 0.03); cursor: pointer; }
+.source.active { border-color: rgba(96, 165, 250, 0.55); background: rgba(59, 130, 246, 0.1); }
+.source > span { display: flex; flex-direction: column; gap: 2px; }
+.profiles { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.profiles li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-control); background: rgba(255, 255, 255, 0.035); }
+.profiles li.active { box-shadow: inset 3px 0 0 #3b82f6; }
+.profiles .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+.profiles .dot.on { background: var(--ok); box-shadow: 0 0 6px rgba(52, 211, 153, 0.6); }
+.profile-copy { display: flex; flex-direction: column; min-width: 0; }
+.profile-copy .path { max-width: 100%; text-align: left; }
+.add-folder { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+.error-text { color: #fca5a5; margin-top: 8px; }
 
 /* About */
 .about { gap: 14px; padding-top: 16px; }

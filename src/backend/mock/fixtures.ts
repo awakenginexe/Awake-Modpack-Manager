@@ -140,7 +140,7 @@ export function buildInventory(catalog: CatalogProject[], count: number, seed: n
   }
   // Mark required deps that are not installed as missing.
   const installedIds = new Set(mods.map((m) => m.projectId));
-  for (const m of mods) for (const d of m.dependencies) if (d.projectId && !installedIds.has(d.projectId)) d.state = 'missing';
+  for (const m of mods) for (const d of m.dependencies ?? []) if (d.projectId && !installedIds.has(d.projectId)) d.state = 'missing';
   // Manual files the coordinator cannot attribute to a provider. They must stay visible.
   const manualCount = Math.max(1, Math.round(count * 0.04));
   for (let i = 0; i < manualCount; i++) {

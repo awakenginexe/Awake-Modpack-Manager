@@ -38,7 +38,7 @@ async function search(append = false) {
   error.value = '';
   try {
     const page = await session.backend.search({
-      text: text.value, provider: provider.value, minecraftVersion: inst.value.minecraftVersion, loader: inst.value.loader.kind,
+      text: text.value, provider: provider.value, minecraftVersion: inst.value.minecraftVersion ?? '', loader: inst.value.loader?.kind ?? 'vanilla',
       releaseTypes: releaseTypes.value, compatibleOnly: compatibleOnly.value, offset: append ? hits.value.length : 0, limit: PAGE,
     });
     if (id !== requestId) return; // a newer query superseded this one
@@ -75,8 +75,8 @@ function addToDraft(list: SearchHit[]) {
       <div>
         <h1>{{ t('browseTitle') }}</h1>
         <p class="meta">
-          <span><Gamepad2 :size="15" />Minecraft {{ inst.minecraftVersion }}</span>
-          <span><Layers :size="15" />{{ loaderLabel(inst.loader.kind) }}</span>
+          <span v-if="inst.minecraftVersion"><Gamepad2 :size="15" />Minecraft {{ inst.minecraftVersion }}</span>
+          <span v-if="inst.loader"><Layers :size="15" />{{ loaderLabel(inst.loader.kind) }}</span>
         </p>
       </div>
       <div class="toolbar">
@@ -131,7 +131,7 @@ function addToDraft(list: SearchHit[]) {
           <div class="meta small">
             <span><Download :size="13" />{{ formatNumber(hit.downloads) }}</span>
             <span v-if="hit.latest">{{ hit.latest.name }}</span>
-            <span v-if="hit.latest && hit.latest.releaseType !== 'release'" class="badge warn">{{ t(hit.latest.releaseType) }}</span>
+            <span v-if="hit.latest?.releaseType && hit.latest.releaseType !== 'release'" class="badge warn">{{ t(hit.latest.releaseType) }}</span>
             <span v-if="!hit.compatible" class="badge error">{{ t('notCompatible') }}</span>
           </div>
         </div>

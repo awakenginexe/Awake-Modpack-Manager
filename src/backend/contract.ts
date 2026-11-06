@@ -123,17 +123,22 @@ export interface Installation {
   path: string;
   launcherVersion: string;
   portable: boolean;
+  /** False when no running Launcher endpoint was found for this profile. */
+  available?: boolean;
 }
 
-export type InstanceStatus = 'ready' | 'running' | 'busy' | 'broken';
+export type InstanceStatus = 'ready' | 'running' | 'busy' | 'broken' | 'unknown';
 
 export interface InstanceSummary {
+  /** For Launcher data this is the opaque physicalId, the only key mods.list accepts. */
   id: string;
   name: string;
   iconUrl?: string;
-  minecraftVersion: string;
-  loader: { kind: LoaderKind; version?: string };
-  modCount: number;
+  /** Not reported by Launcher protocol 1.0; absent means unknown. */
+  minecraftVersion?: string;
+  loader?: { kind: LoaderKind; version?: string };
+  /** Absent while unknown (e.g. unloaded instances, or not counted yet). */
+  modCount?: number;
   status: InstanceStatus;
   path?: string;
   /** False when the coordinator cannot manage this instance; `blockedReason` says why. */
@@ -142,6 +147,20 @@ export interface InstanceSummary {
   /** Opaque authoritative revision. Any change to the instance's content changes it. */
   revision: string;
   pack?: PackLink;
+  /** Launcher protocol identity details (absent for demo data). */
+  launcher?: {
+    instanceId: string;
+    uuid: string | null;
+    loaded: boolean;
+    identityStatus: 'verified' | 'conflict';
+    nativeActivity: 'idle' | 'launch_preparing' | 'launch_active' | 'deleting' | 'unknown' | null;
+  };
+}
+
+/** Discovery warning reported by the Launcher (e.g. duplicate IDs, aliased or shared roots). */
+export interface InstanceWarning {
+  code: string;
+  path: string;
 }
 
 export type DependencyKind = 'required' | 'optional' | 'incompatible' | 'embedded';
@@ -158,7 +177,8 @@ export interface DependencyRef {
 export interface VersionRef {
   id: string;
   name: string;
-  releaseType: ReleaseType;
+  /** Unknown for Launcher-indexed metadata. */
+  releaseType?: ReleaseType;
   publishedAt?: string;
 }
 
@@ -174,10 +194,17 @@ export interface InstalledMod {
   /** Latest compatible version reported by the provider, if any. */
   available?: VersionRef;
   enabled: boolean;
-  dependencies: DependencyRef[];
+  /** Absent when dependencies are unknown (Launcher protocol 1.0 does not report them). */
+  dependencies?: DependencyRef[];
   /** File differs from what the provider metadata says was installed. */
   locallyModified?: boolean;
   sizeBytes?: number;
+  modifiedMs?: number;
+  /** Launcher inventory details. `conflict` = several .index entries claim this file. */
+  metadataState?: 'indexed' | 'unindexed' | 'conflict';
+  kind?: 'jar' | 'directory' | 'other';
+  linked?: boolean;
+  updateLocked?: boolean;
 }
 
 export interface ModInventory {
@@ -395,7 +422,13 @@ export type BackendErrorCode =
   | 'stale-revision'
   | 'plan-expired'
   | 'instance-busy'
-  | 'rejected';
+  | 'rejected'
+  /** No running Launcher endpoint for the selected profile. */
+  | 'not-running'
+  /** Profile location the Launcher cannot publish an endpoint for (removable, network...). */
+  | 'unsupported-profile'
+  /** The pipe or hello did not match the descriptor / current user. */
+  | 'identity';
 
 export class BackendError extends Error {
   constructor(readonly code: BackendErrorCode, message: string, readonly detail?: string) {

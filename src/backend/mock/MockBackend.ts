@@ -77,7 +77,7 @@ export class MockBackend implements ManagerBackend {
     const sizes: Record<string, [number, number]> = { 'inst-atlas': [280, 11], 'inst-cozy': [64, 23], 'inst-sky': [140, 5], 'inst-vanilla': [0, 1], 'inst-old': [30, 3] };
     for (const inst of this.instances) {
       const [count, seed] = sizes[inst.id] ?? [0, 1];
-      const mods = count ? buildInventory(this.catalog, count, seed, inst.minecraftVersion) : [];
+      const mods = count ? buildInventory(this.catalog, count, seed, inst.minecraftVersion ?? '1.21.1') : [];
       this.inventories.set(inst.id, mods);
       inst.modCount = mods.length;
     }
@@ -161,7 +161,7 @@ export class MockBackend implements ManagerBackend {
         .map((p) => ({ ...p, compatible: p.minecraftVersions.includes(q.minecraftVersion) && p.loaders.includes(q.loader) }))
         .filter((p) => (!text || p.name.toLowerCase().includes(text) || p.summary.toLowerCase().includes(text))
           && (!q.compatibleOnly || p.compatible)
-          && (!p.latest || q.releaseTypes.includes(p.latest.releaseType)))
+          && (!p.latest?.releaseType || q.releaseTypes.includes(p.latest.releaseType)))
         .sort((a, b) => b.downloads - a.downloads);
       return {
         total: hits.length,
@@ -309,7 +309,7 @@ export class MockBackend implements ManagerBackend {
         if (mod.locallyModified) issues.push({ severity: 'warning', code: 'locally-modified', message: `${mod.name} was changed locally. Updating replaces that file.`, modKeys: [mod.key] });
       } else if (change.kind === 'remove') {
         items.push({ action: 'remove', modKey: mod.key, name: mod.name, from: mod.installed, reason: 'requested', destructive: mod.source === 'manual' || mod.locallyModified });
-        const dependents = mods.filter((m) => !removing.has(m.key) && m.dependencies.some((d) => d.kind === 'required' && d.projectId && d.projectId === mod.projectId));
+        const dependents = mods.filter((m) => !removing.has(m.key) && (m.dependencies ?? []).some((d) => d.kind === 'required' && d.projectId && d.projectId === mod.projectId));
         if (dependents.length) issues.push({ severity: 'warning', code: 'missing-dependency', message: `${dependents.length} installed mods require ${mod.name}.`, modKeys: [mod.key, ...dependents.map((d) => d.key)] });
       } else if (change.kind === 'enable' || change.kind === 'disable') {
         if (mod.enabled === (change.kind === 'enable')) continue;
