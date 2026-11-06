@@ -9,14 +9,17 @@
 ; %LOCALAPPDATA%\AwakeModpackManager, outside the folders the uninstaller deletes.
 
 !macro AWAKE_WAIT_FOR_HELPER
-  awake_helper_check_${__LINE__}:
-  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /c ""$SYSDIR\tasklist.exe" /FI "IMAGENAME eq awake-core-host.exe" /NH | "$SYSDIR\find.exe" /I "awake-core-host.exe""'
-  Pop $0
-  Pop $1
-  ${If} $0 == 0
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "The Awake Modpack Manager helper is still finishing work in the background.$\r$\n$\r$\nClose Awake Modpack Manager, wait a minute for the helper to exit by itself, then choose Retry." /SD IDCANCEL IDRETRY awake_helper_check_${__LINE__}
+  ${Do}
+    nsExec::ExecToStack '"$SYSDIR\cmd.exe" /c ""$SYSDIR\tasklist.exe" /FI "IMAGENAME eq awake-core-host.exe" /NH | "$SYSDIR\find.exe" /I "awake-core-host.exe""'
+    Pop $0
+    Pop $1
+    ${If} $0 != 0
+      ${Break}
+    ${EndIf}
+    ; Retry checks again; Cancel (and the silent default) stops without touching any file.
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "The Awake Modpack Manager helper is still finishing work in the background.$\r$\n$\r$\nClose Awake Modpack Manager, wait a minute for the helper to exit by itself, then choose Retry." /SD IDCANCEL IDRETRY +2
     Abort
-  ${EndIf}
+  ${Loop}
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL

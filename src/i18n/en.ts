@@ -491,7 +491,7 @@ export const en = {
   backendStandalone: "Manager helper + Awake Launcher (optional)",
   managerInstallation: "Manager projects (standalone)",
   projStoreNewer: "These projects were saved by a newer Awake Modpack Manager. They are read-only here; update the Manager to change them.",
-  projLegacyFound: "{count} projects are still stored where earlier versions kept them. Move them to your project folder so they survive reinstalling. The old copy is kept.",
+  projLegacyFound: "Projects from an earlier version ({count}) are still stored where that version kept them. Move them to your project folder so they survive reinstalling. The old copy is kept.",
   projLegacyMove: "Move to project folder",
   projExportSaved: "Saved to {path}",
   projExportFailed: "The export couldn't be saved: {reason}",
