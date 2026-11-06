@@ -1,0 +1,331 @@
+/**
+ * PROVISIONAL integration types.
+ *
+ * These describe what the Manager needs from the Awake Launcher coordinator. They are NOT the
+ * final contract: Codex owns that on `feat/modpack-manager-integration`. When it lands, adapt
+ * LauncherClient to it and change these types to match, not the other way round.
+ * See docs/INTEGRATION.md for the assumptions behind every type here.
+ */
+
+export const PROVISIONAL_CONTRACT = '0.0-provisional';
+
+export type Capability =
+  | 'installations.discover'
+  | 'instances.list'
+  | 'instances.create'
+  | 'mods.inventory'
+  | 'providers.search'
+  | 'plan.validate'
+  | 'plan.prepare'
+  | 'plan.apply'
+  | 'operations.watch'
+  | 'operations.cancel'
+  | 'operations.reconnect'
+  | 'recovery.status'
+  | 'files.read'
+  | 'export.mrpack'
+  | 'export.curseforge'
+  | 'launch.request';
+
+export type ProviderId = 'modrinth' | 'curseforge';
+export type ModSource = ProviderId | 'manual';
+export type LoaderKind = 'fabric' | 'quilt' | 'forge' | 'neoforge' | 'vanilla';
+export type ReleaseType = 'release' | 'beta' | 'alpha';
+
+export interface ProviderInfo {
+  id: ProviderId;
+  available: boolean;
+  /** Why the provider cannot be used right now (e.g. CurseForge API not authorized). */
+  unavailableReason?: string;
+}
+
+export interface Handshake {
+  contract: string;
+  launcherVersion: string;
+  capabilities: Capability[];
+  providers: ProviderInfo[];
+}
+
+export interface Installation {
+  id: string;
+  displayName: string;
+  path: string;
+  launcherVersion: string;
+  portable: boolean;
+}
+
+export type InstanceStatus = 'ready' | 'running' | 'busy' | 'broken';
+
+export interface InstanceSummary {
+  id: string;
+  name: string;
+  iconUrl?: string;
+  minecraftVersion: string;
+  loader: { kind: LoaderKind; version?: string };
+  modCount: number;
+  status: InstanceStatus;
+  path?: string;
+  /** False when the coordinator cannot manage this instance; `blockedReason` says why. */
+  manageable: boolean;
+  blockedReason?: string;
+  /** Opaque authoritative revision. Any change to the instance's content changes it. */
+  revision: string;
+}
+
+export type DependencyKind = 'required' | 'optional' | 'incompatible' | 'embedded';
+
+export interface DependencyRef {
+  kind: DependencyKind;
+  projectId?: string;
+  name: string;
+  versionRange?: string;
+  /** Whether the dependency is satisfied in the current instance. `unknown` when undeterminable. */
+  state: 'satisfied' | 'missing' | 'conflict' | 'unknown';
+}
+
+export interface VersionRef {
+  id: string;
+  name: string;
+  releaseType: ReleaseType;
+  publishedAt?: string;
+}
+
+export interface InstalledMod {
+  /** Stable key within the instance. Manual files are keyed by file name. */
+  key: string;
+  fileName: string;
+  name: string;
+  source: ModSource;
+  projectId?: string;
+  installed: VersionRef | null;
+  /** Latest compatible version reported by the provider, if any. */
+  available?: VersionRef;
+  enabled: boolean;
+  dependencies: DependencyRef[];
+  /** File differs from what the provider metadata says was installed. */
+  locallyModified?: boolean;
+  sizeBytes?: number;
+}
+
+export interface ModInventory {
+  instanceId: string;
+  revision: string;
+  mods: InstalledMod[];
+}
+
+export interface SearchQuery {
+  text: string;
+  provider: ProviderId;
+  minecraftVersion: string;
+  loader: LoaderKind;
+  releaseTypes: ReleaseType[];
+  compatibleOnly: boolean;
+  offset: number;
+  limit: number;
+}
+
+export interface SearchHit {
+  provider: ProviderId;
+  projectId: string;
+  name: string;
+  author: string;
+  summary: string;
+  iconUrl?: string;
+  downloads: number;
+  compatible: boolean;
+  latest?: VersionRef;
+}
+
+export interface SearchPage {
+  hits: SearchHit[];
+  total: number;
+}
+
+/* ---------- Draft & plan ---------- */
+
+export type DraftChange =
+  | { kind: 'install'; provider: ProviderId; projectId: string; name: string; versionId?: string }
+  | { kind: 'update'; modKey: string; targetVersionId: string }
+  | { kind: 'remove'; modKey: string }
+  | { kind: 'enable'; modKey: string }
+  | { kind: 'disable'; modKey: string };
+
+/** A Manager-owned draft. It never touches the instance until a confirmed plan is applied. */
+export interface Draft {
+  instanceId: string;
+  /** Revision the user was looking at when they built the draft. */
+  baseRevision: string;
+  changes: DraftChange[];
+  /** Policies the resolver must respect (pins are Manager-owned). */
+  pinnedKeys: string[];
+}
+
+export type PlanAction = 'install' | 'update' | 'remove' | 'enable' | 'disable' | 'keep';
+
+export interface PlanItem {
+  action: PlanAction;
+  modKey: string;
+  name: string;
+  from?: VersionRef | null;
+  to?: VersionRef;
+  /** Why this item is in the plan: requested by the user, or pulled in as a dependency. */
+  reason: 'requested' | 'required-dependency' | 'optional-dependency';
+  requiredBy?: string[];
+  /** The item deletes or replaces something the user may have customised. */
+  destructive?: boolean;
+}
+
+export interface PlanIssue {
+  severity: 'error' | 'warning' | 'info';
+  code:
+    | 'version-conflict'
+    | 'incompatible'
+    | 'pinned-skipped'
+    | 'unknown-file'
+    | 'locally-modified'
+    | 'missing-dependency'
+    | 'loader-mismatch'
+    | 'unknown-dependency';
+  message: string;
+  modKeys: string[];
+}
+
+export interface OptionalSuggestion {
+  provider: ProviderId;
+  projectId: string;
+  name: string;
+  suggestedBy: string[];
+}
+
+export interface ResolvedPlan {
+  planId: string;
+  /** Hash of the resolved content. Review and Apply must refer to the same hash. */
+  planHash: string;
+  instanceId: string;
+  baseRevision: string;
+  items: PlanItem[];
+  issues: PlanIssue[];
+  optional: OptionalSuggestion[];
+  /** Apply is refused while any blocking issue exists. */
+  blocked: boolean;
+}
+
+/* ---------- Operations ---------- */
+
+export type OperationState =
+  | 'preparing'
+  | 'waiting'
+  | 'applying'
+  | 'verifying'
+  | 'completed'
+  | 'cancelled'
+  | 'recovering'
+  | 'rolled_back'
+  | 'needs_attention';
+
+export const TERMINAL_STATES: readonly OperationState[] = ['completed', 'cancelled', 'rolled_back', 'needs_attention'];
+
+export type OperationKind = 'apply-plan' | 'create-instance' | 'export';
+
+export interface OperationStatus {
+  operationId: string;
+  kind: OperationKind;
+  instanceId?: string;
+  planHash?: string;
+  state: OperationState;
+  /** 0..1 when known. */
+  progress?: number;
+  step?: string;
+  startedAt: string;
+  updatedAt: string;
+  cancellable: boolean;
+  error?: { code: string; message: string; detail?: string };
+  recovery?: { backupId?: string; restored?: boolean; message: string };
+  result?: { revision?: string; exportPath?: string };
+}
+
+export interface ApplyRequest {
+  planId: string;
+  planHash: string;
+  /** Client-generated; lets the coordinator de-duplicate a resent Apply. */
+  idempotencyKey: string;
+}
+
+export interface Accepted {
+  operationId: string;
+}
+
+export interface CreateInstanceRequest {
+  name: string;
+  minecraftVersion: string;
+  loader: LoaderKind;
+  idempotencyKey: string;
+}
+
+export interface RecoveryStatus {
+  instanceId: string;
+  pending: boolean;
+  message?: string;
+  backups: { backupId: string; createdAt: string; label: string }[];
+}
+
+/* ---------- Files & export ---------- */
+
+export type ContentArea = 'config' | 'defaultconfigs' | 'kubejs' | 'scripts' | 'resourcepacks' | 'shaderpacks';
+
+export interface ContentEntry {
+  path: string;
+  kind: 'file' | 'directory';
+  sizeBytes?: number;
+  modifiedAt?: string;
+}
+
+export type ExportFormat = 'mrpack' | 'curseforge';
+
+export type DistributionStatus =
+  /** Referenced by provider URL; the file itself is not redistributed. */
+  | 'provider-reference'
+  /** File must be bundled; author permission is required and not proven. */
+  | 'needs-permission'
+  /** Provider disallows third-party distribution. */
+  | 'blocked'
+  | 'unknown';
+
+export interface ExportEntry {
+  modKey: string;
+  name: string;
+  status: DistributionStatus;
+  note?: string;
+}
+
+export interface ExportReport {
+  format: ExportFormat;
+  entries: ExportEntry[];
+}
+
+export interface ExportRequest {
+  instanceId: string;
+  format: ExportFormat;
+  name: string;
+  version: string;
+  includePaths: string[];
+  excludeModKeys: string[];
+  idempotencyKey: string;
+}
+
+export type BackendErrorCode =
+  | 'disconnected'
+  | 'timeout'
+  | 'protocol'
+  | 'unsupported'
+  | 'stale-revision'
+  | 'plan-expired'
+  | 'instance-busy'
+  | 'rejected';
+
+export class BackendError extends Error {
+  constructor(readonly code: BackendErrorCode, message: string, readonly detail?: string) {
+    super(message);
+    this.name = 'BackendError';
+  }
+}
