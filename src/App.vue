@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
-import { Boxes, Download, FolderOpen, History, LayoutGrid, ListChecks, PackageSearch, Search, Settings, Upload } from '@lucide/vue';
+import { Boxes, Download, FolderKanban, FolderOpen, History, LayoutGrid, ListChecks, PackageSearch, Search, Settings, Upload } from '@lucide/vue';
 import Avatar from './components/Avatar.vue';
 import { isSettled } from './domain/operation';
 import { t, type MessageKey } from './i18n';
@@ -17,8 +17,10 @@ import ReviewView from './views/ReviewView.vue';
 import FilesView from './views/FilesView.vue';
 import HistoryView from './views/HistoryView.vue';
 import ExportView from './views/ExportView.vue';
+import ProjectsView from './views/ProjectsView.vue';
+import { useProjects } from './state/projects';
 
-export type ViewId = 'library' | 'packs' | 'mods' | 'browse' | 'review' | 'files' | 'history' | 'export';
+export type ViewId = 'library' | 'packs' | 'projects' | 'mods' | 'browse' | 'review' | 'files' | 'history' | 'export';
 
 const session = useSession();
 const { state } = session;
@@ -31,7 +33,7 @@ const motionOff = computed(() => reducedMotion.value || systemReducedMotion);
 // If the selected instance disappears, instance screens have nothing to show.
 watch(() => session.instance.value, (inst) => {
   if (inst && !restored) { restored = true; if (view.value === 'library') view.value = 'mods'; }
-  if (!inst && view.value !== 'packs') view.value = 'library';
+  if (!inst && view.value !== 'packs' && view.value !== 'projects') view.value = 'library';
 }, { immediate: true });
 
 interface NavItem { id: ViewId; label: MessageKey; icon: Component }
@@ -66,8 +68,9 @@ const connectionTone = computed(() => {
 
 function open(id: ViewId) { view.value = id; }
 
-const views: Record<ViewId, Component> = { library: LibraryView, packs: PacksView, mods: ModsView, browse: BrowseView, review: ReviewView, files: FilesView, history: HistoryView, export: ExportView };
-const needsInstance = computed(() => view.value !== 'library' && view.value !== 'packs');
+const views: Record<ViewId, Component> = { library: LibraryView, packs: PacksView, projects: ProjectsView, mods: ModsView, browse: BrowseView, review: ReviewView, files: FilesView, history: HistoryView, export: ExportView };
+const needsInstance = computed(() => !['library', 'packs', 'projects'].includes(view.value));
+const projectCount = computed(() => useProjects().projects.value.length);
 const shownView = computed(() => (needsInstance.value && !session.instance.value ? null : views[view.value]));
 // Instance screens re-enter when the instance changes, so the switch reads as a new page.
 const viewKey = computed(() => (needsInstance.value ? `${view.value}:${state.instanceId}` : view.value));
@@ -116,6 +119,15 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
       </div>
 
       <div class="nav-group">
+        <span class="nav-label">{{ t('navSectionProjects') }}</span>
+        <button type="button" class="nav-item" :class="{ active: view === 'projects' }" :aria-current="view === 'projects' ? 'page' : undefined" @click="open('projects')">
+          <FolderKanban :size="18" aria-hidden="true" />
+          <span class="nav-text">{{ t('navProjects') }}</span>
+          <span v-if="projectCount" class="badge">{{ projectCount }}</span>
+        </button>
+      </div>
+
+      <div class="nav-group">
         <span class="nav-label">{{ t('navSectionInstance') }}</span>
         <Transition name="swap" mode="out-in" @after-enter="placeIndicator" @after-leave="placeIndicator">
         <button v-if="session.instance.value" :key="session.instance.value.id" class="current-instance" type="button" :title="t('switchInstance')" @click="open('library')">
@@ -158,7 +170,7 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
     </Transition>
 
     <main class="stage">
-      <div v-if="session.backend.kind === 'mock'" class="mock-banner" role="note">
+      <div v-if="session.backend.kind === 'mock' && view !== 'projects'" class="mock-banner" role="note">
         <span class="dot"></span>{{ t('connMockHint') }}
       </div>
       <Transition name="page" :mode="motionOff ? 'default' : 'out-in'" :css="!motionOff">
