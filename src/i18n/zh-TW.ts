@@ -497,4 +497,10 @@ export const zhTW: Catalog = {
   projLegacyMove: "移到專案資料夾",
   projExportSaved: "已儲存到 {path}",
   projExportFailed: "無法儲存匯出檔案：{reason}",
+  libraryHelperSubtitle: "由 Manager 自行安裝和維護的模組包，不需要 Awake Launcher。",
+  helperEmptyTitle: "還沒有獨立專案",
+  helperEmptyHint: "在這裡建立的專案儲存在 Manager 自己的資料夾中，與 Awake Launcher 分開。",
+  libraryShowing: "顯示",
+  connHelper: "已連線 Manager 助手",
+  connHelperStub: "已連線測試助手",
 };

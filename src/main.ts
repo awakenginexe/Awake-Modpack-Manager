@@ -24,7 +24,7 @@ function pickBackend(): ManagerBackend {
   if (!demo) {
     const transport = isDesktopHost() ? createHostTransport() : null;
     return createCompositeBackend(
-      createHelperClient({ transport, clientVersion: pkg.version }),
+      createHelperClient({ transport, clientVersion: pkg.version, heartbeatMs: 10_000 }),
       createLauncherClient({
         transport,
         clientVersion: pkg.version,

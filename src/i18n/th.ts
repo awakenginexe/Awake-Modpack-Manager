@@ -497,4 +497,10 @@ export const th: Catalog = {
   projLegacyMove: "ย้ายไปยังโฟลเดอร์โปรเจกต์",
   projExportSaved: "บันทึกไว้ที่ {path}",
   projExportFailed: "บันทึกไฟล์ส่งออกไม่ได้: {reason}",
+  libraryHelperSubtitle: "ม็อดแพ็กที่ Manager ติดตั้งและดูแลเอง ไม่ต้องใช้ Awake Launcher",
+  helperEmptyTitle: "ยังไม่มีโปรเจกต์แบบสแตนด์อโลน",
+  helperEmptyHint: "โปรเจกต์ที่สร้างที่นี่อยู่ในโฟลเดอร์ของ Manager เอง แยกจาก Awake Launcher",
+  libraryShowing: "แสดง",
+  connHelper: "เชื่อมต่อตัวช่วยของ Manager แล้ว",
+  connHelperStub: "เชื่อมต่อตัวช่วยทดสอบแล้ว",
 };

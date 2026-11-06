@@ -13,6 +13,11 @@ export interface HelperClientOptions {
   /** How long to wait for a freshly started helper to publish its endpoint. */
   startTimeoutMs?: number;
   pollMs?: number;
+  /**
+   * Liveness check while connected. A failed check reconnects once, which restarts a crashed
+   * helper (it recovers its own unfinished work before serving). 0 disables (tests).
+   */
+  heartbeatMs?: number;
 }
 
 /**
@@ -69,6 +74,15 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     },
   });
   const stub = () => !!status?.stub || rpc.hello()?.stub === true;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  function startHeartbeat() {
+    clearInterval(heartbeat);
+    if (!options.heartbeatMs) return;
+    heartbeat = setInterval(() => {
+      if (state !== 'connected' || rpc.hello()?.capabilities['instances.list'] !== true) return;
+      rpc.call('instances.list', { limit: 1 }).catch(() => undefined);
+    }, options.heartbeatMs);
+  }
 
   const physicalIds = new Map<string, string>();
   const key = (physicalId: string) => { const k = `helper|${physicalId}`; physicalIds.set(k, physicalId); return k; };
@@ -117,6 +131,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
         throw rpc.toBackendError(e);
       }
       setState('connected');
+      startHeartbeat();
       const reason = stub() ? 'helper-stub' : 'helper-pending';
       return {
         contract: `${rpc.version().major}.${rpc.version().minor}`,

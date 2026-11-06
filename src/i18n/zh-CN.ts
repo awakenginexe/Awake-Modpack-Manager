@@ -497,4 +497,10 @@ export const zhCN: Catalog = {
   projLegacyMove: "移到项目文件夹",
   projExportSaved: "已保存到 {path}",
   projExportFailed: "无法保存导出文件：{reason}",
+  libraryHelperSubtitle: "由 Manager 自行安装和维护的整合包，无需 Awake Launcher。",
+  helperEmptyTitle: "还没有独立项目",
+  helperEmptyHint: "在这里创建的项目保存在 Manager 自己的文件夹中，与 Awake Launcher 分开。",
+  libraryShowing: "显示",
+  connHelper: "已连接 Manager 助手",
+  connHelperStub: "已连接测试助手",
 };

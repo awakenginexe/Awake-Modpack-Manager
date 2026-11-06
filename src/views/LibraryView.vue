@@ -13,6 +13,8 @@ const emit = defineEmits<{ manage: []; getPack: [] }>();
 const session = useSession();
 const { state } = session;
 const query = ref('');
+/** The selected list is the Manager's own standalone projects (helper), not a Launcher profile. */
+const helper = computed(() => session.source.value === 'helper');
 const notice = ref('');
 const showCreate = ref(false);
 const creating = ref(false);
@@ -76,7 +78,7 @@ async function create() {
     <header class="view-header">
       <div>
         <h1>{{ t('libraryTitle') }}</h1>
-        <p>{{ t('librarySubtitle') }}</p>
+        <p>{{ helper ? t('libraryHelperSubtitle') : t('librarySubtitle') }}</p>
       </div>
       <div class="toolbar">
         <button class="btn" type="button" @click="emit('getPack')"><Download :size="16" />{{ t('installModpack') }}</button>
@@ -86,7 +88,7 @@ async function create() {
           :disabled="!session.can('instances.create')"
           :title="session.can('instances.create') ? undefined : t('capabilityMissing')"
           @click="showCreate = true"
-        ><Plus :size="16" />{{ t('createInstance') }}</button>
+        ><Plus :size="16" />{{ helper ? t('projNew') : t('createInstance') }}</button>
       </div>
     </header>
 
@@ -96,7 +98,7 @@ async function create() {
         <input v-model="query" class="input" type="search" :placeholder="t('librarySearch')" :aria-label="t('librarySearch')" />
       </label>
       <label v-if="state.installations.length > 1" class="field inline">
-        <span>{{ t('libraryInstallation') }}</span>
+        <span>{{ session.backend.kind === 'composite' ? t('libraryShowing') : t('libraryInstallation') }}</span>
         <select v-model="state.installationId" class="select" @change="state.installationId !== 'manager' && (preferredProfile = state.installationId); session.refreshInstances()">
           <option v-for="inst in state.installations" :key="inst.id" :value="inst.id">{{ inst.id === 'manager' ? t('managerInstallation') : inst.displayName }}{{ inst.available === false ? ` (${t('profileNotRunning')})` : '' }}</option>
         </select>
@@ -140,8 +142,8 @@ async function create() {
     </ul>
     <div v-else-if="!shown.length && !state.connectError" class="empty card">
       <span class="empty-icon"><Gamepad2 :size="28" /></span>
-      <h2>{{ t('libraryEmpty') }}</h2>
-      <p>{{ t('libraryEmptyHint') }}</p>
+      <h2>{{ helper ? t('helperEmptyTitle') : t('libraryEmpty') }}</h2>
+      <p>{{ helper ? t('helperEmptyHint') : t('libraryEmptyHint') }}</p>
       <button class="btn btn-primary" type="button" @click="emit('getPack')"><Download :size="16" />{{ t('installModpack') }}</button>
     </div>
 

@@ -495,6 +495,12 @@ export const en = {
   projLegacyMove: "Move to project folder",
   projExportSaved: "Saved to {path}",
   projExportFailed: "The export couldn't be saved: {reason}",
+  libraryHelperSubtitle: "Modpacks the Manager installs and maintains by itself. Awake Launcher isn't needed.",
+  helperEmptyTitle: "No standalone projects yet",
+  helperEmptyHint: "Projects you create here live in the Manager's own folder, separate from Awake Launcher.",
+  libraryShowing: "Showing",
+  connHelper: "Manager helper connected",
+  connHelperStub: "Test helper connected",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -63,6 +63,20 @@ describe('HelperClient (fixture IPC)', () => {
     await expect(createHelperClient({ transport: null, clientVersion: 't' }).connect()).rejects.toBeInstanceOf(BackendError);
   });
 
+  it('notices a crashed helper on the heartbeat and starts a fresh one', async () => {
+    const fake = helperFake();
+    const t = helperTransport(fake);
+    const c = createHelperClient({ transport: t, clientVersion: 't', heartbeatMs: 5 });
+    await c.connect();
+    const ensuresBefore = t.ensures;
+    fake.stop(); // crash: pipes gone
+    fake.start(); // what ensureHelper does: a new helper process with a new session
+    await new Promise((r) => setTimeout(r, 60));
+    expect(t.ensures).toBeGreaterThan(ensuresBefore);
+    expect(fake.hellos).toBeGreaterThanOrEqual(2);
+    expect((await c.listInstances('manager')).length).toBe(1);
+  });
+
   it('refuses an endpoint that claims a different role, and the Launcher client refuses a helper', async () => {
     const asLauncher = createHelperClient({ transport: helperTransport(helperFake(DRAFT_CAPABILITIES, { role: 'launcher' })), clientVersion: 't' });
     await expect(asLauncher.connect()).rejects.toMatchObject({ code: 'identity' });

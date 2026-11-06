@@ -57,12 +57,14 @@ const connectionText = computed(() => {
   if (state.waitingForLauncher) return t('launcherNotRunning');
   if (state.reconnecting) return t('connReconnecting');
   if (state.connection === 'connecting') return t('connConnecting');
-  if (state.connection === 'connected') return session.backend.kind === 'mock' ? t('connMock') : t('connConnected');
+  if (state.connection === 'connected' && session.backend.kind === 'mock') return t('connMock');
+  if (state.connection === 'connected' && session.source.value === 'helper') return state.handshake?.stub ? t('connHelperStub') : t('connHelper');
+  if (state.connection === 'connected') return t('connConnected');
   return state.connectError ? t('connFailed') : t('connDisconnected');
 });
 const connectionTone = computed(() => {
   if (state.waitingForLauncher) return 'warn';
-  if (state.connection === 'connected') return session.backend.kind === 'mock' ? 'warn' : 'ok';
+  if (state.connection === 'connected') return session.backend.kind === 'mock' || state.handshake?.stub ? 'warn' : 'ok';
   return state.connection === 'connecting' || state.reconnecting ? 'info' : 'error';
 });
 
