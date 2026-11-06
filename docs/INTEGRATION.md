@@ -1,6 +1,9 @@
 # Integration with Awake Launcher
 
-**Status: read-only integration, protocol 1.0 (experimental), Windows x64 only.**
+**Status: read-only integration, protocol 1.0 (experimental), Windows x64 only.** The Manager
+also implements the draft operation methods whose fields the contract fully defines. It sends
+them only when the Launcher reports them enabled, which it doesn't yet. What the Manager still
+needs from the Launcher is in [LAUNCHER-REQUESTS.md](LAUNCHER-REQUESTS.md).
 
 Contract pin: Awake Launcher `058714ec72ce2db19913f8540b6c4784a9d6ccd2`
 (branch `feat/modpack-manager-integration`), files `docs/modpack-manager/protocol.md`,
@@ -67,6 +70,30 @@ Not reported by protocol 1.0, so shown as unknown, never invented: Minecraft ver
 dependencies, available updates and release type. "Dependency issues" counts only missing or
 conflicting dependencies; unknown isn't an issue.
 
+## Draft operation methods (implemented, off until the Launcher enables them)
+
+`operations.get`, `operations.cancel`, `launch.request`, `instances.create` (vanilla) and
+`transactions.apply` are implemented exactly as protocol.md's "Reserved operation contract"
+defines them. The client maps a capability only when hello reports the method `true`, and
+`operations.get` is required first. Operation states are the contract's own values (`queued` …
+`completed`, `cancelled`, `failed`, `rolled_back`, nonterminal `recovery_required`). A lost reply is
+recovered by resending the identical request with its original `idempotencyKey`. Following polls
+`operations.get`, because `events.subscribe` is unavailable. These are tested only against the
+fixture Launcher; the real Launcher returns `false` for all of them at the pin.
+
+`plans.prepare`, `plans.evaluate`, `providers.*` and `recovery.*` are not implemented: the draft
+leaves their results untyped. See LAUNCHER-REQUESTS.md R3, R4 and R8.
+
+## Starting the Launcher
+
+While waiting for the Launcher, the Library offers **Start Awake Launcher** if discovery knows the
+profile's installation (registry `InstallDir` or an added installation folder). The host's
+`start_launcher` re-runs discovery and starts only `<installDir>\awakelauncher.exe` for the
+installation that resolves to the selected data root. It passes no arguments and acts only on that
+click. The Launcher starts normally, and its window may appear. If no endpoint appears within 45 s,
+the Manager says the Launcher may be waiting on a dialog, or may be a version without the
+integration.
+
 ## What stays unavailable (and how it shows)
 
 The Launcher refuses these with `UNSUPPORTED_CAPABILITY`. The client doesn't even send them: it
@@ -78,11 +105,9 @@ rejects locally with `unsupported`, and the UI is gated by the negotiated capabi
   can't check or apply a plan.
 * Apply, operations, cancellation, history events, recovery, files/overrides, export, launch
   requests: disabled.
-* The Manager never starts the Launcher on its own. The handoff allows it as a user decision; it
-  isn't implemented.
+* The Manager never starts the Launcher on its own, only on the Start button above.
 
-Write-side capabilities stay off in this client even if a future Launcher advertises them, until the
-client implements that contract.
+Capabilities the client doesn't implement stay off, even if a future Launcher advertises them.
 
 ## Connection states the user sees
 
