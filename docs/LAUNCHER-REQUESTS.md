@@ -8,6 +8,15 @@ leaves its result as `type: object`, so the Manager cannot use it without guessi
 The Manager sends a draft method only when `hello.capabilities[method] === true`. When a schema
 lands, tell us the commit and the Manager re-pins to it.
 
+**Last checked: Launcher `6ea0bbe99` (2026-11-06).** `requests.schema.json` and `wire.schema.json`
+are unchanged since the pin, and `protocol.md` changed only in prose, so the pin stays. Internal
+foundations (operation store, recovery storage, physical lease, transaction executor, game
+ownership) exist but aren't advertised, so nothing below is unblocked yet.
+
+**Standalone Manager:** see [ARCHITECTURE-STANDALONE.md](ARCHITECTURE-STANDALONE.md). If option 2
+is approved, the Manager writes only its own project workspaces, never Launcher instances. R13 is
+then the one new request it creates.
+
 ## Already implemented in the Manager (needs only the Launcher side)
 
 These draft methods have fully defined request and reply fields. The Manager client implements
@@ -32,7 +41,7 @@ Client behaviour the Launcher can rely on:
 
 ## Requests
 
-### R0. Operation state enum (seen in Launcher `f59f2ba6e`)
+### R0. Operation state enum (seen in Launcher `f59f2ba6e`, still open at `6ea0bbe99`)
 `launcher/awake/integration/OperationStore.cpp` (internal, not advertised) uses a state
 `rolling_back` that isn't in `requests.schema.json` `$defs/operation`. The Manager validates
 states strictly against the schema, so a record in that state would be rejected as a protocol
@@ -153,3 +162,17 @@ and the Manager will add it in the same re-pin, or map it to a schema state on t
   * If a minimized or tray start becomes supported, a documented argument for it.
   * For `--dir` profiles, confirm that `awakelauncher.exe --dir <dataRoot>` is the supported way
     to start a specific profile.
+
+### R13. Create or update a Launcher instance from a Manager project (standalone architecture, D4)
+* **Workflow:** Projects → "Play in Awake Launcher". A Manager-only draft becomes a playable instance,
+  and the Launcher stays its only writer.
+* **Needed:** an operation such as
+  `instances.importPack {idempotencyKey, archive: {kind:"mrpack", bytesBase64 | stagedToken}, name?, targetPhysicalId?}`.
+  * With `targetPhysicalId` set, it updates an enrolled instance through the normal prepare/review flow (R4).
+  * The Launcher validates the archive, downloads, verifies the hashes and owns every file write.
+* **Open questions for Codex:**
+  * How should the archive cross the pipe? The frame limit is 1 MiB, so a large pack needs
+    chunking or a Launcher-readable staging location chosen by the Launcher, not a caller path.
+  * Should override contents travel in the same archive?
+* **Why:** without it, a standalone project reaches the Launcher only through the user exporting a
+  file and importing it by hand.
