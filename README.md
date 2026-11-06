@@ -3,21 +3,27 @@
 A Windows desktop app for building and maintaining large Minecraft modpacks (200-300+ mods).
 It works on its own, and alongside Awake Launcher when that is installed.
 
-> **Status (Windows x64): standalone shell ready; real standalone installs are waiting on the
-> native core.**
+> **Status (Windows x64):** the Manager side of standalone mode is done; real installs are waiting on
+> Codex's helper build.
 >
-> * **Standalone (no Launcher):** the Manager bundles a native helper and starts it on demand.
->   * The helper is meant to own real modpack folders, downloads, transactions and recovery.
->   * This build bundles a **test stub** helper (`tools/stub-helper`). The app labels it, and it
->     can't create, download or install anything.
->   * Swap in the real shared-core helper with `node scripts/stage-helper.mjs --from <build folder>`
->     once Codex commits it.
-> * **Projects:** create, import (`.mrpack` / CurseForge ZIP preview), plan and export modpack
->   projects.
->   * They are saved in a versioned file under `%LOCALAPPDATA%\AwakeModpackManager\projects`.
->   * Export uses the native Save As dialog.
-> * **With Awake Launcher:** read-only view of real Launcher instances and inventories (protocol
->   1.0). Writes wait on the Launcher ([docs/LAUNCHER-REQUESTS.md](docs/LAUNCHER-REQUESTS.md)).
+> * **Standalone (no Launcher):** the Manager talks to its bundled native helper
+>   (`awake-core-host.exe`, protocol 2.0, pinned to Launcher commit `861cebc1a`). It starts the
+>   helper on demand. The helper owns:
+>   * workspaces;
+>   * Modrinth search and downloads;
+>   * dependency resolution;
+>   * reviewed prepare/apply;
+>   * recovery.
+>
+>   The Manager implements the whole client against that contract. It is tested against a
+>   protocol fixture, not a real helper.
+> * **This build's helper:** it bundles a **test stub** (`tools/stub-helper`). The app labels it,
+>   and it can't create, download or install anything. Stage Codex's real helper build with
+>   `node scripts/stage-helper.mjs --from <build folder>` once it's committed.
+> * **Projects:** drafts with `.mrpack`/CurseForge ZIP import preview and verified export.
+>   * Exports use the native Save As dialog.
+>   * Drafts are saved in a versioned file under `%LOCALAPPDATA%\AwakeModpackManager\projects`.
+> * **With Awake Launcher:** a read-only view of real Launcher instances (protocol 1.0).
 
 ## Run
 

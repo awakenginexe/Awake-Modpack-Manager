@@ -175,38 +175,60 @@ and the Manager will add it in the same re-pin, or map it to a schema state on t
 * Copy-import of a `.mrpack` is only a fallback, for another machine or profile. It uses a staged
   source token, not base64 in a 1 MiB frame and not a caller path.
 
-## Shared-core helper requests (from the `91d348625` proposal)
+## Native helper (protocol 2.0)
 
-**What the Manager does today (provisional, swap when H1 lands):**
-* **Start:** the host starts `<install>\core-host\windows-x64\awake-core-host.exe --dir <%LOCALAPPDATA%\AwakeModpackManager\core>`
-  (`src-tauri/src/helper.rs`).
-* **Descriptor:** it waits for `<dir>\integration\v1\endpoint.json`.
-* **Pipe and identity:** it opens only `awake-core-v1-*` pipes, and only when the server process
-  image is that exact bundled executable.
-* **Reads:** it sends hello and the 1.0 reads, plus the draft operations when hello advertises them.
-* **Hello fields:** it accepts `role: "core-host"` (or no role), and treats `stub: true` (or a
-  `STUB` file next to the exe) as a test build that never gets write capabilities.
-* **Lifetime:** it never kills the helper.
+**Adopted:** Codex committed the helper contract in `861cebc1a`
+(`docs/modpack-manager/core-protocol.md`, `core.schema.json`). The Manager pins a verbatim copy in
+`src/backend/core/core.schema.json`, and validates every request and every reply against it.
 
-### H1. Committed helper contract
-* The pipe-name prefix for the core host, so the Manager can add it to its explicit allowlist.
-* The hello extension: `role`, core/storage compatibility, instance authority, ownership generation.
-* The `ensure_backend` state enum, as a schema.
+**What the Manager implements:**
+* **Startup (`src-tauri/src/helper.rs`):** the Rust host starts the bundled
+  `core-host\windows-x64\awake-core-host.exe --profile %LOCALAPPDATA%\AwakeModpackManager\core`
+  with `CREATE_NO_WINDOW` (and breakaway from the app's job where allowed). It never kills the
+  helper.
+* **Descriptor and pipe:** the host reads `integration\core-v2\endpoint.json`, and opens only
+  `awake-core-v2-<uuid>` pipes.
+* **Identity checks:**
+  * pipe server PID matches the descriptor;
+  * the server runs as the same user;
+  * the server's process image is the bundled executable;
+  * hello repeats the descriptor's role, profile and session.
+* **Client (`src/backend/helper/HelperClient.ts`):** maps 2.0 onto the existing screens.
 
-### H2. Helper identity
-* A way for the Rust host to confirm that the pipe server is the bundled helper.
-  * Proposed: the spawned PID, or a descriptor PID plus an image path inside the Manager's
-    resource dir.
-  * PID and user SID alone don't distinguish the helper from any other same-user process.
+  | Protocol 2.0 | Manager screen |
+  |---|---|
+  | `workspaces.*` | Library |
+  | `catalog.versions` | Create dialog |
+  | `providers.search`/`versions` | Browse and the version picker |
+  | `mods.list` + `updates.check` | Mods |
+  | `plans.prepare` → `plans.get` (all pages) | Review |
+  | `transactions.apply` | Apply |
+  | `operations.*` | History, progress, cancel |
+  | `recovery.*` | History → Roll back |
 
-### H3. Staged source and output tokens
-* The inbox/outbox model for import archives and export results.
-* Size, hash and archive validation are done by the helper.
-* The Manager host only copies a user-chosen file in, or moves a finished file out to a Save As
-  target.
+* **Methods it doesn't call:** `events.poll` (durable `operations.get` is authoritative), and
+  inbox/outbox (reserved in this slice).
+* **Gating:** a method is sent only when hello advertises it.
+* **Stub builds:** a `STUB` marker next to the exe forces read-only.
+* **Prepared plans:** the Manager cancels a prepared plan it replaces, because prepared plans
+  never expire on their own.
 
-### H4. Lifetime and upgrade
-* Who decides the helper exits (proposed: the helper, when idle with no clients and no unsettled
-  operations).
-* How an installer asks a running helper to drain before replacing its files.
-* That a helper never serves with mixed-version files.
+**Still needed from Codex:**
+* **H5. A committed helper build** (the folder with `awake-core-host.exe`, its Qt DLLs, `qt.conf`
+  and plugins) plus the "verified runtime table" the handoff mentions. Until then the Manager
+  ships the test stub and real standalone installs can't run. The Manager stages it with
+  `node scripts/stage-helper.mjs --from <folder>`.
+* **H6. Install/upgrade drain.** `core.shutdown` is refused until it's safe. The installer waits
+  for `awake-core-host.exe` to exit (`src-tauri/installer-hooks.nsh`) and never kills it. Please
+  confirm the helper exits on its own when it's idle and has no active, prepared or recovery
+  work, or say what the Manager should call first.
+* **H7. Display names for installed mods.** `installed` has no title, so the Mods list shows
+  file names.
+* **H8. Import/export via inbox/outbox**, when enabled. Until then, the Manager's own
+  `.mrpack`/CurseForge import preview and verified export stay in Projects.
+
+**Resolved by the 2.0 contract:**
+* H1: contract, role and prefix are committed.
+* H2: PID/SID verification is specified; the Manager adds its image check.
+* H3: inbox/outbox tokens are reserved.
+* H4: the helper owns its lifetime; `core.shutdown` waits until it's safe.
