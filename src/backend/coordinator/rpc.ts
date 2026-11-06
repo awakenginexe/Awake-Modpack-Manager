@@ -14,8 +14,12 @@ import { TransportError, type PipeTransport } from '../launcher/transport';
  */
 export interface RpcOptions {
   transport: () => Pick<PipeTransport, 'request' | 'close'>;
-  /** Locate the endpoint, open the pipe and return its connection id. */
-  locate: () => Promise<{ conn: number; expect: { installationId: string; profileId: string; sessionId: string } }>;
+  /** Locate the endpoint, open the pipe and return its connection id plus the identity hello must repeat. */
+  locate: () => Promise<{ conn: number; expect: Partial<Record<'installationId' | 'profileId' | 'sessionId', string>> }>;
+  /** Protocol versions offered in hello (default: Launcher 1.0). */
+  versions?: readonly ProtocolVersion[];
+  /** Contract checks: return a violation message, or null. Results that fail are a protocol violation. */
+  validate?: { params(method: string, p: unknown): string | null; result(method: string, r: unknown): string | null };
   /** Extra hello checks (e.g. role); throw BackendError to refuse. */
   checkHello?: (hello: HelloResult & Record<string, unknown>) => void;
   clientVersion: string;
@@ -34,7 +38,8 @@ interface KnownOperation { operationId: string; kind: OperationKind; instanceId?
 export function createRpc(o: RpcOptions) {
   const pageLimit = Math.min(Math.max(o.pageLimit ?? PAGE_LIMIT, 1), PAGE_LIMIT);
   let conn: number | null = null;
-  let version: ProtocolVersion = SUPPORTED_VERSIONS[0];
+  const versions = o.versions ?? SUPPORTED_VERSIONS;
+  let version: ProtocolVersion = versions[0]!;
   let hello: (HelloResult & Record<string, unknown>) | null = null;
   let seq = 0;
   let queue: Promise<unknown> = Promise.resolve();
@@ -64,11 +69,17 @@ export function createRpc(o: RpcOptions) {
     return new BackendError('protocol', e instanceof Error ? e.message : String(e));
   }
 
-  async function exchange(method: Method, params: Record<string, unknown>, v = version): Promise<Record<string, unknown>> {
+  async function exchange(method: Method | string, params: Record<string, unknown>, v = version): Promise<Record<string, unknown>> {
     if (conn === null) throw new TransportError('closed', 'Not connected.');
+    // Never send a request the contract does not allow.
+    const bad = o.validate?.params(method, params);
+    if (bad) throw new BackendError('protocol', `Refusing to send an invalid request: ${bad}`);
     const requestId = `r${++seq}`;
     try {
-      return parseResponse(await o.transport().request(conn, buildRequest(requestId, method, params, v), o.timeoutMs), requestId, v);
+      const result = parseResponse(await o.transport().request(conn, buildRequest(requestId, method as Method, params, v), o.timeoutMs), requestId, v);
+      const wrong = o.validate?.result(method, result);
+      if (wrong) throw new WireViolation(`${o.peer} sent a reply outside the contract: ${wrong}`);
+      return result;
     } catch (e) {
       // A broken exchange leaves the stream unusable; the host already dropped it.
       if (e instanceof TransportError || e instanceof WireViolation) conn = null;
@@ -81,11 +92,11 @@ export function createRpc(o: RpcOptions) {
     if (conn !== null) { await o.transport().close(conn).catch(() => undefined); conn = null; }
     const { conn: c, expect } = await o.locate();
     conn = c;
-    const result = await exchange('hello', { versions: [...SUPPORTED_VERSIONS], client: { name: 'Awake Modpack Manager', version: o.clientVersion } }, SUPPORTED_VERSIONS[0]) as HelloResult & Record<string, unknown>;
-    version = negotiated(result.protocol);
+    const result = await exchange('hello', { versions: [...versions], client: { name: 'Awake Modpack Manager', version: o.clientVersion } }, versions[0]) as HelloResult & Record<string, unknown>;
     try {
+      version = o.versions ? pick(result.protocol) : negotiated(result.protocol);
       // The descriptor is only a hint: hello must name the same installation, profile and session.
-      if (result.installationId !== expect.installationId || result.profileId !== expect.profileId || result.sessionId !== expect.sessionId) {
+      if ((['installationId', 'profileId', 'sessionId'] as const).some((k) => k in expect && result[k] !== expect[k])) {
         throw new BackendError('identity', `The ${o.peer} endpoint does not match its descriptor. It may be stale; restart it.`);
       }
       o.checkHello?.(result);
@@ -101,7 +112,13 @@ export function createRpc(o: RpcOptions) {
    * Reconnect once (hello first) if the pipe dropped, e.g. after an idle timeout. Resending is
    * safe: reads have no effects, and side-effect requests carry their original idempotencyKey.
    */
-  function call<T>(method: Method, params: Record<string, unknown>): Promise<T> {
+  const pick = (server: ProtocolVersion) => {
+    const m = versions.find((x) => x.major === server?.major && x.minor === server?.minor);
+    if (!m) throw new WireViolation(`${o.peer} negotiated an unsupported protocol.`);
+    return m;
+  };
+
+  function call<T>(method: Method | string, params: Record<string, unknown>): Promise<T> {
     return serial(async () => {
       try {
         if (conn === null) await open();

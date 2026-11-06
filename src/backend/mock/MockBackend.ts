@@ -162,7 +162,7 @@ export class MockBackend implements ManagerBackend {
         .filter((p) => (!text || p.name.toLowerCase().includes(text) || p.summary.toLowerCase().includes(text))
           && (!q.compatibleOnly || p.compatible)
           && (!p.latest?.releaseType || q.releaseTypes.includes(p.latest.releaseType)))
-        .sort((a, b) => b.downloads - a.downloads);
+        .sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0));
       return {
         total: hits.length,
         hits: hits.slice(q.offset, q.offset + q.limit).map(({ provider, projectId, name, author, summary, downloads, compatible, latest }) => ({ provider, projectId, name, author, summary, downloads, compatible, latest })),

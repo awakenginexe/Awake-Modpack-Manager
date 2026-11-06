@@ -340,7 +340,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
       const ops = await backend.listOperations();
       state.operations = ops;
       // Reattach to anything still running (another window, or before a reconnect).
-      for (const op of ops) if (!isSettled(op)) void track(op.operationId);
+      // A prepared plan waits for the user's review, not for the coordinator: don't poll it.
+      for (const op of ops) if (!isSettled(op) && op.state !== 'prepared') void track(op.operationId);
     } catch {
       /* shown via connection state */
     }

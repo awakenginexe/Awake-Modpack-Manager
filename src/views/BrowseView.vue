@@ -129,7 +129,7 @@ function addToDraft(list: SearchHit[]) {
           <div class="hit-title"><strong>{{ hit.name }}</strong> <span class="muted small">{{ t('byAuthor', { author: hit.author }) }}</span></div>
           <p class="summary">{{ hit.summary }}</p>
           <div class="meta small">
-            <span><Download :size="13" />{{ formatNumber(hit.downloads) }}</span>
+            <span v-if="hit.downloads !== undefined"><Download :size="13" />{{ formatNumber(hit.downloads) }}</span>
             <span v-if="hit.latest">{{ hit.latest.name }}</span>
             <span v-if="hit.latest?.releaseType && hit.latest.releaseType !== 'release'" class="badge warn">{{ t(hit.latest.releaseType) }}</span>
             <span v-if="!hit.compatible" class="badge error">{{ t('notCompatible') }}</span>

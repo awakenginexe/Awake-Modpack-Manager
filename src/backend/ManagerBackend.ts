@@ -1,5 +1,5 @@
 import type {
-  Accepted, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
+  Accepted, LoaderKind, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
   OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery,
 } from './contract';
@@ -60,6 +60,13 @@ export interface ManagerBackend {
   listContent(instanceId: string, area: ContentArea): Promise<ContentEntry[]>;
   checkExport(instanceId: string, format: ExportFormat): Promise<ExportReport>;
   startExport(request: ExportRequest): Promise<Accepted>;
+
+  /** Versions this side can create (standalone helper). Absent when it cannot say. */
+  versionCatalog?(query: { minecraftVersion?: string; loader?: LoaderKind }): Promise<VersionCatalog>;
+  /** Provider versions of a project compatible with the instance, newest first. */
+  projectVersions?(instanceId: string, provider: ProviderId, projectId: string): Promise<ProjectVersion[]>;
+  /** Ask the coordinator to roll back an operation that is waiting for recovery. */
+  runRecovery?(operationId: string, idempotencyKey: string): Promise<Accepted>;
 
   /** Accepting is not "started": follow the operation until the Launcher reports process-started. */
   requestLaunch(instanceId: string, idempotencyKey: string): Promise<Accepted>;

@@ -138,6 +138,9 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     listContent: (id, area) => byInstance(id).backend.listContent(id, area),
     checkExport: (id, f) => byInstance(id).backend.checkExport(id, f),
     startExport: async (r) => own(byInstance(r.instanceId), await byInstance(r.instanceId).backend.startExport(r)),
+    versionCatalog: (q) => current.backend.versionCatalog ? current.backend.versionCatalog(q) : Promise.reject(new BackendError('unsupported', 'No version catalog here.')),
+    projectVersions: (id, prov, pid) => { const b = byInstance(id).backend; return b.projectVersions ? b.projectVersions(id, prov, pid) : Promise.reject(new BackendError('unsupported', 'No version list here.')); },
+    runRecovery: async (opId, key) => { const p = byOp(opId); if (!p.backend.runRecovery) throw new BackendError('unsupported', 'Recovery is not available here.'); return own(p, await p.backend.runRecovery(opId, key)); },
     requestLaunch: async (id, key) => own(byInstance(id), await byInstance(id).backend.requestLaunch(id, key)),
   };
   return backend;

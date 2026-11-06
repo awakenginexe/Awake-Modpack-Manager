@@ -233,7 +233,8 @@ export interface SearchHit {
   author: string;
   summary: string;
   iconUrl?: string;
-  downloads: number;
+  /** Absent when the provider adapter does not report it. */
+  downloads?: number;
   compatible: boolean;
   latest?: VersionRef;
 }
@@ -287,7 +288,11 @@ export interface PlanIssue {
     | 'locally-modified'
     | 'missing-dependency'
     | 'loader-mismatch'
-    | 'unknown-dependency';
+    | 'unknown-dependency'
+    /** A required dependency the coordinator added and verified. */
+    | 'dependency-included'
+    /** Free-text warning from the coordinator's plan. */
+    | 'coordinator-warning';
   message: string;
   modKeys: string[];
 }
@@ -363,7 +368,27 @@ export interface CreateInstanceRequest {
   name: string;
   minecraftVersion: string;
   loader: LoaderKind;
+  /** Exact loader version; required by the standalone helper for non-vanilla loaders. */
+  loaderVersion?: string;
   idempotencyKey: string;
+}
+
+/** Minecraft and loader choices a coordinator can create. */
+export interface VersionCatalog {
+  minecraftVersions: string[];
+  loaders: LoaderKind[];
+  /** Loader versions for the requested Minecraft version and loader. */
+  loaderVersions: string[];
+}
+
+/** One provider version of a project, compatible with an instance. */
+export interface ProjectVersion extends VersionRef {
+  versionNumber: string;
+  gameVersions: string[];
+  loaders: string[];
+  fileName?: string;
+  sizeBytes?: number;
+  dependencies: { projectId: string | null; versionId: string | null; type: DependencyKind | 'unknown' }[];
 }
 
 export interface RecoveryStatus {

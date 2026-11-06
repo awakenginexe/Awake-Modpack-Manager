@@ -1,4 +1,5 @@
 import type { EndpointDescriptor } from './protocol';
+import type { CoreDescriptor } from '../core/types';
 
 /** A Launcher data profile found by the desktop host (src-tauri/src/discovery.rs). */
 export interface LauncherProfile {
@@ -40,7 +41,8 @@ export interface PipeTransport {
 /** src-tauri/src/helper.rs HelperStatus. */
 export interface HelperStatus {
   state: 'not_installed' | 'starting' | 'ready' | 'failed';
-  descriptor: EndpointDescriptor | null;
+  /** Protocol 2.0 descriptor (core.schema.json $defs/descriptor); validated again by the client. */
+  descriptor: CoreDescriptor | null;
   /** Bundled build is the Manager's test stub, not the real native core. */
   stub: boolean;
   dataRoot: string | null;
