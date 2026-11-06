@@ -177,6 +177,17 @@ and the Manager will add it in the same re-pin, or map it to a schema state on t
 
 ## Shared-core helper requests (from the `91d348625` proposal)
 
+**What the Manager does today (provisional, swap when H1 lands):**
+* **Start:** the host starts `<install>\core-host\windows-x64\awake-core-host.exe --dir <%LOCALAPPDATA%\AwakeModpackManager\core>`
+  (`src-tauri/src/helper.rs`).
+* **Descriptor:** it waits for `<dir>\integration\v1\endpoint.json`.
+* **Pipe and identity:** it opens only `awake-core-v1-*` pipes, and only when the server process
+  image is that exact bundled executable.
+* **Reads:** it sends hello and the 1.0 reads, plus the draft operations when hello advertises them.
+* **Hello fields:** it accepts `role: "core-host"` (or no role), and treats `stub: true` (or a
+  `STUB` file next to the exe) as a test build that never gets write capabilities.
+* **Lifetime:** it never kills the helper.
+
 ### H1. Committed helper contract
 * The pipe-name prefix for the core host, so the Manager can add it to its explicit allowlist.
 * The hello extension: `role`, core/storage compatibility, instance authority, ownership generation.

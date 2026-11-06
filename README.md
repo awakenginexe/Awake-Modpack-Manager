@@ -1,15 +1,23 @@
 # Awake Modpack Manager
 
-A desktop companion to Awake Launcher for building and maintaining large Minecraft modpacks
-(200–300+ mods) on the **same instances** the Launcher plays.
+A Windows desktop app for building and maintaining large Minecraft modpacks (200-300+ mods).
+It works on its own, and alongside Awake Launcher when that is installed.
 
-> **Status: read-only Launcher integration (Windows x64), write path waiting on the Launcher.** The desktop app reads your real
-> Awake Launcher instances and mod inventories over the Launcher's integration pipe (protocol 1.0,
-> experimental). It needs the `feat/modpack-manager-integration` Launcher build. Changing mods,
-> creating instances, Apply and recovery aren't available from the Launcher yet, so those stay in
-> a local draft or are disabled. The Manager already implements the Launcher's draft operation
-> methods behind capability checks. What it still needs is listed in
-> [docs/LAUNCHER-REQUESTS.md](docs/LAUNCHER-REQUESTS.md). See [docs/INTEGRATION.md](docs/INTEGRATION.md).
+> **Status (Windows x64): standalone shell ready; real standalone installs are waiting on the
+> native core.**
+>
+> * **Standalone (no Launcher):** the Manager bundles a native helper and starts it on demand.
+>   * The helper is meant to own real modpack folders, downloads, transactions and recovery.
+>   * This build bundles a **test stub** helper (`tools/stub-helper`). The app labels it, and it
+>     can't create, download or install anything.
+>   * Swap in the real shared-core helper with `node scripts/stage-helper.mjs --from <build folder>`
+>     once Codex commits it.
+> * **Projects:** create, import (`.mrpack` / CurseForge ZIP preview), plan and export modpack
+>   projects.
+>   * They are saved in a versioned file under `%LOCALAPPDATA%\AwakeModpackManager\projects`.
+>   * Export uses the native Save As dialog.
+> * **With Awake Launcher:** read-only view of real Launcher instances and inventories (protocol
+>   1.0). Writes wait on the Launcher ([docs/LAUNCHER-REQUESTS.md](docs/LAUNCHER-REQUESTS.md)).
 
 ## Run
 
@@ -22,10 +30,16 @@ npm run dev             # browser preview at http://127.0.0.1:5173, demo data on
 npm test                # Vitest: unit, component and fixture-IPC tests
 npm run test:host       # Rust host tests
 npm run build           # typecheck + web bundle in dist/
-npm run desktop:build   # Windows release build (NSIS installer)
+npm run desktop:build   # Windows release build (NSIS installer; stages the stub helper if none is staged)
+npm run helper:stub     # build and stage the test stub helper
+node scripts/stage-helper.mjs --from <dir>   # stage a real helper build instead
 ```
 
-The Launcher must be running for the selected profile. If yours uses a portable or `--dir`
+Testing with disposable data: set `AWAKE_MM_DATA_DIR` to a scratch folder before starting the
+app. Projects and helper data then go there instead of `%LOCALAPPDATA%\AwakeModpackManager`.
+Uninstalling never deletes that folder.
+
+Awake Launcher is optional. To see its instances, it must be running for the selected profile. If yours uses a portable or `--dir`
 folder, add it in Settings → Launcher connection.
 
 Dev scenarios: `?mock=drift`, `?mock=fail`, `?mock=cf` (see INTEGRATION.md).
