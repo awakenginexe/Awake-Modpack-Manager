@@ -321,7 +321,6 @@ export const zhTW: Catalog = {
   planStale: '檢查之後此實例又有變動。請重新檢查計畫。',
   applyAccepted: 'Awake Launcher 已接受變更，正在等待結果…',
   applyLostReply: 'Awake Launcher 沒有回應。正在確認是否已收到變更…',
-  applyNotReceived: 'Awake Launcher 沒有收到變更。請檢查計畫後重試。',
   applyDone: '變更已套用。',
   applyFailed: '變更未能套用。',
   discardDraft: '捨棄草稿',

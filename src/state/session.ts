@@ -11,9 +11,10 @@ import { prune, emptySelection, type Selection } from '../domain/selection';
 
 export type ReviewPhase =
   | 'idle' | 'resolving' | 'reviewed' | 'preparing' | 'changed' | 'stale'
-  | 'applying' | 'unconfirmed' | 'not-received' | 'done' | 'failed';
+  | 'applying' | 'unconfirmed' | 'done' | 'failed';
 
-interface PendingApply { key: string; instanceId: string; planHash: string }
+/** The exact Apply request, kept so a lost reply is recovered by resending it unchanged. */
+interface PendingApply { key: string; instanceId: string; planId: string; planHash: string; baseRevision: string }
 
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000];
 
@@ -222,17 +223,17 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
       review.phase = 'changed';
       return;
     }
-    pending = { key: crypto.randomUUID(), instanceId: prepared.instanceId, planHash: prepared.planHash };
+    pending = { key: crypto.randomUUID(), instanceId: prepared.instanceId, planId: prepared.planId, planHash: prepared.planHash, baseRevision: prepared.baseRevision };
     save('pendingApply', pending);
     review.phase = 'applying';
     try {
-      const { operationId } = await backend.applyPlan({ planId: prepared.planId, planHash: prepared.planHash, idempotencyKey: pending.key });
+      const { operationId } = await backend.applyPlan(applyRequest(pending));
       await track(operationId);
     } catch (e) {
       const err = asError(e);
       if (err.code === 'disconnected' || err.code === 'timeout') {
-        // The request may or may not have reached the coordinator. Never resend blindly:
-        // resumePending() asks by idempotency key once we are connected again.
+        // The request may or may not have reached the coordinator. resumePending() resends the
+        // identical request with the same idempotency key, which the coordinator de-duplicates.
         review.phase = 'unconfirmed';
         if (state.connection === 'connected') await resumePending();
         return;
@@ -248,22 +249,26 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     if (review.phase === 'changed') review.phase = 'reviewed';
   }
 
+  const applyRequest = (p: PendingApply) => ({ planId: p.planId, planHash: p.planHash, baseRevision: p.baseRevision, idempotencyKey: p.key });
+
   async function resumePending() {
-    if (!pending) return;
+    if (!pending?.planId) { if (pending) clearPending(); return; } // record from an older Manager version
     const p = pending;
-    let op: OperationStatus | null;
+    let operationId: string;
     try {
-      op = await backend.findOperationByIdempotencyKey(p.key);
-    } catch {
-      return; // still unreachable; try again on the next connect
-    }
-    if (op) {
-      if (state.instanceId === p.instanceId && review.phase !== 'applying') review.phase = 'applying';
-      await track(op.operationId);
-    } else {
+      ({ operationId } = await backend.applyPlan(applyRequest(p)));
+    } catch (e) {
+      const err = asError(e);
+      if (err.code === 'disconnected' || err.code === 'timeout') return; // try again on the next connect
       clearPending();
-      if (review.phase === 'unconfirmed') review.phase = 'not-received';
+      if (state.instanceId === p.instanceId && review.phase === 'unconfirmed') {
+        review.error = err;
+        review.phase = err.code === 'stale-revision' ? 'stale' : 'failed';
+      }
+      return;
     }
+    if (state.instanceId === p.instanceId && review.phase === 'unconfirmed') review.phase = 'applying';
+    await track(operationId);
   }
 
   function clearPending() {

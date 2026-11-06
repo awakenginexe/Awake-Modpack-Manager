@@ -321,7 +321,6 @@ export const zhCN: Catalog = {
   planStale: '检查之后此版本又发生了变化。请重新检查计划。',
   applyAccepted: 'Awake Launcher 已接收更改，正在等待结果…',
   applyLostReply: 'Awake Launcher 没有回应。正在确认是否已收到更改…',
-  applyNotReceived: 'Awake Launcher 没有收到更改。请检查计划后重试。',
   applyDone: '更改已应用。',
   applyFailed: '更改未能应用。',
   discardDraft: '丢弃草稿',

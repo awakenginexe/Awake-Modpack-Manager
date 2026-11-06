@@ -196,7 +196,6 @@ function reasonText(i: PlanItem) {
 
         <p v-if="review.phase === 'applying' && !review.operation" class="notice small" role="status"><Loader :size="16" class="spin" />{{ t('applyAccepted') }}</p>
         <p v-if="review.phase === 'unconfirmed'" class="notice warn small" role="status"><Loader :size="16" class="spin" />{{ t('applyLostReply') }}</p>
-        <p v-if="review.phase === 'not-received'" class="notice warn small" role="alert"><TriangleAlert :size="18" />{{ t('applyNotReceived') }}</p>
         <div v-if="review.phase === 'failed'" class="notice error" role="alert">
           <CircleAlert :size="18" />
           <div class="grow">

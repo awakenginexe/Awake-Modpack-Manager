@@ -46,9 +46,8 @@ export interface ManagerBackend {
   /** Accepting is not success: follow the operation to a terminal state. */
   applyPlan(request: ApplyRequest): Promise<Accepted>;
 
+  /** A lost reply is recovered by resending the same request with the same idempotencyKey. */
   getOperation(operationId: string): Promise<OperationStatus>;
-  /** Look up an operation created by a request whose reply was lost. */
-  findOperationByIdempotencyKey(key: string): Promise<OperationStatus | null>;
   listOperations(instanceId?: string): Promise<OperationStatus[]>;
   watchOperation(operationId: string, listener: (status: OperationStatus) => void): () => void;
   cancelOperation(operationId: string): Promise<void>;

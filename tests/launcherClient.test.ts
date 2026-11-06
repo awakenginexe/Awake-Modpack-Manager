@@ -3,7 +3,7 @@ import { BackendError } from '../src/backend/contract';
 import { createLauncherClient } from '../src/backend/launcher/LauncherClient';
 import { buildRequest, parseResponse, ProtocolError, WireViolation } from '../src/backend/launcher/protocol';
 import { createSession } from '../src/state/session';
-import { FakeLauncher, instance, mods } from './fixtures/fakeLauncher';
+import { DRAFT_CAPABILITIES, FakeLauncher, instance, mods } from './fixtures/fakeLauncher';
 
 const client = (fake: FakeLauncher | null) => createLauncherClient({ transport: fake, clientVersion: 'test', heartbeatMs: 0 });
 const PROFILE_ROOT = 'C:\\Temp\\fixture-profile';
@@ -162,7 +162,7 @@ describe('LauncherClient (fixture IPC)', () => {
     const before = fake.log.length;
     const writes = [
       c.createInstance({ name: 'x', minecraftVersion: '1.21.1', loader: 'fabric', idempotencyKey: 'k' }),
-      c.applyPlan({ planId: 'p', planHash: 'h', idempotencyKey: 'k' }),
+      c.applyPlan({ planId: 'p', planHash: 'h', baseRevision: 'r', idempotencyKey: 'k' }),
       c.validateDraft({ instanceId: key('phys-0001'), baseRevision: 'r', changes: [], pinnedKeys: [] }),
       c.preparePlan('p'), c.requestLaunch(key('phys-0001'), 'k'), c.installPack({ provider: 'modrinth', packId: 'a', versionId: 'b', instanceName: 'c', idempotencyKey: 'k' }),
       c.search({ text: '', provider: 'modrinth', minecraftVersion: '', loader: 'fabric', releaseTypes: [], compatibleOnly: false, offset: 0, limit: 1 }),
@@ -206,5 +206,102 @@ describe('LauncherClient (fixture IPC)', () => {
     expect(session.state.connection).toBe('disconnected');
     expect(session.inventory.value?.mods).toHaveLength(305);
     expect(session.state.inventoryError?.code).toBe('not-running');
+  });
+});
+
+/*
+ * Draft 1.0 operation methods. At the pin the Launcher reports them false, so these run only
+ * against the fixture with DRAFT_CAPABILITIES. They prove the adapter, not the Launcher.
+ */
+describe('LauncherClient draft operations (fixture only)', () => {
+  const draftReady = async () => {
+    localStorage.clear();
+    fake = new FakeLauncher({ capabilities: DRAFT_CAPABILITIES });
+    const session = createSession(client(fake), { pollMs: 5 });
+    await session.connect();
+    return session;
+  };
+
+  it('maps only fully specified draft capabilities; prepare stays off', async () => {
+    const session = await draftReady();
+    for (const cap of ['operations.watch', 'operations.cancel', 'launch.request', 'instances.create', 'plan.apply'] as const) expect(session.can(cap)).toBe(true);
+    expect(session.can('plan.prepare')).toBe(false);
+    expect(session.can('plan.validate')).toBe(false);
+  });
+
+  it('follows a launch until process-started through the contract states', async () => {
+    const session = await draftReady();
+    const seen: string[] = [];
+    const stop = setInterval(() => { const s = session.state.operations[0]?.state; if (s && seen.at(-1) !== s) seen.push(s); }, 1);
+    const final = await session.launch(key('phys-0001'));
+    clearInterval(stop);
+    expect(final?.state).toBe('completed');
+    expect(final?.kind).toBe('launch');
+    expect(fake.log.find((l) => l.method === 'launch.request')?.params).toEqual({ idempotencyKey: expect.any(String), physicalId: 'phys-0001' });
+    expect(seen.every((s) => ['queued', 'acquiring', 'applying', 'completed'].includes(s))).toBe(true);
+  });
+
+  it('resends a request whose reply was lost with the same idempotency key, creating one operation', async () => {
+    const session = await draftReady();
+    fake.dropReplyNext = true; // the first launch.request is processed, but its reply is lost
+    const final = await session.launch(key('phys-0001'));
+    expect(final?.state).toBe('completed');
+    expect(fake.ops.size).toBe(1);
+    const sent = fake.log.filter((l) => l.method === 'launch.request');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.params).toEqual(sent[0]?.params);
+    expect(fake.hellos).toBe(2);
+  });
+
+  it('reports INTERACTION_REQUIRED as a failed launch with the Launcher message', async () => {
+    const session = await draftReady();
+    fake.launchNeedsInteraction = true;
+    const final = await session.launch(key('phys-0001'));
+    expect(final?.state).toBe('failed');
+    expect(final?.error).toEqual({ code: 'INTERACTION_REQUIRED', message: 'Sign in to Awake Launcher to continue.' });
+  });
+
+  it('cancels only by request; the state comes from operations.get', async () => {
+    const session = await draftReady();
+    const c = session.backend;
+    const { operationId } = await c.createInstance({ name: 'New', minecraftVersion: '1.21.1', loader: 'vanilla', idempotencyKey: 'create-1' });
+    await c.cancelOperation(operationId);
+    expect((await c.getOperation(operationId)).state).toBe('cancelled');
+    expect(fake.log.find((l) => l.method === 'instances.create')?.params).toEqual({ idempotencyKey: 'create-1', name: 'New', minecraftVersion: '1.21.1' });
+  });
+
+  it('refuses a loader instance without sending: the draft has no loader wire shape', async () => {
+    const session = await draftReady();
+    const before = fake.log.length;
+    await expect(session.backend.createInstance({ name: 'x', minecraftVersion: '1.21.1', loader: 'fabric', idempotencyKey: 'k1' })).rejects.toMatchObject({ code: 'unsupported' });
+    expect(fake.log.length).toBe(before);
+  });
+
+  it('keeps following a durable operation across a Launcher restart', async () => {
+    const session = await draftReady();
+    const { operationId } = await session.backend.requestLaunch(key('phys-0001'), 'launch-restart');
+    fake.stop();
+    await expect(session.backend.getOperation(operationId)).rejects.toMatchObject({ code: 'not-running' });
+    fake.start();
+    await session.connect();
+    expect((await session.backend.listOperations()).map((o) => o.operationId)).toContain(operationId);
+    let s = await session.backend.getOperation(operationId);
+    while (s.state !== 'completed') s = await session.backend.getOperation(operationId);
+    expect(fake.ops.size).toBe(1);
+  });
+
+  it('rejects an operation record that breaks the schema', async () => {
+    const session = await draftReady();
+    const { operationId } = await session.backend.requestLaunch(key('phys-0001'), 'bad-1');
+    fake.badOperationNext = true;
+    await expect(session.backend.getOperation(operationId)).rejects.toMatchObject({ code: 'protocol' });
+  });
+
+  it('sends transactions.apply with exactly the draft fields', async () => {
+    const session = await draftReady();
+    const digest = 'a'.repeat(64);
+    await session.backend.applyPlan({ planId: '00000000-0000-4000-8000-00000000abcd', planHash: digest, baseRevision: 'rev-1', idempotencyKey: 'apply-1' });
+    expect(fake.log.find((l) => l.method === 'transactions.apply')?.params).toEqual({ idempotencyKey: 'apply-1', operationId: '00000000-0000-4000-8000-00000000abcd', planDigest: digest, instanceRevision: 'rev-1' });
+    await expect(session.backend.applyPlan({ planId: 'other', planHash: digest, baseRevision: 'rev-1', idempotencyKey: 'apply-1' })).rejects.toMatchObject({ code: 'rejected', detail: 'IDEMPOTENCY_CONFLICT' });
   });
 });

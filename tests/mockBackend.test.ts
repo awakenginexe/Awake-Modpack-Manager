@@ -51,20 +51,20 @@ describe('MockBackend', () => {
 
   it('refuses to apply a plan whose hash differs from the reviewed one', async () => {
     const plan = await b.validateDraft(await updateDraft(b));
-    await expect(b.applyPlan({ planId: plan.planId, planHash: 'other', idempotencyKey: 'k' })).rejects.toBeInstanceOf(BackendError);
+    await expect(b.applyPlan({ planId: plan.planId, planHash: 'other', baseRevision: plan.baseRevision, idempotencyKey: 'k' })).rejects.toBeInstanceOf(BackendError);
   });
 
   it('de-duplicates a resent apply by idempotency key', async () => {
     const plan = await b.validateDraft(await updateDraft(b));
-    const a = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, idempotencyKey: 'same' });
-    const c = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, idempotencyKey: 'same' });
+    const a = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, baseRevision: plan.baseRevision, idempotencyKey: 'same' });
+    const c = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, baseRevision: plan.baseRevision, idempotencyKey: 'same' });
     expect(c.operationId).toBe(a.operationId);
   });
 
   it('runs an apply to completion and bumps the revision', async () => {
     const d = await updateDraft(b);
     const plan = await b.validateDraft(d);
-    const { operationId } = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, idempotencyKey: 'k1' });
+    const { operationId } = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, baseRevision: plan.baseRevision, idempotencyKey: 'k1' });
     const seen: string[] = [];
     const final = await followOperation(b, operationId, (s) => seen.push(s.state), { pollMs: 5 });
     expect(final.state).toBe('completed');
@@ -76,7 +76,7 @@ describe('MockBackend', () => {
     b.configure({ failApply: true });
     const d = await updateDraft(b);
     const plan = await b.validateDraft(d);
-    const { operationId } = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, idempotencyKey: 'k2' });
+    const { operationId } = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, baseRevision: plan.baseRevision, idempotencyKey: 'k2' });
     const final = await followOperation(b, operationId, () => {}, { pollMs: 5 });
     expect(final.state).toBe('rolled_back');
     expect(final.recovery?.restored).toBe(true);
@@ -86,7 +86,7 @@ describe('MockBackend', () => {
   it('cancels a running operation', async () => {
     b.configure({ stepMs: 20 });
     const plan = await b.validateDraft(await updateDraft(b));
-    const { operationId } = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, idempotencyKey: 'k3' });
+    const { operationId } = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, baseRevision: plan.baseRevision, idempotencyKey: 'k3' });
     await b.cancelOperation(operationId);
     const final = await followOperation(b, operationId, () => {}, { pollMs: 5 });
     expect(final.state).toBe('cancelled');
@@ -109,7 +109,7 @@ describe('followOperation', () => {
     const b = new MockBackend({ stepMs: 10, latencyMs: 0 });
     await b.connect();
     const plan = await b.validateDraft(await updateDraft(b));
-    const { operationId } = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, idempotencyKey: 'k' });
+    const { operationId } = await b.applyPlan({ planId: plan.planId, planHash: plan.planHash, baseRevision: plan.baseRevision, idempotencyKey: 'k' });
     const done = followOperation(b, operationId, () => {}, { pollMs: 5 });
     b.simulateDisconnect();
     await new Promise((r) => setTimeout(r, 120)); // operation finishes while we are offline

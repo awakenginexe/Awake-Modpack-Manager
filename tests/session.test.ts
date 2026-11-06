@@ -83,11 +83,14 @@ describe('session', () => {
     expect(session.review.phase).toBe('stale');
   });
 
-  it('recovers a lost Apply reply by idempotency key without resubmitting', async () => {
+  it('recovers a lost Apply reply by resending the same request, which the coordinator de-duplicates', async () => {
     const { session, backend } = await ready({ stepMs: 5 });
     const original = backend.applyPlan.bind(backend);
+    let lose = true;
     const apply = vi.spyOn(backend, 'applyPlan').mockImplementation(async (req) => {
-      await original(req); // coordinator accepted it…
+      const accepted = await original(req); // coordinator accepted it…
+      if (!lose) return accepted;
+      lose = false;
       backend.simulateDisconnect(); // …but the reply never arrived
       throw new BackendError('disconnected', 'connection lost');
     });
@@ -97,12 +100,18 @@ describe('session', () => {
     expect(session.review.phase).toBe('unconfirmed');
     await session.connect();
     await until(() => session.review.phase === 'done');
-    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(apply.mock.calls[1]?.[0]).toEqual(apply.mock.calls[0]?.[0]); // identical body and key
+    expect((await backend.listOperations()).filter((o) => o.kind === 'apply-plan')).toHaveLength(1);
   });
 
-  it('tells the user when a lost Apply never reached the coordinator', async () => {
-    const { session, backend } = await ready();
-    vi.spyOn(backend, 'applyPlan').mockImplementation(async () => {
+  it('submits an Apply that never reached the coordinator once, on reconnect', async () => {
+    const { session, backend } = await ready({ stepMs: 5 });
+    const original = backend.applyPlan.bind(backend);
+    let lose = true;
+    vi.spyOn(backend, 'applyPlan').mockImplementation(async (req) => {
+      if (!lose) return original(req);
+      lose = false;
       backend.simulateDisconnect();
       throw new BackendError('disconnected', 'connection lost');
     });
@@ -110,7 +119,8 @@ describe('session', () => {
     await session.validate();
     await session.apply();
     await session.connect();
-    expect(session.review.phase).toBe('not-received');
+    await until(() => session.review.phase === 'done');
+    expect((await backend.listOperations()).filter((o) => o.kind === 'apply-plan')).toHaveLength(1);
   });
 
   it('shows a rollback as a failure with recovery details', async () => {

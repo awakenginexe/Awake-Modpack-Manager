@@ -43,6 +43,21 @@ export function mods(count: number): InventoryItem[] {
 }
 
 const ENVELOPE = ['protocol', 'requestId', 'method', 'params'];
+
+/** Every draft operation method enabled (protocol.md "Reserved operation contract"). */
+export const DRAFT_CAPABILITIES: Record<string, boolean> = {
+  hello: true, 'launcher.info': true, 'instances.list': true, 'mods.list': true,
+  'operations.get': true, 'operations.cancel': true, 'launch.request': true, 'instances.create': true, 'transactions.apply': true, 'plans.prepare': false,
+};
+const DRAFT_PARAMS: Record<string, { required: string[]; optional?: string[] }> = {
+  'launch.request': { required: ['idempotencyKey', 'physicalId'] },
+  'instances.create': { required: ['idempotencyKey', 'name', 'minecraftVersion'], optional: ['loader'] },
+  'transactions.apply': { required: ['idempotencyKey', 'operationId', 'planDigest', 'instanceRevision'] },
+  'operations.get': { required: ['operationId'] },
+  'operations.cancel': { required: ['operationId'] },
+};
+const TERMINAL = ['completed', 'cancelled', 'failed', 'rolled_back'];
+interface FakeOp { id: string; method: string; states: string[]; at: number; cancelRequested: boolean; error?: { code: string; message: string; retryable: boolean } }
 const LIST = ['offset', 'limit', 'instanceRevision'];
 
 export class FakeLauncher implements PipeTransport {
@@ -66,6 +81,15 @@ export class FakeLauncher implements PipeTransport {
   helloSessionOverride: string | null = null;
   malformedNext = false;
   busyNext = false;
+  /** Process the next request, then lose its reply (connection drops). */
+  dropReplyNext = false;
+  /** Make the next launch end in INTERACTION_REQUIRED instead of process-started. */
+  launchNeedsInteraction = false;
+  /** Break the next operation record (terminal flag disagrees with state). */
+  badOperationNext = false;
+  /** Durable operation records: they survive stop()/start(), like the Launcher's journal. */
+  ops = new Map<string, FakeOp>();
+  private idem = new Map<string, { body: string; id: string }>();
   private conns = new Map<number, { helloDone: boolean; version: { major: number; minor: number } | null }>();
   private seq = 0;
 
@@ -106,6 +130,7 @@ export class FakeLauncher implements PipeTransport {
     await Promise.resolve();
     try {
       const reply = this.handle(c, body);
+      if (this.dropReplyNext) { this.dropReplyNext = false; this.conns.delete(id); throw new TransportError('closed', 'reply lost'); }
       if (this.closeAfterNextRequest) { this.closeAfterNextRequest = false; this.conns.delete(id); }
       if (this.malformedNext) { this.malformedNext = false; return '{"protocol":{"major":1,"minor":0},"requestId":"x"}'; }
       return reply;
@@ -170,6 +195,54 @@ export class FakeLauncher implements PipeTransport {
       const next = offset + limit < items.length ? offset + limit : null;
       return this.reply(rid, { result: { total: items.length, nextOffset: next, instanceRevision: hex(this.revision), revisionKind: 'observation', items: items.slice(offset, offset + limit) } });
     }
+    if (this.capabilities[method] === true && DRAFT_PARAMS[method]) return this.draft(rid, method, params);
     return this.err(rid, 'UNSUPPORTED_CAPABILITY');
+  }
+
+  private opRecord(op: FakeOp) {
+    const state = op.states[op.at]!;
+    const terminal = TERMINAL.includes(state);
+    const rec: Record<string, unknown> = { operationId: op.id, state, terminal: this.badOperationNext ? !terminal : terminal };
+    this.badOperationNext = false;
+    if (op.error && terminal) rec.error = op.error;
+    return rec;
+  }
+
+  private draft(rid: string, method: string, params: Record<string, unknown>): string {
+    const spec = DRAFT_PARAMS[method]!;
+    for (const k of Object.keys(params)) if (![...spec.required, ...(spec.optional ?? [])].includes(k)) this.violation(`${method} param ${k}`);
+    for (const k of spec.required) if (typeof params[k] !== 'string' || !params[k]) this.violation(`${method} missing ${k}`);
+    if (method === 'operations.get' || method === 'operations.cancel') {
+      const op = this.ops.get(params.operationId as string);
+      if (!op) return this.err(rid, 'NOT_FOUND');
+      if (method === 'operations.cancel') {
+        // Only a request: honoured before the instance gate is acquired.
+        if (op.states.findIndex((st) => st === 'acquiring' || st === 'applying') > op.at) op.cancelRequested = true;
+        return this.reply(rid, { result: { cancellationRequested: true } });
+      }
+      if (op.cancelRequested) { op.states = [...op.states.slice(0, op.at + 1), 'cancelled']; op.cancelRequested = false; }
+      if (op.at < op.states.length - 1) op.at++;
+      return this.reply(rid, { result: this.opRecord(op) });
+    }
+    const key = params.idempotencyKey as string;
+    const bodyKey = JSON.stringify([method, params]);
+    const seen = this.idem.get(key);
+    if (seen) return seen.body === bodyKey ? this.reply(rid, { result: this.opRecord(this.ops.get(seen.id)!) }) : this.err(rid, 'IDEMPOTENCY_CONFLICT');
+    if (method === 'launch.request' && !this.instances.some((i) => i.physicalId === params.physicalId && i.loaded)) return this.err(rid, 'NOT_FOUND');
+    const id = `00000000-0000-4000-8000-${String(this.ops.size + 1).padStart(12, '0')}`;
+    let states = ['queued', 'resolving', 'downloading', 'applying', 'verifying', 'completed'];
+    let error: FakeOp['error'];
+    if (method === 'launch.request') {
+      states = ['queued', 'acquiring', 'applying', 'completed'];
+      if (this.launchNeedsInteraction) {
+        this.launchNeedsInteraction = false;
+        states = ['queued', 'acquiring', 'failed'];
+        error = { code: 'INTERACTION_REQUIRED', message: 'Sign in to Awake Launcher to continue.', retryable: false };
+      }
+    }
+    if (method === 'transactions.apply') states = ['queued', 'acquiring', 'revalidating', 'backing_up', 'applying', 'verifying', 'completed'];
+    this.ops.set(id, { id, method, states, at: 0, cancelRequested: false, error });
+    this.idem.set(key, { body: bodyKey, id });
+    return this.reply(rid, { result: this.opRecord(this.ops.get(id)!) });
   }
 }

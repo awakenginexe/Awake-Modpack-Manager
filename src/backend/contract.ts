@@ -345,6 +345,8 @@ export interface OperationStatus {
 export interface ApplyRequest {
   planId: string;
   planHash: string;
+  /** The prepared plan's baseline revision; the Launcher re-checks it under its instance gate. */
+  baseRevision: string;
   /** Client-generated; lets the coordinator de-duplicate a resent Apply. */
   idempotencyKey: string;
 }

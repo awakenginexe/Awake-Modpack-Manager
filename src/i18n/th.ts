@@ -321,7 +321,6 @@ export const th: Catalog = {
   planStale: 'อินสแตนซ์เปลี่ยนแปลงหลังจากที่คุณตรวจสอบ ตรวจสอบแผนอีกครั้ง',
   applyAccepted: 'Awake Launcher รับการเปลี่ยนแปลงแล้ว กำลังรอผลลัพธ์…',
   applyLostReply: 'ไม่ได้รับการตอบกลับจาก Awake Launcher กำลังตรวจสอบว่าได้รับการเปลี่ยนแปลงหรือไม่…',
-  applyNotReceived: 'Awake Launcher ไม่ได้รับการเปลี่ยนแปลง ตรวจสอบแผนแล้วลองอีกครั้ง',
   applyDone: 'นำการเปลี่ยนแปลงไปใช้แล้ว',
   applyFailed: 'ไม่ได้นำการเปลี่ยนแปลงไปใช้',
   discardDraft: 'ทิ้งฉบับร่าง',

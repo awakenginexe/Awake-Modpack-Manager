@@ -1,13 +1,14 @@
 import {
   ALL_CAPABILITIES, BackendError,
-  type Capability, type Handshake, type InstalledMod, type InstanceStatus, type InstanceSummary, type InstanceWarning,
-  type Installation, type ModInventory,
+  type Accepted, type Capability, type Handshake, type InstalledMod, type InstanceStatus, type InstanceSummary, type InstanceWarning,
+  type Installation, type ModInventory, type OperationKind, type OperationStatus,
 } from '../contract';
+import { load, save } from '../../domain/storage';
 import type { ConnectionState, ManagerBackend } from '../ManagerBackend';
 import {
-  assertPage, buildRequest, negotiated, parseResponse, PAGE_LIMIT, ProtocolError, SUPPORTED_VERSIONS, WireViolation,
-  type HelloResult, type InstanceListResult, type InventoryItem, type InventoryResult, type LauncherInfoResult,
-  type ProtocolVersion, type ReadMethod, type WireInstance,
+  assertPage, buildRequest, negotiated, parseOperation, parseResponse, PAGE_LIMIT, ProtocolError, SUPPORTED_VERSIONS, validIdempotencyKey, WireViolation,
+  type DraftMethod, type HelloResult, type InstanceListResult, type InventoryItem, type InventoryResult, type LauncherInfoResult,
+  type Method, type ProtocolVersion, type WireInstance, type WireOperation,
 } from './protocol';
 import { TransportError, type LauncherProfile, type PipeTransport } from './transport';
 
@@ -25,10 +26,14 @@ export interface LauncherClientOptions {
   pageLimit?: number;
 }
 
+/** What the Manager knows about an operation it submitted; the wire record has none of this. */
+interface KnownOperation { operationId: string; kind: OperationKind; instanceId?: string; startedAt: string }
+
 /**
- * Read-only Manager backend for the real Awake Launcher (protocol 1.0, pinned in protocol.ts).
- * Only hello, launcher.info, instances.list and mods.list exist; every write-side method rejects
- * with `unsupported`. This client never reads or writes instance files itself.
+ * Manager backend for the real Awake Launcher (protocol 1.0, pinned in protocol.ts).
+ * Reads: hello, launcher.info, instances.list, mods.list. Draft operation methods are sent only
+ * when hello reports them true (none are at the pin); everything else rejects with `unsupported`
+ * without a request. This client never reads or writes instance files itself.
  */
 export function createLauncherClient(options: LauncherClientOptions): ManagerBackend {
   const timeout = options.requestTimeoutMs ?? 15_000;
@@ -70,6 +75,7 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
       const map: Record<string, BackendError['code']> = {
         UNSUPPORTED_CAPABILITY: 'unsupported', UNSUPPORTED_PROTOCOL: 'protocol', STALE_INSTANCE: 'stale-revision',
         BUSY: 'instance-busy', IDENTITY_UNVERIFIABLE: 'identity', IDENTITY_CONFLICT: 'identity',
+        STALE_PLAN: 'plan-expired', INTERACTION_REQUIRED: 'interaction-required', RECOVERY_REQUIRED: 'recovery-required',
       };
       return new BackendError(map[e.code] ?? 'rejected', e.message, e.code);
     }
@@ -81,7 +87,7 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     return new BackendError('protocol', e instanceof Error ? e.message : String(e));
   }
 
-  async function exchange(method: ReadMethod, params: Record<string, unknown>, v = version): Promise<Record<string, unknown>> {
+  async function exchange(method: Method, params: Record<string, unknown>, v = version): Promise<Record<string, unknown>> {
     if (conn === null) throw new TransportError('closed', 'Not connected.');
     const requestId = `r${++seq}`;
     try {
@@ -124,8 +130,11 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     hello = result;
   }
 
-  /** Run a read; reconnect once (hello first) if the pipe dropped, e.g. after the 30 s idle timeout. */
-  function call<T>(method: ReadMethod, params: Record<string, unknown>): Promise<T> {
+  /**
+   * Reconnect once (hello first) if the pipe dropped, e.g. after the 30 s idle timeout. Resending is
+   * safe: reads have no effects, and side-effect requests carry their original idempotencyKey.
+   */
+  function call<T>(method: Method, params: Record<string, unknown>): Promise<T> {
     return serial(async () => {
       try {
         if (conn === null) await open();
@@ -243,6 +252,15 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     const caps: Capability[] = ['installations.discover'];
     if (c['instances.list'] === true) caps.push('instances.list');
     if (c['mods.list'] === true) caps.push('mods.inventory');
+    // Draft methods with fully defined fields. Operations must be readable before anything is submitted.
+    if (c['operations.get'] === true) {
+      caps.push('operations.watch');
+      if (c['launch.request'] === true) caps.push('launch.request');
+      if (c['operations.cancel'] === true) caps.push('operations.cancel');
+      if (c['instances.create'] === true) caps.push('instances.create');
+      // Apply also needs plans.prepare, whose review result has no schema yet, so plan.prepare stays off.
+      if (c['transactions.apply'] === true) caps.push('plan.apply');
+    }
     return caps.filter((x) => ALL_CAPABILITIES.includes(x));
   }
 
@@ -256,6 +274,51 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
   }
 
   const unsupported = () => Promise.reject(new BackendError('unsupported', 'Awake Launcher does not support this yet (read-only integration).'));
+
+  /* ----- draft operation methods (sent only when hello reports them true) ----- */
+
+  const enabled = (m: DraftMethod) => hello?.capabilities[m] === true;
+  const storeKey = () => `launcher-ops:${hello?.profileId ?? 'none'}`;
+  const known = (): KnownOperation[] => load<KnownOperation[]>(storeKey(), []);
+  const remember = (op: KnownOperation) => {
+    const list = known().filter((o) => o.operationId !== op.operationId);
+    save(storeKey(), [op, ...list].slice(0, 200)); // shortcut: local history cap; the Launcher has no operations.list yet
+  };
+
+  function toStatus(w: WireOperation, k: KnownOperation): OperationStatus {
+    return {
+      operationId: w.operationId,
+      kind: k.kind,
+      instanceId: k.instanceId,
+      planHash: w.planDigest,
+      state: w.state,
+      startedAt: k.startedAt,
+      updatedAt: new Date().toISOString(),
+      // Cancel is only a request; the Launcher refuses it inside critical sections.
+      cancellable: !w.terminal && enabled('operations.cancel'),
+      error: w.error ? { code: w.error.code, message: w.error.message } : undefined,
+      result: w.instanceRevision ? { revision: w.instanceRevision } : undefined,
+    };
+  }
+
+  /** Submit a side-effect request; the accepted record must be a nonterminal operation. */
+  async function submit(method: DraftMethod, params: Record<string, unknown>, kind: OperationKind, instanceId?: string): Promise<Accepted> {
+    if (!enabled(method)) return unsupported();
+    if (!validIdempotencyKey(String(params.idempotencyKey))) throw new BackendError('protocol', 'Invalid idempotency key.');
+    const op = parseOperation(await call<Record<string, unknown>>(method, params).catch((e) => { throw toBackendError(e); }));
+    remember({ operationId: op.operationId, kind, instanceId, startedAt: known().find((o) => o.operationId === op.operationId)?.startedAt ?? new Date().toISOString() });
+    return { operationId: op.operationId };
+  }
+
+  async function readOperation(operationId: string): Promise<OperationStatus> {
+    if (!enabled('operations.get')) return unsupported();
+    const k = known().find((o) => o.operationId === operationId) ?? { operationId, kind: 'apply-plan' as const, startedAt: new Date().toISOString() };
+    const raw = await call<Record<string, unknown>>('operations.get', { operationId }).catch((e) => { throw toBackendError(e); });
+    let w: WireOperation;
+    try { w = parseOperation(raw); } catch (e) { throw toBackendError(e); }
+    if (w.operationId !== operationId) throw new BackendError('protocol', 'Launcher returned a different operation.');
+    return toStatus(w, k);
+  }
 
   return {
     kind: 'launcher',
@@ -330,24 +393,51 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
       return { instanceId, revision, mods: items.map(toMod) };
     },
 
-    // Not available in Launcher protocol 1.0 (handoff.md "Unavailable; do not enable in Manager").
-    createInstance: unsupported,
+    async createInstance(request) {
+      // The draft defines `loader` only as a native component UID/version, with no wire shape yet.
+      if (request.loader !== 'vanilla') throw new BackendError('unsupported', 'Awake Launcher can only create vanilla instances for the Manager so far.');
+      return submit('instances.create', { idempotencyKey: request.idempotencyKey, name: request.name, minecraftVersion: request.minecraftVersion }, 'create-instance');
+    },
+
+    applyPlan: (request) => submit('transactions.apply', {
+      idempotencyKey: request.idempotencyKey, operationId: request.planId, planDigest: request.planHash, instanceRevision: request.baseRevision,
+    }, 'apply-plan'),
+
+    async requestLaunch(instanceId, idempotencyKey) {
+      if (!enabled('launch.request')) return unsupported();
+      return submit('launch.request', { idempotencyKey, physicalId: physicalIdOf(instanceId) }, 'launch', instanceId);
+    },
+
+    getOperation: readOperation,
+
+    async listOperations(instanceId) {
+      if (!enabled('operations.get')) return [];
+      const out: OperationStatus[] = [];
+      for (const k of known().filter((o) => !instanceId || o.instanceId === instanceId)) {
+        try { out.push(await readOperation(k.operationId)); } catch { /* unknown to this Launcher: skip */ }
+      }
+      return out;
+    },
+
+    // No events.subscribe: followOperation polls operations.get, the source of truth anyway.
+    watchOperation: () => () => {},
+
+    async cancelOperation(operationId) {
+      if (!enabled('operations.cancel')) return unsupported();
+      // The reply only acknowledges the request; the state comes from operations.get.
+      await call('operations.cancel', { operationId }).catch((e) => { throw toBackendError(e); });
+    },
+
+    // Not available: the draft gives these no result schema (docs/LAUNCHER-REQUESTS.md).
     search: unsupported,
     searchPacks: unsupported,
     packVersions: unsupported,
     installPack: unsupported,
     validateDraft: unsupported,
     preparePlan: unsupported,
-    applyPlan: unsupported,
-    getOperation: unsupported,
-    findOperationByIdempotencyKey: async () => null,
-    listOperations: async () => [],
-    watchOperation: () => () => {},
-    cancelOperation: unsupported,
     getRecoveryStatus: unsupported,
     listContent: unsupported,
     checkExport: unsupported,
     startExport: unsupported,
-    requestLaunch: unsupported,
   };
 }

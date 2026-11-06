@@ -319,7 +319,6 @@ export const en = {
   planStale: 'The instance changed after your review. Check the plan again.',
   applyAccepted: 'Awake Launcher accepted the changes. Waiting for the result…',
   applyLostReply: 'No reply from Awake Launcher. Checking whether the changes were received…',
-  applyNotReceived: 'Awake Launcher did not receive the changes. Review the plan and try again.',
   applyDone: 'Changes applied.',
   applyFailed: 'The changes were not applied.',
   discardDraft: 'Discard draft',

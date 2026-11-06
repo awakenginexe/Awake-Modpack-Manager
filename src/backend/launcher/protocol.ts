@@ -16,6 +16,32 @@ export interface ProtocolVersion { major: number; minor: number }
 /** Methods implemented by the Launcher at the pinned commit. Everything else is UNSUPPORTED_CAPABILITY. */
 export type ReadMethod = 'hello' | 'launcher.info' | 'instances.list' | 'mods.list';
 
+/**
+ * Draft 1.0 extensions (protocol.md "Reserved operation contract (not enabled)"). The Launcher
+ * reports them false at the pin. The client sends one only when hello's capability map says true.
+ * Only methods whose request and reply fields the draft fully defines are listed here.
+ */
+export type DraftMethod = 'operations.get' | 'operations.cancel' | 'launch.request' | 'transactions.apply' | 'instances.create';
+export type Method = ReadMethod | DraftMethod;
+
+export const OPERATION_STATES = [
+  'queued', 'resolving', 'downloading', 'prepared', 'acquiring', 'revalidating', 'backing_up', 'applying', 'verifying',
+  'completed', 'cancelled', 'failed', 'rolled_back', 'recovery_required',
+] as const;
+export type WireOperationState = (typeof OPERATION_STATES)[number];
+const TERMINAL: readonly WireOperationState[] = ['completed', 'cancelled', 'failed', 'rolled_back'];
+
+/** requests.schema.json $defs/operation. `result` has no schema yet, so it stays opaque. */
+export interface WireOperation {
+  operationId: string;
+  state: WireOperationState;
+  terminal: boolean;
+  planDigest?: string;
+  instanceRevision?: string;
+  result?: Record<string, unknown>;
+  error?: WireError;
+}
+
 export const ERROR_CODES = [
   'INVALID_REQUEST', 'UNSUPPORTED_PROTOCOL', 'HANDSHAKE_REQUIRED', 'UNSUPPORTED_CAPABILITY', 'LIMIT_EXCEEDED',
   'NOT_FOUND', 'IDENTITY_UNVERIFIABLE', 'IDENTITY_CONFLICT', 'BUSY', 'STALE_INSTANCE', 'STALE_PLAN',
@@ -123,7 +149,7 @@ export class WireViolation extends Error {
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-export function buildRequest(requestId: string, method: ReadMethod, params: Record<string, unknown>, version: ProtocolVersion): string {
+export function buildRequest(requestId: string, method: Method, params: Record<string, unknown>, version: ProtocolVersion): string {
   if (!ID.test(requestId)) throw new WireViolation(`Invalid requestId ${requestId}`);
   return JSON.stringify({ protocol: { major: version.major, minor: version.minor }, requestId, method, params });
 }
@@ -168,3 +194,25 @@ export function assertPage(r: Record<string, unknown>, listKey: 'instances' | 'i
     throw new WireViolation(`Launcher ${listKey} page is malformed.`);
   }
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OPERATION_KEYS = ['operationId', 'state', 'terminal', 'planDigest', 'instanceRevision', 'result', 'error'];
+
+/** Strict check of an operation record (additionalProperties: false in the schema). */
+export function parseOperation(r: Record<string, unknown>): WireOperation {
+  if (Object.keys(r).some((k) => !OPERATION_KEYS.includes(k))) throw new WireViolation('Launcher operation has unknown fields.');
+  if (typeof r.operationId !== 'string' || !UUID.test(r.operationId)) throw new WireViolation('Launcher operation id is malformed.');
+  if (!OPERATION_STATES.includes(r.state as WireOperationState)) throw new WireViolation(`Launcher operation state ${String(r.state)} is unknown.`);
+  if (typeof r.terminal !== 'boolean' || r.terminal !== TERMINAL.includes(r.state as WireOperationState)) throw new WireViolation('Launcher operation terminal flag does not match its state.');
+  if (r.planDigest !== undefined && (typeof r.planDigest !== 'string' || !/^[0-9a-f]{64}$/.test(r.planDigest))) throw new WireViolation('Launcher plan digest is malformed.');
+  if (r.instanceRevision !== undefined && typeof r.instanceRevision !== 'string') throw new WireViolation('Launcher operation revision is malformed.');
+  if (r.result !== undefined && !isObject(r.result)) throw new WireViolation('Launcher operation result is malformed.');
+  if (r.error !== undefined) {
+    const e = r.error;
+    if (!isObject(e) || typeof e.code !== 'string' || typeof e.message !== 'string' || typeof e.retryable !== 'boolean') throw new WireViolation('Launcher operation error is malformed.');
+  }
+  return r as unknown as WireOperation;
+}
+
+/** idempotencyKey: 1-128 ASCII safe characters (protocol.md). */
+export const validIdempotencyKey = (k: string) => /^[A-Za-z0-9_.:-]{1,128}$/.test(k);

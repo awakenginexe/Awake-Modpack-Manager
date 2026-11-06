@@ -432,13 +432,6 @@ export class MockBackend implements ManagerBackend {
     });
   }
 
-  findOperationByIdempotencyKey(key: string): Promise<OperationStatus | null> {
-    return this.call(() => {
-      const id = this.byIdempotency.get(key);
-      return id ? this.operations.get(id) ?? null : null;
-    });
-  }
-
   listOperations(instanceId?: string): Promise<OperationStatus[]> {
     return this.call(() => [...this.operations.values()].filter((o) => !instanceId || o.instanceId === instanceId).reverse());
   }
