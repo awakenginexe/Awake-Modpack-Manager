@@ -1,0 +1,85 @@
+*, *::before, *::after { box-sizing: border-box; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.16) transparent; }
+html, body, #app { height: 100%; margin: 0; }
+body { background: var(--background-atmosphere), var(--background); color: var(--text); overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+h1, h2, h3, h4 { margin: 0; font-weight: 600; }
+p { margin: 0; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-medium), var(--glass-highlight);
+  backdrop-filter: var(--glass-filter);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  padding: 7px 14px; min-height: 34px; border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle); background: var(--surface-interactive); color: var(--text-secondary);
+  cursor: pointer; white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease), transform var(--duration-fast) var(--ease), box-shadow var(--duration-fast) var(--ease);
+}
+.btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn-primary { background: var(--accent-gradient); color: #fff; border: none; font-weight: 600; box-shadow: 0 4px 14px var(--accent-glow); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-gradient-hover); color: #fff; transform: translateY(-1px); box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45); }
+.btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+.btn-small { min-height: 28px; padding: 3px 10px; font-size: 0.85rem; }
+
+/* Form controls */
+.input, .select {
+  min-height: 34px; padding: 6px 10px; border-radius: var(--radius-control);
+  background: rgba(3, 8, 16, 0.4); border: 1px solid var(--control-border); color: var(--text);
+}
+.input:focus, .select:focus { border-color: rgba(147, 197, 253, 0.78); outline: none; box-shadow: 0 0 0 3px var(--accent-subtle); }
+.select option { background: #0b1424; }
+.check { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+.field { display: flex; flex-direction: column; gap: var(--space-1); font-size: 0.85rem; color: var(--text-secondary); }
+
+/* Badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: var(--radius-pill);
+  font-size: 0.75rem; font-weight: 600; background: var(--surface-interactive); color: var(--text-secondary); white-space: nowrap;
+}
+.badge.info { background: var(--accent-subtle); color: #93c5fd; }
+.badge.ok { background: rgba(52, 211, 153, 0.14); color: #6ee7b7; }
+.badge.warn { background: rgba(245, 158, 11, 0.16); color: #fcd34d; }
+.badge.error { background: rgba(239, 68, 68, 0.16); color: #fca5a5; }
+
+/* Page scaffolding shared by views */
+.view { display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; height: 100%; }
+.view-header { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
+.view-header h1 { font-size: 1.5rem; }
+.view-header p { color: var(--text-secondary); }
+.toolbar { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.panel { padding: var(--space-4); }
+.muted { color: var(--text-secondary); }
+.empty { display: grid; place-items: center; text-align: center; gap: var(--space-2); padding: var(--space-6); color: var(--text-secondary); }
+.notice {
+  display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-medium); border: 1px solid var(--border); background: var(--accent-subtle);
+}
+.notice.warn { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); }
+.notice.error { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); }
+.progress { height: 6px; border-radius: var(--radius-pill); background: var(--surface-interactive); overflow: hidden; }
+.progress > span { display: block; height: 100%; background: var(--accent-gradient); transition: width var(--duration-normal) var(--ease); }
+
+/* Dialog */
+.dialog-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(3, 8, 16, 0.55); }
+.dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 64px); overflow: auto; background: var(--glass-menu); }
+.dialog header, .dialog footer { padding: var(--space-4) var(--space-5); }
+.dialog .dialog-body { padding: 0 var(--space-5) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.dialog footer { display: flex; justify-content: flex-end; gap: var(--space-2); border-top: 1px solid var(--border-subtle); }
+
+.fade-enter-active, .fade-leave-active { transition: opacity var(--duration-normal) var(--ease); }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Reduced motion: honour the OS setting and the in-app preference. */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+.reduced-motion *, .reduced-motion *::before, .reduced-motion *::after { transition: none !important; animation: none !important; }

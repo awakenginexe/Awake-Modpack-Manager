@@ -1,0 +1,80 @@
+/*
+ * Awake family design tokens, re-expressed for the Modpack Manager.
+ * Values follow Awake Launcher's visual identity (launcher/awake-web/src/styles/tokens.css);
+ * this file is written for the Manager, not copied. See docs/LICENSING.md.
+ */
+@font-face { font-family: 'K2D'; font-weight: 400; font-display: swap; src: url('../assets/fonts/K2D-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'K2D'; font-weight: 500; font-display: swap; src: url('../assets/fonts/K2D-Medium.ttf') format('truetype'); }
+@font-face { font-family: 'K2D'; font-weight: 600; font-display: swap; src: url('../assets/fonts/K2D-SemiBold.ttf') format('truetype'); }
+@font-face { font-family: 'K2D'; font-weight: 700; font-display: swap; src: url('../assets/fonts/K2D-Bold.ttf') format('truetype'); }
+
+:root {
+  color-scheme: dark;
+  /* K2D covers Latin and Thai; CJK falls through to the platform UI fonts, like the Launcher. */
+  font-family: 'K2D', system-ui, "Segoe UI", "Leelawadee UI", "Noto Sans Thai",
+    "Microsoft YaHei UI", "Noto Sans CJK SC", "PingFang SC",
+    "Microsoft JhengHei UI", "Noto Sans CJK TC", "PingFang TC", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+
+  --background: #07101e;
+  --background-atmosphere: radial-gradient(ellipse 95% 85% at 62% 32%, #132a4e 0%, #09162b 56%, #050b16 100%);
+
+  --glass: linear-gradient(180deg, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0.015) 100%), rgba(11, 20, 36, 0.64);
+  --glass-strong: linear-gradient(180deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(10, 19, 34, 0.74);
+  --glass-menu: linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(10, 19, 34, 0.9);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.18), inset 0 -1px 0 0 rgba(148, 194, 255, 0.06);
+  --glass-filter: blur(18px) saturate(135%);
+
+  --surface: rgba(14, 26, 46, 0.48);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --surface-selected: rgba(59, 130, 246, 0.22);
+  --surface-interactive: rgba(255, 255, 255, 0.06);
+
+  --text: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #7c8ba1;
+
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  --accent-gradient: linear-gradient(135deg, #2563eb, #0284c7);
+  --accent-gradient-hover: linear-gradient(135deg, #3b82f6, #0ea5e9);
+  --accent-subtle: rgba(59, 130, 246, 0.16);
+  --accent-glow: rgba(37, 99, 235, 0.35);
+
+  --border: rgba(96, 165, 250, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --control-border: rgba(255, 255, 255, 0.14);
+
+  --success: #38bdf8;
+  --ok: #34d399;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --focus: #60a5fa;
+
+  --radius-small: 6px;
+  --radius-control: 8px;
+  --radius-medium: 12px;
+  --radius-panel: 20px;
+  --radius-pill: 9999px;
+
+  --shadow-small: 0 2px 8px rgba(0, 0, 0, 0.28);
+  --shadow-medium: 0 8px 24px rgba(0, 0, 0, 0.38);
+  --shadow-large: 0 20px 50px rgba(0, 0, 0, 0.52);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --duration-fast: 140ms;
+  --duration-normal: 220ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+:root:is(:lang(en), :lang(th)) body { font-synthesis: none; }
