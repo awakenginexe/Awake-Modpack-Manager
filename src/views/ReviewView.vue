@@ -111,7 +111,7 @@ function reasonText(i: PlanItem) {
       </div>
     </div>
 
-    <div v-else class="columns">
+    <div v-else class="columns" :class="{ single: fromImport }">
       <section v-if="!fromImport" class="panel card draft-panel" :aria-label="t('draftList')">
         <h2 class="panel-title">{{ t('draftList') }} <span class="badge">{{ changes.length }}</span></h2>
         <div v-if="stale" class="notice warn small" role="alert">
@@ -253,6 +253,7 @@ function reasonText(i: PlanItem) {
 .steps li.current .step-num { background: var(--accent-gradient); border-color: transparent; color: #fff; }
 .steps li.done { color: #6ee7b7; }
 .steps li.done .step-num { background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.4); }
+.columns.single { grid-template-columns: minmax(0, 1fr); }
 .columns { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
 .panel { display: flex; flex-direction: column; gap: var(--space-4); }
 .placeholder { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4); border: 1px dashed var(--control-border); border-radius: var(--radius-control); }
