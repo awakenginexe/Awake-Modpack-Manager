@@ -69,9 +69,9 @@ come from a pack archive the user picks; accounts, credentials, logs, saves and 
 * `plans.get` `files[].kind` classifies review items; path rules remain for replies without `kind`.
 * `providers.project` names provider-identified files (imports) once, cached; time-boxed per load.
 
-## Contract issues found earlier (resolved in b00caf709)
+## Historical contract issues (resolved in b00caf709)
 
-## Contract issues found (for Codex)
+The list below describes the pre-final helper. Current open blockers and test limits are in [HANDOFF.md](HANDOFF.md).
 
 1. **`x-methods` is missing the three new methods.** `imports.inspect`, `imports.prepare` and
    `inbox.discard` exist in `$defs` and in the `request.method` enum, but not in `x-methods`, which is
