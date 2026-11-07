@@ -12,7 +12,8 @@ export type CoreCapabilities = Record<
 /** Present only when hello negotiated `manager.v0.2`. */
 export type CoreExtensionCapability =
   | 'loaders.forge.v1' | 'loaders.neoforge.v1' | 'loaders.quilt.v1' | 'policies.v1' | 'providers.curseforge.v1'
-  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'inbox.discard.v1';
+  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'inbox.discard.v1'
+  | 'providers.project' | 'outbox.configs.v1' | 'outbox.list';
 
 export type CoreLoaderId = 'vanilla' | 'fabric' | 'forge' | 'neoforge' | 'quilt';
 export type CoreProvider = 'modrinth' | 'curseforge';
@@ -26,6 +27,8 @@ export interface CoreHello {
   sessionId: string;
   capabilities: CoreCapabilities;
   limits: { frameBytes: number; clients: number; pageItems: number };
+  /** Echo of the accepted hello extensions; absent when none were offered (or an older helper). */
+  extensions?: string[];
 }
 
 export interface CoreInfo {
@@ -78,8 +81,13 @@ export interface CoreInstalled {
   versionId: string | null;
   versionNumber: string | null;
   metadataState: 'verified' | 'modified' | 'unknown';
+  /** Aggregate: nativeLock OR policy.excluded OR a pin. Never show it as a pin. */
   updateLocked: boolean;
   provider?: CoreProvider;
+  /** manager.v0.2 only: the Manager policy, independent of native locks. */
+  policy?: { pinnedVersion: string | null; excluded: boolean };
+  /** manager.v0.2 only: Packwiz update=false; a policy change cannot clear it. */
+  nativeLock?: boolean;
 }
 
 export type CoreChange =
@@ -124,7 +132,7 @@ export interface CorePlanPage {
   planDigest: string;
   instanceRevision: string;
   expectedInstanceRevision: string;
-  files: { path: string; action: 'install' | 'replace' | 'remove'; beforeSha256: string; afterSha256: string; size: string }[];
+  files: { path: string; action: 'install' | 'replace' | 'remove'; beforeSha256: string; afterSha256: string; size: string; kind?: 'mod' | 'override' | 'bookkeeping' }[];
   total: number;
   nextOffset: number | null;
   warnings: string[];
@@ -139,3 +147,7 @@ export interface CoreDescriptor {
   profileId: string;
   sessionId: string;
 }
+
+/** outbox.list / outbox.read (manager.v0.2): unchanged, policy-tracked config/ text overrides only. */
+export interface CoreOutboxList { instanceRevision: string; files: { path: string; size: string; sha256: string }[]; total: number; nextOffset: number | null }
+export interface CoreOutboxChunk { path: string; instanceRevision: string; offset: string; size: string; bytesBase64: string; eof: boolean; sha256: string }

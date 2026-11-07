@@ -156,7 +156,10 @@ const overrideInput = ref<HTMLInputElement | null>(null);
 const exportOverrides = shallowRef<OverrideFile[]>([]);
 const overrideSkipped = ref<{ path: string; reason: string }[]>([]);
 const overrideSource = ref('');
-watch(() => project.value?.id, () => { exportOverrides.value = []; overrideSkipped.value = []; overrideSource.value = ''; });
+watch(() => project.value?.id, (id) => {
+  const a = id ? store.attachedOverrides(id) : undefined;
+  exportOverrides.value = a?.files ?? []; overrideSkipped.value = []; overrideSource.value = a?.source ?? '';
+}, { immediate: true });
 async function onOverrideArchive(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
   (e.target as HTMLInputElement).value = '';

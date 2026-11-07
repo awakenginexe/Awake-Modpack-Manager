@@ -29,6 +29,7 @@ async function snapshot() {
     const project = newProject({
       name: name.value.trim() || s.name, version: version.value.trim() || '1.0.0', minecraftVersion: s.minecraftVersion, loader: s.loader,
       summary: t('exportFromWorkspace', { name: s.name }),
+      overrides: (s.configs ?? []).map((c) => ({ path: c.path, size: c.data.length })),
       mods: s.mods.map((m) => ({
         key: modKey(m.provider, m.projectId), name: m.name, provider: m.provider, projectId: m.projectId, versionId: m.versionId, versionName: m.versionName,
         file: { path: `mods/${m.fileName}`, size: m.size, sha1: m.sha1, sha512: m.sha512, downloads: [m.url] },
@@ -38,7 +39,9 @@ async function snapshot() {
       })),
     });
     skipped.value = s.skipped;
-    useProjects().addProject(project);
+    const store = useProjects();
+    store.addProject(project);
+    if (s.configs?.length) store.attachOverrides(project.id, s.name, s.configs.map((c) => ({ root: 'overrides' as const, path: c.path, data: c.data })));
     if (!s.skipped.length) emit('navigate', 'projects');
   } catch (e) {
     error.value = asError(e).message;

@@ -242,7 +242,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
                       <span v-if="m.metadataState === 'conflict'" class="badge warn tiny" :title="t('metadataConflictHint')">{{ t('metadataConflict') }}</span>
                       <span v-if="m.kind === 'directory'" class="badge tiny">{{ t('kindFolder') }}</span>
                       <span v-if="m.linked" class="badge tiny" :title="t('linkedHint')">{{ t('linkedFile') }}</span>
-                      <Lock v-if="m.updateLocked && !policies" :size="13" class="pin" :aria-label="t('lockedInLauncher')" />
+                      <Lock v-if="policies ? m.nativeLock : m.updateLocked" :size="13" class="pin" :aria-label="t(policies ? 'lockedByPack' : 'lockedInLauncher')" />
                       <BellOff v-if="m.updateExcluded" :size="13" class="pin" :aria-label="t('excludedFromUpdates')" />
                     </span>
                     <span class="file">{{ m.fileName }}</span>
@@ -301,7 +301,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
           </div>
           <p v-if="focused.metadataState === 'conflict'" class="notice warn small"><TriangleAlert :size="18" />{{ t('metadataConflictHint') }}</p>
           <p v-else-if="focused.source === 'manual'" class="notice warn small"><FileQuestion :size="18" />{{ t('manualFileHint') }}</p>
-          <p v-if="focused.updateLocked && !policies" class="muted small hint"><Lock :size="13" />{{ t('lockedInLauncherHint') }}</p>
+          <p v-if="policies ? focused.nativeLock : focused.updateLocked" class="muted small hint"><Lock :size="13" />{{ t(policies ? 'lockedByPackHint' : 'lockedInLauncherHint') }}</p>
           <p v-if="focused.updateExcluded" class="muted small hint"><BellOff :size="13" />{{ t('excludedFromUpdatesHint') }}</p>
 
           <dl class="facts">

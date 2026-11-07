@@ -87,9 +87,9 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   });
   /** With helper policies the pin lives in the workspace (updateLocked); otherwise it is a Manager-side note. */
   const policies = computed(() => can('mods.policies') && source.value === 'helper');
-  // The helper reports updateLocked for a pin, a native lock AND an exclusion, so an excluded mod's
-  // pin cannot be read back; it is shown as excluded only (docs/INTEGRATION-020.md, issue 3).
-  const lockedPin = (m: { updateLocked?: boolean; updateExcluded?: boolean }) => !!m.updateLocked && !m.updateExcluded;
+  // manager.v0.2 reads the pin back on its own. Older replies only give updateLocked (pin OR native
+  // lock OR exclusion), so there an excluded mod is shown as excluded only.
+  const lockedPin = (m: { updateLocked?: boolean; updateExcluded?: boolean; pinned?: boolean }) => m.pinned ?? (!!m.updateLocked && !m.updateExcluded);
   const pinned = computed(() => policies.value
     ? new Set((inventory.value?.mods ?? []).filter(lockedPin).map((m) => m.key))
     : new Set(state.instanceId ? pins.value[state.instanceId] ?? [] : []));

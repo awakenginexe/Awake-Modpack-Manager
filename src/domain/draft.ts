@@ -41,7 +41,7 @@ export function rebase(draft: Draft, revision: string, mods: readonly InstalledM
     const ok = c.kind === 'install'
       ? !installed.has(c.projectId)
       : !!mod && (c.kind === 'remove' || (c.kind === 'update' && mod.installed?.id !== c.targetVersionId) || (c.kind === 'enable' && !mod.enabled) || (c.kind === 'disable' && mod.enabled)
-        || (c.kind === 'policy' && ((!!mod.updateLocked && !mod.updateExcluded) !== c.pinned || !!mod.updateExcluded !== c.excluded)));
+        || (c.kind === 'policy' && ((mod.pinned ?? (!!mod.updateLocked && !mod.updateExcluded)) !== c.pinned || !!mod.updateExcluded !== c.excluded)));
     (ok ? kept : dropped).push(c);
   }
   return { draft: { ...draft, baseRevision: revision, changes: kept }, dropped };

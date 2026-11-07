@@ -26,9 +26,11 @@ async function standalone(c = new FakeCore()) {
 
 describe('core protocol 2.0 schema (pinned)', () => {
   it('is pinned to the committed contract and enforces it', () => {
-    expect(CORE_CONTRACT_COMMIT).toMatch(/^3b279ff0/);
+    expect(CORE_CONTRACT_COMMIT).toMatch(/^b00caf70/);
     expect(paramsError('workspaces.create', { idempotencyKey: 'k', name: 'x', minecraftVersion: '1.21.1', loader: { id: 'liteloader', version: '1' } })).toMatch(/loader\.id/);
-    // 0.2 methods are validated although the pinned schema lists them only in $defs, not x-methods.
+    // 0.2 methods are in x-methods at this pin, including the new lookup and config outbox.
+    expect(paramsError('providers.project', { provider: 'modrinth', projectId: 'AANobbMI' })).toBeNull();
+    expect(paramsError('outbox.list', { physicalId: 'p', instanceRevision: 'a'.repeat(64), path: 'x' })).toMatch(/not allowed/);
     expect(paramsError('imports.inspect', { token: '00000000-0000-4000-8000-000000000000', format: 'zip' })).toMatch(/format/);
     expect(paramsError('inbox.discard', { token: '00000000-0000-4000-8000-000000000000' })).toBeNull();
     expect(paramsError('hello', { versions: [{ major: 2, minor: 0 }], client: { name: 'x', version: '1' }, extensions: ['manager.v0.3'] })).toMatch(/extensions/);
@@ -127,8 +129,9 @@ describe('HelperClient protocol 2.0 (fixture)', () => {
     await session.apply();
     expect(session.review.phase).toBe('done');
     await wait();
-    // The search result's title is remembered as the friendly name; files without one keep their file name.
-    expect(session.inventory.value!.mods.map((m) => m.name).sort()).toEqual(['Sodium', 'fabricapi-0.100.0']);
+    // Friendly names: remembered from search, and looked up with providers.project for the dependency.
+    expect(session.inventory.value!.mods.map((m) => m.name).sort()).toEqual(['Fabric API', 'Sodium']);
+    expect(core.log.filter((l) => l.method === 'providers.project').map((l) => l.params.projectId)).toEqual(['fabricapi']);
     // The update check now offers sodium 0.6.0.
     expect(session.inventory.value!.mods.find((m) => m.projectId === 'sodium')?.available?.id).toBe('sodV2');
   });
@@ -434,10 +437,10 @@ describe('manager.v0.2 negotiation and features (fixture)', () => {
     const a = session.inventory.value!.mods.find((m) => m.key === 'a')!;
     expect(a.updateLocked).toBe(true);
     expect(a.updateExcluded).toBe(true);
-    // updateLocked also covers exclusion, so an excluded mod is shown as excluded, not pinned.
-    expect(session.pinned.value.has('a')).toBe(false);
-    session.setExcluded(['a'], false); // including again is reviewed with the pin cleared, visibly
-    expect(session.draft.value!.changes).toEqual([{ kind: 'policy', modKey: 'a', pinned: false, excluded: false }]);
+    // manager.v0.2 reads pin and exclusion back separately: still pinned while excluded.
+    expect(session.pinned.value.has('a')).toBe(true);
+    session.setExcluded(['a'], false); // including again keeps the pin
+    expect(session.draft.value!.changes).toEqual([{ kind: 'policy', modKey: 'a', pinned: true, excluded: false }]);
     session.discardDraft();
     // A pin alone reads back as pinned; pinning it again is no change.
     session.setPinned(['a'], true);
@@ -460,5 +463,45 @@ describe('manager.v0.2 negotiation and features (fixture)', () => {
     expect(snap.mods.map((m) => [m.projectId, m.versionId, m.enabled])).toEqual([['sodium', 'sodV1', true], ['lithium', 'litV1', false]]);
     expect(snap.mods[0]!.url).toMatch(/^https:\/\/cdn\.modrinth\.com\//);
     expect(snap.skipped).toEqual([{ fileName: 'm-x.jar', reason: 'manual' }]);
+    expect(snap.configs).toEqual([]);
+  });
+
+  it('exports tracked configs through outbox.list/read, hash-checked, at one revision', async () => {
+    const c = new FakeCore();
+    c.addWorkspace('Pack').mods = [c.installed('a', 'sodium', 'sodV1', '0.5.0')];
+    c.configs.set('.minecraft/config/sodium.toml', 'x = 1\n'.repeat(60_000)); // > one 262144-byte chunk
+    c.configs.set('.minecraft/config/b.json', '{}');
+    const session = await standalone(c);
+    const snap = await session.backend.snapshotWorkspace!(session.state.instanceId!);
+    expect(snap.configs!.map((f) => [f.path, f.data.length])).toEqual([['config/sodium.toml', 360_000], ['config/b.json', 2]]);
+    expect(core.log.filter((l) => l.method === 'outbox.read').length).toBe(3);
+    // A config whose bytes no longer match the listed hash is refused, not exported.
+    const real = c.configs;
+    c.configs = new Map(real);
+    const orig = c.configs.get.bind(c.configs);
+    c.configs.get = (k: string) => (k.endsWith('b.json') ? '[]' : orig(k)); // same size, other bytes
+    await expect(session.backend.snapshotWorkspace!(session.state.instanceId!)).rejects.toThrow(/tracked hash/);
+  });
+
+  it('shows a native pack lock separately from Manager policies, and keeps an older plan readable', async () => {
+    const c = new FakeCore();
+    c.addWorkspace('Pack').mods = [c.installed('a', 'sodium', 'sodV1', '0.5.0')];
+    c.nativeLocks.add('a');
+    const session = await standalone(c);
+    const a = session.inventory.value!.mods.find((m) => m.key === 'a')!;
+    expect([a.updateLocked, a.nativeLock, a.pinned, a.updateExcluded]).toEqual([true, true, false, false]);
+    expect(session.pinned.value.has('a')).toBe(false);
+    session.setExcluded(['a'], true);
+    await session.validate();
+    // Plan files carry kind: the policy file is bookkeeping, not an override.
+    expect(session.review.plan!.items.map((i) => i.action)).toEqual(['policy']);
+  });
+
+  it('treats a helper that accepts but does not echo manager.v0.2 as legacy', async () => {
+    core = new FakeCore();
+    core.noEcho = true;
+    const hs = await helper(core).connect();
+    expect(hs.capabilities).not.toContain('mods.policies');
+    expect(hs.capabilities).not.toContain('packs.import');
   });
 });

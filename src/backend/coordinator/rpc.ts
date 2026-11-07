@@ -126,7 +126,8 @@ export function createRpc(o: RpcOptions) {
       throw e;
     }
     hello = result;
-    accepted = ext;
+    // Only what the peer explicitly echoed is accepted; a helper that does not echo gets legacy requests.
+    accepted = Array.isArray(result.extensions) ? ext.filter((x) => (result.extensions as unknown[]).includes(x)) : [];
   }
 
   /**

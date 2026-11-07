@@ -211,8 +211,12 @@ export interface InstalledMod {
   metadataState?: 'indexed' | 'unindexed' | 'conflict';
   kind?: 'jar' | 'directory' | 'other';
   linked?: boolean;
-  /** Pinned by policy or locked by native metadata (helper: OR of both). */
+  /** Pinned by policy or locked by native metadata (helper: OR of pin, exclusion and native lock). */
   updateLocked?: boolean;
+  /** Helper policy pin, read back separately (manager.v0.2). Undefined when the helper cannot say. */
+  pinned?: boolean;
+  /** Native Packwiz update=false lock (manager.v0.2); a Manager policy change cannot clear it. */
+  nativeLock?: boolean;
   /** Excluded from update checks by the helper's policy (policies.v1). */
   updateExcluded?: boolean;
 }
@@ -424,6 +428,8 @@ export interface WorkspaceSnapshot {
   }[];
   /** Files that cannot be described by a provider reference, and why. They are never exported silently. */
   skipped: { fileName: string; reason: 'manual' | 'modified' | 'provider' | 'not-found' }[];
+  /** Unchanged, helper-tracked config/ files (outbox.list/read), paths relative to the game folder. */
+  configs?: { path: string; data: Uint8Array }[];
 }
 
 export interface RecoveryStatus {

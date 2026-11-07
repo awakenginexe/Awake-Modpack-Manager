@@ -4,12 +4,12 @@ import schema from './core.schema.json';
  * Awake native helper protocol 2.0 (role `modpack-core`).
  *
  * Source of truth: Awake Launcher docs/modpack-manager/{core-protocol.md, core.schema.json} at
- * commit 3b279ff06668b17590892514f12ccbfdbc0a68c3 (branch feat/native-core-manager-020, helper
- * implementation 0.2.0, opt-in hello extension `manager.v0.2`), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
+ * commit b00caf7097897ab60ad0aa247e4964ece667976c (branch feat/native-core-manager-020, helper
+ * implementation 0.2.0, opt-in hello extension `manager.v0.2`; delivered by 9622abce7), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
  * accepts is checked against that schema, so the client can neither send nor trust anything the
  * contract does not define. Re-pin by replacing the JSON file and this commit.
  */
-export const CORE_CONTRACT_COMMIT = '3b279ff06668b17590892514f12ccbfdbc0a68c3';
+export const CORE_CONTRACT_COMMIT = 'b00caf7097897ab60ad0aa247e4964ece667976c';
 /** Hello extension that enables the Manager 0.2 capabilities and payload variants. */
 export const MANAGER_EXTENSION = 'manager.v0.2';
 export const CORE_VERSION = { major: 2, minor: 0 } as const;
@@ -17,15 +17,13 @@ export const CORE_VERSION = { major: 2, minor: 0 } as const;
 type Schema = Record<string, unknown>;
 const defs = (schema as { $defs: Record<string, Schema> }).$defs;
 const xMethods = (schema as { 'x-methods': Record<string, { params: Schema; result: Schema }> })['x-methods'];
-// At the pin, the 0.2 methods (imports.*, inbox.discard) are defined in $defs and the request enum
-// but missing from x-methods; read them from $defs. Reported to Codex (docs/INTEGRATION-020.md).
-const method = (m: string) => xMethods[m] ?? (defs[m] as { params: Schema; result: Schema } | undefined);
+const method = (m: string) => xMethods[m];
 export type CoreMethod =
   | 'hello' | 'core.info' | 'core.shutdown' | 'catalog.versions' | 'workspaces.create' | 'workspaces.list'
   | 'providers.search' | 'providers.versions' | 'plans.prepare' | 'plans.get' | 'transactions.apply'
   | 'mods.list' | 'updates.check' | 'operations.get' | 'operations.list' | 'operations.cancel' | 'events.poll'
   | 'recovery.list' | 'recovery.run' | 'inbox.begin' | 'inbox.write' | 'inbox.commit' | 'inbox.status' | 'outbox.read'
-  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard';
+  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'providers.project' | 'outbox.list';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

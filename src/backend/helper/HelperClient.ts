@@ -8,7 +8,7 @@ import { createRpc } from '../coordinator/rpc';
 import { CORE_VERSION, descriptorError, MANAGER_EXTENSION, paramsError, resultError, type CoreMethod } from '../core/schema';
 import type {
   CoreAccepted, CoreCapabilities, CoreChange, CoreHello, CoreImportInspection, CoreInfo, CoreInstalled, CoreLoaderId, CoreOperation, CorePlanPage,
-  CoreProject, CoreTransfer, CoreVersion, CoreWorkspace,
+  CoreOutboxChunk, CoreOutboxList, CoreProject, CoreTransfer, CoreVersion, CoreWorkspace,
 } from '../core/types';
 import type { ConnectionState, ManagerBackend } from '../ManagerBackend';
 import type { HelperStatus, PipeTransport } from '../launcher/transport';
@@ -153,6 +153,27 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     // shortcut: grows with the projects the user browses; prune if it ever reaches a few MB.
     if (changed) save(TITLES, titles);
   }
+  /**
+   * Friendly names for provider-identified files the user never met in search (imports): one
+   * providers.project read each, remembered. shortcut: serial and time-boxed per inventory load, so a
+   * large first import names the rest on later refreshes; batch it if the helper gains a bulk read.
+   */
+  async function lookupTitles(items: CoreInstalled[], budgetMs = 4000) {
+    if (!ext('providers.project')) return;
+    const until = Date.now() + budgetMs;
+    const seen = new Set<string>();
+    for (const it of items) {
+      const provider = it.provider ?? 'modrinth';
+      const k = `${provider}:${it.projectId}`;
+      if (!it.projectId || titles[k] || seen.has(k) || !providerOk(provider)) continue;
+      if (Date.now() > until) break;
+      seen.add(k);
+      try {
+        const { project } = await call<{ project: CoreProject }>('providers.project', { provider, projectId: it.projectId });
+        rememberTitles([{ provider, projectId: it.projectId, name: project.title, iconUrl: project.iconUrl ?? undefined }]);
+      } catch { /* names are cosmetic: keep the file name */ }
+    }
+  }
   const time = (ms: string) => { const n = Number(ms); return new Date(n < 1e12 ? n * 1000 : n).toISOString(); };
   const fileStem = (f: string) => f.replace(/\.disabled$/i, '').replace(/\.(jar|zip)$/i, '');
 
@@ -178,6 +199,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       enabled: it.enabled, sizeBytes: Number.isSafeInteger(Number(it.size)) ? Number(it.size) : undefined,
       metadataState: it.metadataState === 'unknown' ? 'unindexed' : 'indexed',
       locallyModified: it.metadataState === 'modified', kind: 'jar', updateLocked: it.updateLocked,
+      // manager.v0.2 reports the pin, the exclusion and a native lock separately; older replies only the aggregate.
+      ...(it.policy ? { pinned: it.policy.pinnedVersion !== null, updateExcluded: it.policy.excluded, nativeLock: !!it.nativeLock } : {}),
     };
   }
 
@@ -264,7 +287,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
         if (!ext('policies.v1', true)) throw new BackendError('unsupported', 'Pins and update exclusions need a Manager helper with policies (0.2 or newer).');
         const m = inv.get(c.modKey);
         if (c.pinned && !m?.versionId) throw new BackendError('rejected', `${m?.fileName ?? 'This file'} has no provider version to pin.`);
-        out.push({ action: 'policy', inventoryId: c.modKey, pinnedVersion: c.pinned ? m!.versionId : null, excluded: c.excluded });
+        // Keep an existing pin's version; pinning newly pins the installed version.
+        out.push({ action: 'policy', inventoryId: c.modKey, pinnedVersion: c.pinned ? m!.policy?.pinnedVersion ?? m!.versionId : null, excluded: c.excluded });
       } else {
         out.push({ action: c.kind, inventoryId: c.modKey });
       }
@@ -291,12 +315,13 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     digests.set(operationId, head.planDigest);
     // Mod files (directly in mods/) are the review items; the rest is the helper's bookkeeping
     // (Packwiz .index, policies), listed in one note so every change is still shown.
-    const isMod = (p: string) => /(^|\/)mods\/[^/]+$/.test(p);
-    const isMeta = (p: string) => /(^|\/)(\.index|\.awake-integration)\//.test(p) || /(^|\/)(instance\.cfg|mmc-pack\.json)$/.test(p);
-    const mods = files.filter((f) => isMod(f.path));
-    const meta = files.filter((f) => !isMod(f.path) && isMeta(f.path));
+    // manager.v0.2 plans name each file's kind; older plans are classified by path.
+    const isMod = (f: { path: string; kind?: string }) => f.kind ? f.kind === 'mod' : /(^|\/)mods\/[^/]+$/.test(f.path);
+    const isMeta = (f: { path: string; kind?: string }) => f.kind ? f.kind === 'bookkeeping' : /(^|\/)(\.index|\.awake-integration)\//.test(f.path) || /(^|\/)(instance\.cfg|mmc-pack\.json)$/.test(f.path);
+    const mods = files.filter(isMod);
+    const meta = files.filter((f) => !isMod(f) && isMeta(f));
     // Imported configs and other overrides: every one is listed, and replacing or removing one is destructive.
-    const overrides: PlanItem[] = files.filter((f) => !isMod(f.path) && !isMeta(f.path)).map((f) => ({
+    const overrides: PlanItem[] = files.filter((f) => !isMod(f) && !isMeta(f)).map((f) => ({
       // Shown relative to the game folder, as pack authors write them.
       action: 'override', modKey: f.path, name: f.path.replace(/^\.minecraft\//, ''), reason: 'requested', destructive: f.action !== 'install',
       to: { id: f.afterSha256 || f.action, name: f.action },
@@ -357,6 +382,30 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
   async function discard(token: string) {
     await call('inbox.discard', { token });
     save(uploadsKey(), uploads().filter((t) => t !== token));
+  }
+  /** Unchanged, helper-tracked config/ overrides, all read at one revision and hash-checked. */
+  async function readConfigs(w: CoreWorkspace): Promise<{ path: string; data: Uint8Array }[]> {
+    if (!ext('outbox.list') || !ext('outbox.read') || !ext('outbox.configs.v1')) return [];
+    const { instanceRevision } = await call<{ instanceRevision: string }>('mods.list', { physicalId: w.physicalId, limit: 1 });
+    const { items } = await all<CoreOutboxList['files'][number], CoreOutboxList>('outbox.list', { physicalId: w.physicalId, instanceRevision }, (p) => p.files);
+    const out: { path: string; data: Uint8Array }[] = [];
+    for (const f of items) {
+      const data = new Uint8Array(Number(f.size));
+      for (let offset = 0; ;) {
+        const c = await call<CoreOutboxChunk>('outbox.read', { physicalId: w.physicalId, instanceRevision, path: f.path, offset: String(offset), length: CHUNK });
+        const bytes = Uint8Array.from(atob(c.bytesBase64), (ch) => ch.charCodeAt(0));
+        if (c.path !== f.path || Number(c.offset) !== offset || offset + bytes.length > data.length) throw new BackendError('protocol', `The helper returned an unexpected chunk of ${f.path}.`);
+        data.set(bytes, offset);
+        offset += bytes.length;
+        if (c.eof) { if (offset !== data.length) throw new BackendError('protocol', `${f.path} ended early.`); break; }
+        if (!bytes.length) throw new BackendError('protocol', `Reading ${f.path} did not advance.`);
+      }
+      const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      if (sha !== f.sha256) throw new BackendError('protocol', `${f.path} did not match its tracked hash.`);
+      // Paths are .minecraft-relative; pack overrides are relative to the game folder too.
+      out.push({ path: f.path.replace(/^\.minecraft\//, ''), data });
+    }
+    return out;
   }
   const toBase64 = (b: Uint8Array) => { let bin = ''; for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(bin); };
 
@@ -435,6 +484,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
         'mods.list', { physicalId: w.physicalId }, 'items', (l, t) => onProgress?.(l, t),
       );
       inventories.set(instanceId, new Map(items.map((m) => [m.inventoryId, m])));
+      await lookupTitles(items);
       const mods = items.map(toMod);
       if (has('updates.check')) {
         try {
@@ -582,8 +632,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     },
     discardImport: (token) => discard(token),
 
-    // The helper has no export (outbox.read is unavailable), so the Manager builds the pack from
-    // the helper's verified inventory plus each installed version's provider record.
+    // The helper has no archive export, so the Manager builds the pack from the helper's verified
+    // inventory plus each installed version's provider record, and (manager.v0.2) its tracked configs.
     async snapshotWorkspace(instanceId, onProgress): Promise<WorkspaceSnapshot> {
       if (!has('mods.list') || !has('providers.versions')) return notYet('export');
       const w = workspaceOf(instanceId);
@@ -611,6 +661,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
         });
       }
       onProgress?.(items.length, items.length);
+      snap.configs = await readConfigs(w);
       return snap;
     },
 

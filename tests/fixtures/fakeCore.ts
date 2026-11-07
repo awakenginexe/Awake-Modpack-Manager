@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * In-memory test double of the native helper's protocol 2.0 (core.schema.json at the pin). It is a
  * fixture, not a provider or transaction engine: fixed fake Modrinth data, operations that advance
@@ -34,6 +35,7 @@ type Change = { action: string; projectId?: string; versionId?: string; inventor
 export const EXT_CAPS = {
   'loaders.forge.v1': true, 'loaders.neoforge.v1': true, 'loaders.quilt.v1': true, 'policies.v1': true, 'providers.curseforge.v1': false,
   'imports.inspect': true, 'imports.prepare': true, 'inbox.discard': true, 'inbox.discard.v1': true,
+  'providers.project': true, 'outbox.configs.v1': true, 'outbox.list': true, 'outbox.read': true,
 } as Record<string, boolean>;
 /** What imports.inspect reports for the fixture archive (any uploaded bytes). */
 export const FIXTURE_IMPORT = {
@@ -42,6 +44,8 @@ export const FIXTURE_IMPORT = {
   projects: [{ provider: 'modrinth', projectId: 'sodium', versionId: 'sodV1', required: true }], downloadCount: 1, warnings: [],
 };
 interface Op { op: CoreOperation; steps: CoreOperation['state'][]; plan?: { files: { path: string; action: 'install' | 'replace' | 'remove' }[]; deps: CoreVersion['dependencies']; next: CoreInstalled[]; digest: string; base: string } ; createWs?: CoreWorkspace; apply?: boolean }
+
+const sha256Hex = (t: string) => createHash('sha256').update(t).digest('hex');
 
 export class FakeCore implements PipeTransport {
   sessionId = uuid('session-1');
@@ -63,6 +67,12 @@ export class FakeCore implements PipeTransport {
   extraFieldNext = false;
   /** Behave like the 0.1 helper: hello with `extensions` is an invalid request. */
   legacy = false;
+  /** Behave like the pre-final 0.2.0 helper (3b279ff): accepts the offer but does not echo it. */
+  noEcho = false;
+  /** Native Packwiz update=false locks, by inventory id. */
+  nativeLocks = new Set<string>();
+  /** Policy-tracked, unchanged config overrides the outbox may export (.minecraft-relative path -> text). */
+  configs = new Map<string, string>();
   extCaps: Record<string, boolean> = { ...EXT_CAPS };
   /** Policies per inventory id (pinned version / excluded). */
   policies = new Map<string, { pinnedVersion: string | null; excluded: boolean }>();
@@ -126,7 +136,8 @@ export class FakeCore implements PipeTransport {
       if (req.method !== 'hello' && !c.hello) throw this.err('HANDSHAKE_REQUIRED');
       // A 0.1 helper has no inbox; a 0.2 helper enables it only for manager.v0.2 clients.
       const inbox = req.method.startsWith('inbox.') || req.method.startsWith('imports.');
-      if (req.method !== 'hello' && (inbox ? !c.ext || !(this.capabilities[req.method] ?? this.extCaps[req.method]) : !this.capabilities[req.method])) throw this.err('UNSUPPORTED_CAPABILITY');
+      const caps: Record<string, boolean | undefined> = c.ext ? { ...this.capabilities, ...this.extCaps } : this.capabilities;
+      if (req.method !== 'hello' && ((inbox && !c.ext) || !caps[req.method])) throw this.err('UNSUPPORTED_CAPABILITY');
       const result = this.handle(req.method, req.params, c);
       const wrong = resultError(req.method, result);
       if (wrong) this.violations.push(`fixture reply ${wrong}`);
@@ -194,10 +205,10 @@ export class FakeCore implements PipeTransport {
       case 'hello': {
         if (p.extensions && this.legacy) throw this.err('INVALID_REQUEST', 'hello.params.extensions: not allowed');
         c.hello = true;
-        c.ext = !!p.extensions;
+        c.ext = Array.isArray(p.extensions) && p.extensions.length > 0;
         // 0.1 inbox flags stay false without the extension (core-protocol.md).
         const caps = c.ext ? { ...this.capabilities, ...this.extCaps } : { ...this.capabilities, 'inbox.begin': false, 'inbox.write': false, 'inbox.commit': false, 'inbox.status': false };
-        return { protocol: P, role: this.helloRole, coreVersion: c.ext ? '0.2.0-fixture' : '0.1.1-fixture', storageVersion: 1, profileId: this.profileId, sessionId: this.sessionId, capabilities: caps, limits: { frameBytes: 1048576, clients: 8, pageItems: 200 } };
+        return { protocol: P, role: this.helloRole, coreVersion: c.ext ? '0.2.0-fixture' : '0.1.1-fixture', storageVersion: 1, profileId: this.profileId, sessionId: this.sessionId, capabilities: caps, limits: { frameBytes: 1048576, clients: 8, pageItems: 200 }, ...(Array.isArray(p.extensions) && !this.noEcho ? { extensions: p.extensions } : {}) };
       }
       case 'core.info':
         return { role: 'modpack-core', coreVersion: '2.0.0-fixture', profileId: this.profileId, dataRoot: 'C:\\Temp\\core-fixture', workspaceRoot: 'C:\\Temp\\core-fixture\\workspaces', state: 'ready', supportedLoaders: c.ext ? ['vanilla', 'fabric', 'forge', 'neoforge', 'quilt'] : ['vanilla', 'fabric'] };
@@ -262,6 +273,30 @@ export class FakeCore implements PipeTransport {
         const { slice, total, nextOffset } = this.page(hits, p);
         return { projects: slice.map(([id, v]) => ({ projectId: id, slug: id, title: v.title, description: `${v.title} description`, iconUrl: null, gameVersions: ['1.21.1'], loaders: ['fabric'] })), total, nextOffset };
       }
+      case 'providers.project': {
+        const e = CATALOG[String(p.projectId)];
+        if (!e) throw this.err('NOT_FOUND');
+        return { project: { projectId: String(p.projectId), slug: String(p.projectId), title: e.title, description: '', iconUrl: null, gameVersions: [], loaders: [], provider: 'modrinth' } };
+      }
+      case 'outbox.list': {
+        const e = this.workspaces.get(String(p.physicalId));
+        if (!e) throw this.err('NOT_FOUND');
+        if (p.instanceRevision !== e.ws.instanceRevision) throw this.err('STALE_INSTANCE');
+        const files = [...this.configs].map(([path, text]) => ({ path, size: String(new TextEncoder().encode(text).length), sha256: sha256Hex(text) }));
+        const { slice, total, nextOffset } = this.page(files, p);
+        return { instanceRevision: e.ws.instanceRevision, files: slice, total, nextOffset };
+      }
+      case 'outbox.read': {
+        const e = this.workspaces.get(String(p.physicalId));
+        if (!e) throw this.err('NOT_FOUND');
+        if (p.instanceRevision !== e.ws.instanceRevision) throw this.err('STALE_INSTANCE');
+        const text = this.configs.get(String(p.path));
+        if (text === undefined) throw this.err('NOT_FOUND');
+        const all = new TextEncoder().encode(text);
+        const off = Number(p.offset);
+        const part = all.subarray(off, off + Number(p.length));
+        return { path: p.path, instanceRevision: e.ws.instanceRevision, offset: String(off), size: String(all.length), bytesBase64: btoa(Array.from(part, (b) => String.fromCharCode(b)).join('')), eof: off + part.length >= all.length, sha256: sha256Hex(text) };
+      }
       case 'providers.versions': {
         const e = CATALOG[String(p.projectId)];
         if (!e) throw this.err('NOT_FOUND');
@@ -271,7 +306,14 @@ export class FakeCore implements PipeTransport {
         const e = this.workspaces.get(String(p.physicalId));
         if (!e) throw this.err('NOT_FOUND');
         if (p.instanceRevision && p.instanceRevision !== e.ws.instanceRevision) throw this.err('STALE_INSTANCE');
-        const { slice, total, nextOffset } = this.page(e.mods, p);
+        // manager.v0.2 adds the separate policy and native lock; updateLocked stays their OR.
+        const items = e.mods.map((x) => {
+          const policy = this.policies.get(x.inventoryId) ?? { pinnedVersion: null, excluded: false };
+          const nativeLock = this.nativeLocks.has(x.inventoryId);
+          const updateLocked = x.updateLocked || nativeLock;
+          return c.ext ? { ...x, updateLocked, policy, nativeLock } : { ...x, updateLocked };
+        });
+        const { slice, total, nextOffset } = this.page(items, p);
         return { items: slice, instanceRevision: e.ws.instanceRevision, total, nextOffset };
       }
       case 'updates.check': {
@@ -296,7 +338,8 @@ export class FakeCore implements PipeTransport {
       case 'plans.get': {
         const o = this.ops.get(String(p.operationId));
         if (!o?.plan || o.op.state !== 'prepared') throw this.err('NOT_FOUND');
-        const { slice, total, nextOffset } = this.page(o.plan.files.map((f) => ({ ...f, beforeSha256: f.action === 'install' ? 'missing' : hex(f.path), afterSha256: f.action === 'remove' ? 'missing' : hex(f.path + 'new'), size: '1000' })), p);
+        const kind = (path: string) => /(^|\/)mods\//.test(path) ? 'mod' : /(\.awake-integration|\.index)\/|instance\.cfg$|mmc-pack\.json$/.test(path) ? 'bookkeeping' : 'override';
+        const { slice, total, nextOffset } = this.page(o.plan.files.map((f) => ({ ...f, ...(c.ext ? { kind: kind(f.path) } : {}), beforeSha256: f.action === 'install' ? 'missing' : hex(f.path), afterSha256: f.action === 'remove' ? 'missing' : hex(f.path + 'new'), size: '1000' })), p);
         return { operationId: o.op.operationId, planDigest: o.plan.digest, instanceRevision: o.plan.base, expectedInstanceRevision: hex(`exp-${o.op.operationId}`), files: slice, total, nextOffset, warnings: o.plan.files.some((f) => f.action === 'remove') ? ['Removed files are kept in the operation backup until the change is verified.'] : [], dependencies: o.plan.deps };
       }
       case 'transactions.apply': {

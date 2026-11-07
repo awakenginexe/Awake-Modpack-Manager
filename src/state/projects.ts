@@ -116,8 +116,14 @@ export function createProjectStore(primary: ProjectPersistence, legacy: ProjectP
   const mapMods = (id: string, keys: ReadonlySet<string>, f: (m: ProjectMod) => ProjectMod) =>
     update(id, (p) => ({ ...p, mods: p.mods.map((m) => (keys.has(m.key) ? f(m) : m)) }));
 
+  /** Override bytes taken from a Manager workspace for a project's next export (not persisted). */
+  const attached = new Map<string, { source: string; files: OverrideFile[] }>();
+
   return {
     projects, selected, selectedId, saveError, readOnly, legacyPending, loaded, ready,
+    // shortcut: kept in memory only; after a restart the user re-runs the workspace export or picks the pack archive.
+    attachOverrides: (id: string, source: string, files: OverrideFile[]) => attached.set(id, { source, files }),
+    attachedOverrides: (id: string) => attached.get(id),
     /** Wait for pending writes (tests, before closing). */
     flush: () => writes,
     select,

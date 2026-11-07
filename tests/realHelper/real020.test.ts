@@ -51,7 +51,8 @@ function files(dir: string): string[] {
 }
 
 describe.skipIf(!exe || !profile)('REAL Native Core 0.2 (opt-in)', () => {
-  const t = nodeHelperTransport(exe!, profile!);
+  // The body is collected even when skipped: only start a transport when opted in.
+  const t = exe && profile ? nodeHelperTransport(exe, profile) : null!;
   const client = () => createHelperClient({ transport: t, clientVersion: '0.2.0-real-test', pollMs: 300, startTimeoutMs: 90_000, requestTimeoutMs: 120_000 });
   const session = createSession(client(), { pollMs: 300 });
   let root = '';

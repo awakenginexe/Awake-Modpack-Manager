@@ -4,11 +4,12 @@
 
 | What | Value |
 |---|---|
-| Contract (schema, protocol doc) | Awake Launcher `3b279ff06668b17590892514f12ccbfdbc0a68c3`, branch `feat/native-core-manager-020` (docs handoff `4c9894a27941d9e8f21b7351801dfaf70dd2e561` changes only `handoff.md`) |
-| `src/backend/core/core.schema.json` | byte-identical to `docs/modpack-manager/core.schema.json` at `3b279ff06` (line endings aside), SHA-256 `a5ae9849…0553222` |
-| Helper executable | `awake-core-host.exe` 0.2.0, SHA-256 `23a9cea1cad321b1b9216375c962aca072a895e95aaf7b9f1515601cbdc63c43` |
-| Helper package manifest (`SHA256SUMS`) | SHA-256 `6894b4c90f5dcb54ccffe26932e682ae4fa0b6f117cde148e62e6a98eb60b525` |
-| Codex package ZIP | SHA-256 `48b0410646c4f0a25e27570551763499b46e57ecaec64b102efae1a2a918ca97` (6,048,986 bytes) |
+| Contract (schema, protocol doc) | Awake Launcher `b00caf7097897ab60ad0aa247e4964ece667976c`, branch `feat/native-core-manager-020`; delivered by `9622abce7b5232f14e0a64a6a1997010b728de26` (artifacts + `handoff.md` only; schema identical) |
+| `src/backend/core/core.schema.json` | byte-identical to `docs/modpack-manager/core.schema.json` at `b00caf709`, SHA-256 `931f1115c3447737551dbec272d883cbdb9d04b3aaa98cbc9e61c8c82b5edbcb` |
+| Helper executable | `awake-core-host.exe` 0.2.0, SHA-256 `b33f41c23c5ad7e3708dce7cb0b466311ce8ea526887cbfa3e110e44f58832e6` |
+| Helper package manifest (`SHA256SUMS`) | SHA-256 `1e7570229e7742995f2ee56afcdd35ce3cc17af234016657b15a2139160aac97` |
+| Codex package ZIP | `awake-core-manager-v0.2.0-windows-x64.zip`, SHA-256 `2286079e486b4f067b946121ce7b997a15e985e8ec9598082b13b4995af0b37c` (6,742,421 bytes) |
+| Corresponding source | `awake-core-source-b00caf709789.zip`, SHA-256 `3352fe74952dba6dc37c6287df7c5f397312d9f39bae84c5a245aaa7561c64ad` (two committed parts joined and verified) |
 
 `scripts/helper-pin.json` records these. `stage-helper.mjs --from` and `--check` refuse any package
 whose executable, manifest, file set or `SOURCE.json` differs; the Rust host embeds the staged
@@ -16,9 +17,11 @@ whose executable, manifest, file set or `SOURCE.json` differs; the Rust host emb
 
 ## Handshake and compatibility
 
-* `hello` sends `extensions: ["manager.v0.2"]`. If the helper answers `INVALID_REQUEST` or
-  `UNSUPPORTED_PROTOCOL` (an 0.1.x helper, whose schema forbids the field), the client opens a new
-  connection and sends the 0.1 hello. `rpc.extensions()` then reports none.
+* `hello` sends `extensions: ["manager.v0.2"]`. The extension counts as accepted only when the result
+  echoes it in `extensions`; a helper that does not echo (the pre-final `3b279ff06` build) is treated as
+  legacy. If the helper answers `INVALID_REQUEST` or `UNSUPPORTED_PROTOCOL` (an 0.1.x helper, whose schema
+  forbids the field), the client opens a new connection and sends the 0.1 hello. `rpc.extensions()` then
+  reports none.
 * Every 0.2 feature needs **both** the accepted extension and its capability flag:
 
 | Manager capability / behaviour | Helper requirement |
@@ -49,11 +52,24 @@ whose executable, manifest, file set or `SOURCE.json` differs; the Rust host emb
 
 ## Export
 
-The helper has no export (`outbox.read` unavailable). The Manager builds exports itself:
-`snapshotWorkspace` reads the verified inventory and each installed version's provider record
-(`providers.versions`, paged) into a Manager project; modified, manual or unknown files are listed
-and left out. Override files cannot be read from a workspace; the export dialog can take them from a
-pack archive the user picks (accounts, credentials, logs, saves and caches are always refused).
+The helper has no archive export. The Manager builds exports itself: `snapshotWorkspace` reads the
+verified inventory and each installed version's provider record (`providers.versions`, paged) into a
+Manager project; modified, manual or unknown files are listed and left out. With `outbox.list`,
+`outbox.read` and `outbox.configs.v1` it also reads every unchanged, policy-tracked `config/` override
+at one instance revision (≤ 262,144-byte chunks, SHA-256 checked against the listing) and attaches them
+to the project's next export (in memory). Other files (scripts, changed or untracked configs) can still
+come from a pack archive the user picks; accounts, credentials, logs, saves and caches are always refused.
+
+## Final contract (b00caf709): what the Manager consumes
+
+* `x-methods` holds every method; the `$defs` fallback is gone.
+* `mods.list` `policy {pinnedVersion, excluded}` and `nativeLock` are read separately; `updateLocked` is
+  never shown as a pin. A policy change keeps the other setting (and an existing pin's version). A native
+  lock is shown as "Locked by the pack" and is not offered for clearing.
+* `plans.get` `files[].kind` classifies review items; path rules remain for replies without `kind`.
+* `providers.project` names provider-identified files (imports) once, cached; time-boxed per load.
+
+## Contract issues found earlier (resolved in b00caf709)
 
 ## Contract issues found (for Codex)
 
