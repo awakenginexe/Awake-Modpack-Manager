@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const stage = join(root, 'src-tauri', 'helper-stage');
@@ -69,7 +69,8 @@ if (mode === '--check') {
   noLinks(src);
   rmSync(stage, { recursive: true, force: true });
   cpSync(src, stage, { recursive: true });
-  record(commit ? `${src} @ ${commit}` : src);
+  // No local paths: this file ships with the app.
+  record(commit ? `awakenginexe/Awake-Launcher@${commit} (package ${basename(src)})` : basename(src));
 } else {
   console.error('usage: stage-helper.mjs --from <helper package folder> [source commit] | --check | --stub');
   process.exit(2);
