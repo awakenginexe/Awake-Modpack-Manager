@@ -175,3 +175,16 @@ Supplied by the Awake Launcher maintainer. Full licence: src/assets/brand/LICENS
 == Provider logos (src/assets/providers/) ==
 Modrinth, CurseForge, FTB, ATLauncher and Technic marks are trademarks of their respective owners.
 Files taken from Awake Launcher (GPL-3.0): https://github.com/awakenginexe/Awake-Launcher
+
+== Awake native core helper (core-host/windows-x64/) ==
+awake-core-host.exe is built from Awake Launcher native-core (GPL-3.0-only), source commit
+299c140bd91656cf988efc4cff27887b54ae1efc: https://github.com/awakenginexe/Awake-Launcher
+Its licence is core-host/windows-x64/COPYING.md. Staged file hashes: core-host/windows-x64/HELPER-SOURCE.txt.
+
+== Qt 6 (Qt6Core.dll, Qt6Network.dll, tls/, networkinformation/) ==
+Qt is (C) The Qt Company Ltd and other contributors, used under the GNU LGPL v3.
+Licence and source: https://www.qt.io/licensing/ and https://download.qt.io/official_releases/qt/
+
+== Microsoft Visual C++ runtime (vcruntime140*.dll, msvcp140*.dll, concrt140.dll, vccorlib140.dll) ==
+Application-local redistributable files from Microsoft Visual Studio, distributed under the
+Visual Studio redistribution terms. (C) Microsoft Corporation.

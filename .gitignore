@@ -7,3 +7,4 @@ coverage/
 
 # Staged native helper (scripts/stage-helper.mjs)
 src-tauri/helper-stage/
+tools/stub-helper/target/

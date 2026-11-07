@@ -8,16 +8,21 @@
 ; User data is never removed here: projects and helper data live in
 ; %LOCALAPPDATA%\AwakeModpackManager, outside the folders the uninstaller deletes.
 
+; Only this installation's helper matters: a running executable can't be opened for writing, so a
+; successful open (no bytes written) means it is not running. Helpers of other installs are ignored.
 !macro AWAKE_WAIT_FOR_HELPER
   ${Do}
-    nsExec::ExecToStack '"$SYSDIR\cmd.exe" /c ""$SYSDIR\tasklist.exe" /FI "IMAGENAME eq awake-core-host.exe" /NH | "$SYSDIR\find.exe" /I "awake-core-host.exe""'
-    Pop $0
-    Pop $1
-    ${If} $0 != 0
+    ${IfNot} ${FileExists} "$INSTDIR\core-host\windows-x64\awake-core-host.exe"
+      ${Break}
+    ${EndIf}
+    ClearErrors
+    FileOpen $0 "$INSTDIR\core-host\windows-x64\awake-core-host.exe" a
+    ${IfNot} ${Errors}
+      FileClose $0
       ${Break}
     ${EndIf}
     ; Retry checks again; Cancel (and the silent default) stops without touching any file.
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "The Awake Modpack Manager helper is still finishing work in the background.$\r$\n$\r$\nClose Awake Modpack Manager, wait a minute for the helper to exit by itself, then choose Retry." /SD IDCANCEL IDRETRY +2
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "The Awake Modpack Manager helper is still finishing work in the background.$\r$\n$\r$\nClose Awake Modpack Manager, wait a minute for the helper to exit by itself, then choose Retry.$\r$\n$\r$\nIf it keeps running, open Awake Modpack Manager once (it cancels changes you reviewed but never applied), close it, and wait a minute." /SD IDCANCEL IDRETRY +2
     Abort
   ${Loop}
 !macroend

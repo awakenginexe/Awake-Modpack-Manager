@@ -12,7 +12,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "desktop:dev": "tauri dev",
-    "desktop:build": "node scripts/stage-helper.mjs --ensure && tauri build",
+    "desktop:build": "node scripts/stage-helper.mjs --check && tauri build",
     "helper:stub": "node scripts/stage-helper.mjs --stub",
     "test:host": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
