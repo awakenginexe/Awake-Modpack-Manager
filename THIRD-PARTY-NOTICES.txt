@@ -169,8 +169,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-== Awake logo (src/assets/brand/awake.png) — CC BY-SA 4.0 ==
-Supplied by the Awake Launcher maintainer. Full licence: src/assets/brand/LICENSE-CC-BY-SA-4.0.txt
+== Awake Modpack Manager logo (src/assets/brand/modpack-manager.png, src-tauri/icons/) ==
+Supplied by the Awake maintainer for this application.
 
 == Provider logos (src/assets/providers/) ==
 Modrinth, CurseForge, FTB, ATLauncher and Technic marks are trademarks of their respective owners.

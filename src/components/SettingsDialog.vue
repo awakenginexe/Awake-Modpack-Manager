@@ -8,7 +8,7 @@ import { addedFolders, compactRows, dataSource, preferredProfile, reducedMotion,
 import type { LauncherProfile } from '../backend/launcher/transport';
 import { useSession } from '../state/session';
 import { connectErrorHint, connectErrorTitle, packProviderNames } from '../ui/labels';
-import awakeLogo from '../assets/brand/awake.png';
+import awakeLogo from '../assets/brand/modpack-manager.png';
 import pkg from '../../package.json';
 
 const emit = defineEmits<{ close: [] }>();

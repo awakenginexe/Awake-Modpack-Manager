@@ -8,9 +8,8 @@
   That is a product/licensing decision for the project owner.
 * **K2D font** (`src/assets/fonts/`): SIL Open Font License 1.1, copied with `OFL.txt`, the
   same files the Launcher bundles. The OFL allows bundling; the font must not be sold by itself.
-* **Awake logo** (`src/assets/brand/awake.png`): the Launcher's
-  `program_info/io.github.awakenginexe.AwakeLauncher_256.png`, supplied by the Awake maintainer
-  and licensed CC BY-SA 4.0 (licence text alongside it). Used unmodified, with attribution.
+* **App logo** (`src/assets/brand/modpack-manager.png`, `src-tauri/icons/`): the Awake Modpack Manager
+  logo supplied by the Awake maintainer; the icon sizes are generated from it with `tauri icon`.
 * **Provider logos** (`src/assets/providers/`): Modrinth, CurseForge, FTB, ATLauncher and Technic
   SVGs copied from the Launcher's `launcher/awake-web/src/assets/icons/`. They are trademarks of
   their owners, used only to show where a mod or pack comes from, which does not imply

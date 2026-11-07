@@ -8,7 +8,7 @@ import SettingsDialog from './components/SettingsDialog.vue';
 import { reducedMotion, systemReducedMotion } from './state/prefs';
 import { useSession } from './state/session';
 import { instanceSubtitle } from './ui/labels';
-import awakeLogo from './assets/brand/awake.png';
+import awakeLogo from './assets/brand/modpack-manager.png';
 import LibraryView from './views/LibraryView.vue';
 import ModsView from './views/ModsView.vue';
 import PacksView from './views/PacksView.vue';
