@@ -21,8 +21,9 @@ export interface RpcOptions {
   /** Contract checks: return a violation message, or null. Results that fail are a protocol violation. */
   validate?: { params(method: string, p: unknown): string | null; result(method: string, r: unknown): string | null };
   /**
-   * Opt-in hello extensions. A peer that rejects them (an older build) is asked again without
-   * them; `extensions()` then reports none, so callers never send extension-only requests.
+   * Opt-in hello extensions in preference order; each is offered alone. A peer that rejects one (an
+   * older build) is asked again with the next, finally with none; `extensions()` reports what was
+   * echoed, so callers never send extension-only requests the peer did not accept.
    */
   extensions?: readonly string[];
   /** Extra hello checks (e.g. role); throw BackendError to refuse. */
@@ -101,17 +102,21 @@ export function createRpc(o: RpcOptions) {
     conn = c;
     const base = { versions: [...versions], client: { name: 'Awake Modpack Manager', version: o.clientVersion } };
     let result: HelloResult & Record<string, unknown>;
-    let ext = o.extensions?.length ? [...o.extensions] : [];
-    try {
-      result = await exchange('hello', ext.length ? { ...base, extensions: ext } : base, versions[0]) as HelloResult & Record<string, unknown>;
-    } catch (e) {
-      // An older peer refuses the unknown hello field: start over on a fresh connection without it.
-      if (!ext.length || !(e instanceof ProtocolError) || !['INVALID_REQUEST', 'UNSUPPORTED_PROTOCOL'].includes(e.code)) throw e;
-      if (conn !== null) { await o.transport().close(conn).catch(() => undefined); conn = null; }
-      ({ conn: c, expect } = await o.locate());
-      conn = c;
-      ext = [];
-      result = await exchange('hello', base, versions[0]) as HelloResult & Record<string, unknown>;
+    // Offer one extension at a time, most capable first. An older peer refuses an unknown offer (or the
+    // field itself): start over on a fresh connection with the next offer, finally with none.
+    const offers = [...(o.extensions ?? []).map((x) => [x]), []];
+    let ext: string[] = [];
+    for (let i = 0; ; i++) {
+      ext = offers[i]!;
+      try {
+        result = await exchange('hello', ext.length ? { ...base, extensions: ext } : base, versions[0]) as HelloResult & Record<string, unknown>;
+        break;
+      } catch (e) {
+        if (!ext.length || !(e instanceof ProtocolError) || !['INVALID_REQUEST', 'UNSUPPORTED_PROTOCOL'].includes(e.code)) throw e;
+        if (conn !== null) { await o.transport().close(conn).catch(() => undefined); conn = null; }
+        ({ conn: c, expect } = await o.locate());
+        conn = c;
+      }
     }
     try {
       version = o.versions ? pick(result.protocol) : negotiated(result.protocol);

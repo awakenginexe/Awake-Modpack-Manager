@@ -12,7 +12,7 @@ import { createSession } from '../../src/state/session';
 import { nodeHelperTransport } from './nodeTransport';
 
 /**
- * REAL Native Core 0.2.0 (manager.v0.2) through the Manager's own client, against public Modrinth
+ * REAL Native Core 0.2.1 (manager.v0.2.1, which implies manager.v0.2) through the Manager's own client, against public Modrinth
  * and loader metadata. Opt-in, disposable profiles only:
  *   AWAKE_REAL_HELPER=<0.2 exe> AWAKE_REAL_PROFILE=<new dir> [AWAKE_LEGACY_HELPER=<0.1.1 exe>] npx vitest run tests/realHelper/real020
  * What is live here: helper process, loader metadata, Modrinth API and CDN downloads, on-disk files.
@@ -84,7 +84,7 @@ describe.skipIf(!exe || !profile)('REAL Native Core 0.2 (opt-in)', () => {
     const hs = session.state.handshake!;
     expect(hs, session.state.connectError?.message).toBeTruthy();
     log('helper', hs.launcherVersion, hs.capabilities.join(','), hs.providers);
-    expect(hs.launcherVersion).toBe('0.2.0');
+    expect(hs.launcherVersion).toBe('0.2.1');
     expect(hs.capabilities).toEqual(expect.arrayContaining(['instances.create', 'plan.apply', 'mods.policies', 'packs.import']));
     expect(hs.providers.find((p) => p.id === 'curseforge')).toMatchObject({ available: false, unavailableReason: 'curseforge-disabled' });
     root = (await session.backend.listInstallations())[0]!.path;

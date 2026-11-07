@@ -1,13 +1,13 @@
 import {
   BackendError, TERMINAL_STATES,
-  type Accepted, type Capability, type DraftChange, type Handshake, type ImportInspection, type InstalledMod, type InstanceSummary, type Installation,
+  type Accepted, type Capability, type DependencyResolution, type DraftChange, type Handshake, type ImportInspection, type InstalledMod, type InstanceSummary, type Installation,
   type LoaderKind, type ModInventory, type OperationStatus, type PlanIssue, type PlanItem, type ProjectVersion, type ProviderId, type ResolvedPlan, type VersionRef, type WorkspaceSnapshot,
 } from '../contract';
 import { load, save } from '../../domain/storage';
 import { createRpc } from '../coordinator/rpc';
-import { CORE_VERSION, descriptorError, MANAGER_EXTENSION, paramsError, resultError, type CoreMethod } from '../core/schema';
+import { CORE_VERSION, descriptorError, EVIDENCE_EXTENSION, MANAGER_EXTENSION, paramsError, resultError, type CoreMethod } from '../core/schema';
 import type {
-  CoreAccepted, CoreCapabilities, CoreChange, CoreHello, CoreImportInspection, CoreInfo, CoreInstalled, CoreLoaderId, CoreOperation, CorePlanPage,
+  CoreAccepted, CoreCapabilities, CoreChange, CoreDependencyResolution, CoreError, CoreHello, CoreImportInspection, CoreInfo, CoreInstalled, CoreLoaderId, CoreOperation, CorePlanPage,
   CoreOutboxChunk, CoreOutboxList, CoreProject, CoreTransfer, CoreVersion, CoreWorkspace,
 } from '../core/types';
 import type { ConnectionState, ManagerBackend } from '../ManagerBackend';
@@ -82,7 +82,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     versions: [CORE_VERSION],
     validate: { params: (m, p) => paramsError(m as CoreMethod, p), result: (m, r) => resultError(m as CoreMethod, r) },
     peer: 'The Manager helper',
-    extensions: [MANAGER_EXTENSION],
+    // 0.2.1 first (structured dependency review); an older helper refuses it and gets manager.v0.2.
+    extensions: [EVIDENCE_EXTENSION, MANAGER_EXTENSION],
     storePrefix: 'core-ops',
     onLost: () => setState('disconnected'),
     async locate() {
@@ -98,8 +99,16 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
   const stub = () => !!status?.stub;
   /** Advertised and allowed: a stub gets reads only. */
   const has = (m: keyof CoreCapabilities, write = false) => hello()?.capabilities[m] === true && !(write && stub());
-  /** Extension features need both the negotiated extension and the capability flag. */
-  const ext = (m: keyof CoreCapabilities, write = false) => rpc.extensions().includes(MANAGER_EXTENSION) && has(m, write);
+  /** Extension features need both the negotiated extension and the capability flag (manager.v0.2.1 implies v0.2). */
+  const extended = () => rpc.extensions().includes(MANAGER_EXTENSION) || rpc.extensions().includes(EVIDENCE_EXTENSION);
+  const ext = (m: keyof CoreCapabilities, write = false) => extended() && has(m, write);
+  /** Reviewed dependency resolutions and structured conflicts (manager.v0.2.1). */
+  const evidence = () => rpc.extensions().includes(EVIDENCE_EXTENSION) && has('dependencies.resolutions.v1', true);
+  const wireResolutions = (list?: DependencyResolution[]): { dependencyResolutions?: CoreDependencyResolution[] } => {
+    if (!list?.length) return {};
+    if (!evidence()) throw new BackendError('unsupported', 'This Manager helper cannot accept reviewed dependency decisions. Update Awake Modpack Manager.');
+    return { dependencyResolutions: list.map((r) => ({ projectId: r.projectId, versionId: r.versionId, ...(r.provider === 'curseforge' ? { provider: r.provider } : {}) })) };
+  };
   const notYet = (what = 'this'): Promise<never> => Promise.reject(new BackendError('unsupported', `The Manager helper in this build does not support ${what} yet.`));
 
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -201,6 +210,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       locallyModified: it.metadataState === 'modified', kind: 'jar', updateLocked: it.updateLocked,
       // manager.v0.2 reports the pin, the exclusion and a native lock separately; older replies only the aggregate.
       ...(it.policy ? { pinned: it.policy.pinnedVersion !== null, updateExcluded: it.policy.excluded, nativeLock: !!it.nativeLock } : {}),
+      ...(it.loaderBridge ? { loaderBridge: it.loaderBridge } : {}),
     };
   }
 
@@ -259,12 +269,16 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     }
   }
 
-  const coreError = (e: { code: string; message: string } | undefined, fallback: string): BackendError => {
+  const coreError = (e: CoreError | undefined, fallback: string): BackendError => {
     const map: Record<string, BackendError['code']> = {
       STALE_INSTANCE: 'stale-revision', STALE_PLAN: 'plan-expired', BUSY: 'instance-busy', RECOVERY_REQUIRED: 'recovery-required',
       INVALID_ARCHIVE: 'invalid-archive', PROVIDER_RESTRICTED: 'provider-restricted', PROVIDER_UNAVAILABLE: 'provider-restricted', UNSUPPORTED_CAPABILITY: 'unsupported',
+      DEPENDENCY_CONFLICT: 'dependency-conflict',
     };
-    return new BackendError(e ? map[e.code] ?? 'rejected' : 'rejected', e?.message ?? fallback, e?.code);
+    // Structured conflicts come from the (schema-validated) helper reply, never from parsing its message.
+    const conflicts = e?.details?.conflicts;
+    if (conflicts) rememberTitles([...conflicts, ...conflicts.flatMap((c) => c.requests)].map((x) => ({ provider: x.provider, projectId: x.projectId, name: x.title, iconUrl: titles[`${x.provider}:${x.projectId}`]?.iconUrl })));
+    return new BackendError(e ? map[e.code] ?? 'rejected' : 'rejected', e?.message ?? fallback, e?.code, conflicts, e?.details?.truncated ?? false);
   };
 
   /** Draft changes in the helper's terms. Installs without a chosen version get the newest compatible release. */
@@ -341,9 +355,17 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
         items.push({ action: f.action === 'replace' ? 'update' : f.action, modKey: f.path, name, reason: 'requested', destructive: f.action !== 'install' });
       }
     }
+    const reviewed = head.dependencyResolutions ?? [];
     const issues: PlanIssue[] = [
+      // Reviewed dependency decisions are part of the digest: show each one prominently with its evidence.
+      ...reviewed.map((r) => ({
+        severity: 'warning' as const, code: 'dependency-reviewed' as const, modKeys: [],
+        message: r.versionId === null
+          ? `Installed without ${r.title}: ${r.requestedBy.map((b) => `${b.title} (${evidenceText(b.evidence)})`).join(', ')}`
+          : `${r.title} kept at the selected version for ${r.requestedBy.map((b) => `${b.title} (${evidenceText(b.evidence)})`).join(', ')}`,
+      })),
       // Optional dependencies are listed as suggestions below; the helper also words them as warnings.
-      ...head.warnings.filter((w) => !/^optional dependency/i.test(w)).map((w) => ({ severity: 'warning' as const, code: 'coordinator-warning' as const, message: w.trim(), modKeys: [] })),
+      ...head.warnings.filter((w) => !/^optional dependency/i.test(w) && !(reviewed.length && /^Reviewed: /.test(w))).map((w) => ({ severity: 'warning' as const, code: 'coordinator-warning' as const, message: w.trim(), modKeys: [] })),
       ...(meta.length ? [{ severity: 'info' as const, code: 'coordinator-warning' as const, message: `Also updates ${meta.length} metadata file(s): ${meta.map((f) => f.path).join(', ')}`, modKeys: [] }] : []),
       ...head.dependencies.filter((d) => d.type === 'incompatible').map((d) => ({ severity: 'warning' as const, code: 'incompatible' as const, message: `Declared incompatible: ${d.projectId ?? 'unknown project'}`, modKeys: [] })),
       ...head.dependencies.filter((d) => d.type === 'required').map((d) => ({ severity: 'info' as const, code: 'dependency-included' as const, message: `Required dependency included and verified: ${d.projectId ?? 'unknown project'}${d.versionId ? ` (${d.versionId})` : ''}`, modKeys: [] })),
@@ -358,6 +380,9 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       blocked: false,
     };
   }
+
+  const evidenceText = (e: 'satisfied' | 'not_declared' | 'unknown') =>
+    e === 'satisfied' ? 'its loader metadata accepts this version' : e === 'not_declared' ? 'its loader metadata does not declare it' : 'no loader metadata evidence';
 
   /** Resolve, download and verify happen in the helper; the plan exists once the operation is prepared. */
   async function awaitPrepared(operationId: string): Promise<CoreOperation> {
@@ -534,11 +559,13 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       return versionsOf(instanceId, projectId, provider);
     },
 
-    async validateDraft(d) {
+    canResolveDependencies: () => evidence(),
+    async validateDraft(d, resolutions) {
       if (!has('plans.prepare', true) || !has('plans.get')) return notYet('reviewing changes');
       const w = workspaceOf(d.instanceId);
+      const decisions = wireResolutions(resolutions);
       await replacePrepared(d.instanceId);
-      const acc = await submit('plans.prepare', { idempotencyKey: crypto.randomUUID(), physicalId: w.physicalId, instanceRevision: d.baseRevision, changes: await toChanges(d.instanceId, d.changes) });
+      const acc = await submit('plans.prepare', { idempotencyKey: crypto.randomUUID(), physicalId: w.physicalId, instanceRevision: d.baseRevision, changes: await toChanges(d.instanceId, d.changes), ...decisions });
       const op = await awaitPrepared(acc.operationId);
       prepared.set(d.instanceId, op.operationId);
       // Policy edits change only the helper's policy file; show each as its own reviewed item.
@@ -619,13 +646,14 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
         projects: r.projects, downloadCount: r.downloadCount, warnings: r.warnings,
       };
     },
-    async prepareImport(instanceId, token, format, includeOptional) {
+    async prepareImport(instanceId, token, format, includeOptional, resolutions) {
       if (!canImport()) return notYet('modpack import');
       const w = workspaceOf(instanceId);
+      const decisions = wireResolutions(resolutions);
       // The plan is bound to the workspace's current content, not to the possibly older list entry.
       const { instanceRevision } = await call<{ instanceRevision: string }>('mods.list', { physicalId: w.physicalId, limit: 1 });
       await replacePrepared(instanceId);
-      const acc = await submit('imports.prepare', { idempotencyKey: crypto.randomUUID(), physicalId: w.physicalId, instanceRevision, token, format, includeOptional });
+      const acc = await submit('imports.prepare', { idempotencyKey: crypto.randomUUID(), physicalId: w.physicalId, instanceRevision, token, format, includeOptional, ...decisions });
       const op = await awaitPrepared(acc.operationId);
       prepared.set(instanceId, op.operationId);
       return readPlan(instanceId, op.operationId);

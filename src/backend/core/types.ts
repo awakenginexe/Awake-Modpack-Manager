@@ -13,7 +13,9 @@ export type CoreCapabilities = Record<
 export type CoreExtensionCapability =
   | 'loaders.forge.v1' | 'loaders.neoforge.v1' | 'loaders.quilt.v1' | 'policies.v1' | 'providers.curseforge.v1'
   | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'inbox.discard.v1'
-  | 'providers.project' | 'outbox.configs.v1' | 'outbox.list';
+  | 'providers.project' | 'outbox.configs.v1' | 'outbox.list'
+  /** manager.v0.2.1 only. */
+  | 'dependencies.resolutions.v1' | 'loaders.connector.v1';
 
 export type CoreLoaderId = 'vanilla' | 'fabric' | 'forge' | 'neoforge' | 'quilt';
 export type CoreProvider = 'modrinth' | 'curseforge';
@@ -88,6 +90,8 @@ export interface CoreInstalled {
   policy?: { pinnedVersion: string | null; excluded: boolean };
   /** manager.v0.2 only: Packwiz update=false; a policy change cannot clear it. */
   nativeLock?: boolean;
+  /** manager.v0.2.1 only: a Fabric mod loaded through Sinytra Connector. */
+  loaderBridge?: 'sinytra-connector';
 }
 
 export type CoreChange =
@@ -110,7 +114,37 @@ export interface CoreImportInspection {
 
 export interface CoreAccepted { operationId: string; state: OperationState; terminal: boolean; replayed: boolean }
 
-export interface CoreError { code: string; message: string; retryable: boolean }
+export interface CoreError { code: string; message: string; retryable: boolean; details?: CoreConflictDetails }
+
+/** manager.v0.2.1 DEPENDENCY_CONFLICT details ($defs/conflictDetails). */
+export interface CoreConflictDetails { conflicts: CoreDependencyConflict[]; truncated: boolean }
+export interface CoreDependencyEvidence {
+  result: 'satisfied' | 'violated' | 'not_declared' | 'unknown';
+  modId: string | null;
+  declaredRange: string | null;
+  mandatory: boolean | null;
+  selectedModVersion: string | null;
+}
+export interface CoreDependencyConflict {
+  kind: 'version_pin' | 'missing_dependency' | 'incompatible' | 'loader_bridge';
+  provider: CoreProvider;
+  projectId: string;
+  title: string;
+  selected: { versionId: string; versionNumber: string; fileName: string } | null;
+  requests: {
+    provider: CoreProvider; projectId: string; title: string; versionId: string; versionNumber: string; fileName: string;
+    requestedVersionId: string | null; requestedVersionNumber: string | null; evidence: CoreDependencyEvidence;
+  }[];
+  candidates: { versionId: string; versionNumber: string }[];
+  resolutions: ('use_version' | 'proceed_without')[];
+  message: string;
+}
+/** A reviewed answer sent with plans.prepare / imports.prepare (manager.v0.2.1). */
+export interface CoreDependencyResolution { projectId: string; provider?: CoreProvider; versionId: string | null }
+export interface CoreReviewedResolution {
+  projectId: string; provider?: CoreProvider; title: string; versionId: string | null;
+  requestedBy: { projectId: string; title: string; requestedVersionId: string | null; evidence: 'satisfied' | 'not_declared' | 'unknown' }[];
+}
 
 export interface CoreOperation {
   operationId: string;
@@ -137,6 +171,8 @@ export interface CorePlanPage {
   nextOffset: number | null;
   warnings: string[];
   dependencies: CoreDependency[];
+  /** manager.v0.2.1 only: resolutions accepted for this reviewed plan (bound into planDigest). */
+  dependencyResolutions?: CoreReviewedResolution[];
 }
 
 export interface CoreDescriptor {

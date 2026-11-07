@@ -5,7 +5,7 @@
 //! never kills it: not on window close, pipe loss or a timeout, so accepted work always finishes
 //! or is recovered by the helper itself on its next start.
 //!
-//! Contract: Awake Launcher docs/modpack-manager/core-protocol.md 2.0 (+ manager.v0.2) and handoff.md at b00caf709 / 9622abce7. The helper is
+//! Contract: Awake Launcher docs/modpack-manager/core-protocol.md 2.0 (+ manager.v0.2.1) and handoff.md at b06c9a804 / 75b362c69. The helper is
 //! started with `--profile <private absolute directory>`, publishes
 //! `<profile>\integration\core-v2\endpoint.json` and serves `\\.\pipe\awake-core-v2-<session UUID>`.
 

@@ -65,9 +65,9 @@ deletes that folder.
 ## How it works
 
 The Manager (Tauri 2, Rust and Vue 3) owns the interface. All file changes are made by the bundled
-**Awake Native Core** helper (`core-host/windows-x64/awake-core-host.exe`, version 0.2.0 on this branch), a
+**Awake Native Core** helper (`core-host/windows-x64/awake-core-host.exe`, version 0.2.1 on this branch), a
 separate program built from [Awake Launcher](https://github.com/awakenginexe/Awake-Launcher)
-`native-core` at commit `b00caf7097897ab60ad0aa247e4964ece667976c` (v0.1.0 shipped 0.1.1 from `299c140bd`). The Manager starts it on
+`native-core` at commit `b06c9a804503545207bacfa3bfdf8bfe23604e07` (v0.1.0 shipped 0.1.1 from `299c140bd`). The Manager starts it on
 demand with a private profile, checks it is the bundled executable (pipe server PID, Windows user
 and image path), and talks to it over a local named pipe using the pinned protocol 2.0 schema. The
 helper exits by itself about a minute after it becomes idle; the installer waits for it instead of

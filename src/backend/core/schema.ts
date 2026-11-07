@@ -4,14 +4,20 @@ import schema from './core.schema.json';
  * Awake native helper protocol 2.0 (role `modpack-core`).
  *
  * Source of truth: Awake Launcher docs/modpack-manager/{core-protocol.md, core.schema.json} at
- * commit b00caf7097897ab60ad0aa247e4964ece667976c (branch feat/native-core-manager-020, helper
- * implementation 0.2.0, opt-in hello extension `manager.v0.2`; delivered by 9622abce7), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
+ * commit 31d0611a9de0409560f0b62282de078e5970a396 (branch feat/native-core-manager-020, helper
+ * implementation 0.2.1, opt-in hello extensions `manager.v0.2.1` then `manager.v0.2`), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
  * accepts is checked against that schema, so the client can neither send nor trust anything the
  * contract does not define. Re-pin by replacing the JSON file and this commit.
  */
-export const CORE_CONTRACT_COMMIT = 'b00caf7097897ab60ad0aa247e4964ece667976c';
+export const CORE_CONTRACT_COMMIT = '31d0611a9de0409560f0b62282de078e5970a396';
 /** Hello extension that enables the Manager 0.2 capabilities and payload variants. */
 export const MANAGER_EXTENSION = 'manager.v0.2';
+/**
+ * Helper 0.2.1 level: implies manager.v0.2 and adds structured dependency conflicts with loader-metadata
+ * evidence (error.details), reviewed dependencyResolutions and Sinytra Connector imports. Offered first;
+ * an older helper rejects it and is asked again with manager.v0.2.
+ */
+export const EVIDENCE_EXTENSION = 'manager.v0.2.1';
 export const CORE_VERSION = { major: 2, minor: 0 } as const;
 
 type Schema = Record<string, unknown>;

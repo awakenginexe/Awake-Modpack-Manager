@@ -1,62 +1,79 @@
-# Development checkpoint — 2026-11-07
+# Development checkpoint (2026-11-08): Native Core 0.2.1 and reviewed dependency conflicts
 
-Development only; v0.2.0 remains unreleased. The owner stopped testing. Do not resume Minecraft, installer automation, helper mutations or the stopped lifecycle run without a new request.
+Development only. Manager v0.2.0 remains **unreleased**: no tag, release, merge or stable-branch change was made. The previous checkpoint (Native Core 0.2.0, `7f6d869`) is superseded. Its evidence notes are kept in Git history.
 
 ## Resume from Git
 
-- Launcher: clone `https://github.com/awakenginexe/Awake-Launcher`, branch `feat/native-core-manager-020`, delivery HEAD `9622abce7b5232f14e0a64a6a1997010b728de26`.
-- Manager: clone `https://github.com/awakenginexe/Awake-Modpack-Manager`, branch `feat/v0.2.0-native-core`. Final integration is preserved at `dafe69a0557dcf602e4e593c5cb5190839761128`; this handoff and the reusable diagnostic test are in its checkpoint successor. Use the branch HEAD.
-- Node >=22.19.0; `npm ci`. Windows desktop builds also require the Rust/Tauri toolchain. No helper binaries or private test inputs are committed here.
-- Retrieve the [helper ZIP, source parts and join tool at the delivery commit](https://github.com/awakenginexe/Awake-Launcher/tree/9622abce7b5232f14e0a64a6a1997010b728de26/native-core/redistribution/b00caf709789). Verify the ZIP hash below; extract the complete `core-host/windows-x64` folder to an external staging directory. Then `node scripts/stage-helper.mjs --from <extracted/core-host/windows-x64> b00caf7097897ab60ad0aa247e4964ece667976c` and `node scripts/stage-helper.mjs --check`. These validate files without starting the helper. Source reconstruction/licensing instructions are in the linked delivery README and [LICENSING.md](LICENSING.md).
-
-## Contract and package
-
-Native implementation/contract pin: **`b00caf7097897ab60ad0aa247e4964ece667976c`**; implementation 0.2.0, protocol 2.0, explicit `manager.v0.2`.
-
-Pinned upstream [schema](https://github.com/awakenginexe/Awake-Launcher/blob/b00caf7097897ab60ad0aa247e4964ece667976c/docs/modpack-manager/core.schema.json), [protocol](https://github.com/awakenginexe/Awake-Launcher/blob/b00caf7097897ab60ad0aa247e4964ece667976c/docs/modpack-manager/core-protocol.md), [examples](https://github.com/awakenginexe/Awake-Launcher/blob/b00caf7097897ab60ad0aa247e4964ece667976c/docs/modpack-manager/core.examples.jsonl). [Manager schema](../src/backend/core/core.schema.json) matches the upstream Git blob exactly. Integration details: [INTEGRATION-020.md](INTEGRATION-020.md); machine pins: [helper-pin.json](../scripts/helper-pin.json).
+- Launcher: `https://github.com/awakenginexe/Awake-Launcher`, branch `feat/native-core-manager-020`, delivery HEAD `75b362c6958fe9a5829faf4371146f9132b7ebc2`. Executable/source pin `b06c9a804503545207bacfa3bfdf8bfe23604e07`; contract (schema) unchanged since `31d0611a9de0409560f0b62282de078e5970a396`. Read `docs/modpack-manager/handoff.md` (top section).
+- Manager: this branch `feat/v0.2.0-native-core`. Node ≥ 22.19, `npm ci`. Windows desktop builds also need the Rust/Tauri toolchain.
+- Stage the helper: extract `native-core/redistribution/b06c9a804503/awake-core-manager-v0.2.1-windows-x64.zip` (verify its SHA-256 first) outside the repository. Then run `node scripts/stage-helper.mjs --from <extracted>/core-host/windows-x64 b06c9a804503545207bacfa3bfdf8bfe23604e07` and `node scripts/stage-helper.mjs --check`. Build with `node scripts/desktop-build.mjs`.
 
 | Item | SHA-256 |
 |---|---|
-| Schema | `931f1115c3447737551dbec272d883cbdb9d04b3aaa98cbc9e61c8c82b5edbcb` |
-| `awake-core-host.exe` | `b33f41c23c5ad7e3708dce7cb0b466311ce8ea526887cbfa3e110e44f58832e6` |
-| Helper ZIP | `2286079e486b4f067b946121ce7b997a15e985e8ec9598082b13b4995af0b37c` |
-| Internal helper `SHA256SUMS` | `1e7570229e7742995f2ee56afcdd35ce3cc17af234016657b15a2139160aac97` |
-| Reconstructed source ZIP | `3352fe74952dba6dc37c6287df7c5f397312d9f39bae84c5a245aaa7561c64ad` |
+| `src/backend/core/core.schema.json` (= Launcher Git blob at `31d0611a9`) | `26539795e4da1929fd6977032da25798de6f0274c8af7375740c5b403ba0e3e7` |
+| `awake-core-host.exe` 0.2.1 | `a71b35e946ffef00bed4b1200c4796e7d16001dac8089481d0192035ae64124b` |
+| Helper ZIP (6,814,993 bytes) | `0aea4ce7f3adcd7fd920d55c4b751623c5846be24331b2846e9624b026bc6792` |
+| Helper `SHA256SUMS` | `aacd3d97188c45aa63b1f9a290d0c1d39a531c74e1126e7ef044e8c81116f752` |
+| `awake-core-source-b06c9a804503.zip` (107,287,939 bytes) | `543dcc404bdb9bb6f319dceb6e860b1040a7c55611fba5443d934444237503ee` |
 
-Manager consumes extension echo, independent pin/exclusion/native-lock fields, plan-file kinds, project lookup and tracked-config outbox reads. Fresh checkpoint checks confirmed schema identity, ZIP/source-part hashes and all 199 staged helper manifest entries; `stage-helper --check` passed. Typecheck, diagnostic-test syntax and eight opt-in/profile guard checks passed; default collection skipped all 13 real-pack tests. Credential-pattern scans covered 76 changed historical file versions and the checkpoint files. No verification was disabled.
+`scripts/helper-pin.json` records these. Integration details: [INTEGRATION-020.md](INTEGRATION-020.md).
 
-### Five delivery text-file discrepancies
+## What changed
 
-The **outer redistribution `SHA256SUMS`** records CRLF text bytes. Git stores LF blobs for these five files under `native-core/redistribution/b00caf709789/`. Their Windows CRLF checkout matches the recorded values; LF downloads fail those five entries. Converting the checkout's CRLF to LF reproduces each Git hash exactly. This does **not** affect the helper ZIP, its internal manifest, executable or source ZIP parts. Do not claim every delivery-file checksum matches, normalize verifier input, or bypass verification. Resolve outer-manifest reproducibility before distribution.
+**Native Core 0.2.1** addresses the five blockers from the real Revelations v1.4.2 import:
 
-| File | Recorded CRLF SHA-256 | Committed LF SHA-256 |
+| Blocker | Cause found | Fix |
 |---|---|---|
-| `awake-core-manager-v0.2.0-windows-x64.zip.sha256` | `8b2b21024f7888b0a3319d38b48290cd2d7e0e1e6795f1c6f1cdb9a3f1c3d537` | `765c8b37ef3d3bb57427a698bd7fdd197899feca46ded448b56914c38c678602` |
-| `awake-core-source-b00caf709789.zip.sha256` | `5c3305e3699098ba108790b1fe5e0da6c1765fce306063b50da3a90fc76ad69f` | `88cd6dd073fdd9bc2ecb3f9e9cf350295bc76b1c7c48ee45066ccbb1d8696e5c` |
-| `delivery.json` | `121221af453861da728750d92d9e9e7f2df5ff2d899fb7f2df97788d15f71957` | `968beffa95c3bc059f4da03d1c1befdd9f5f680f6dceae44e5adb030f1d93aed` |
-| `join_source.py` | `4ddb28b98e3ad2183cd9a597dd589793d596ef3f8186f3eb624d37ae7e431bda` | `675397fe8ba52ac8dfdbd9165210b663af935bec951c13727390f5f10a4434a0` |
-| `README.md` | `be103584acb57416bd931a76f391cdf351e50acc94d6a70feb19cd9f001977fc` | `0fd8ba4d38247599de143d0ebac1704ed65d71342459d982e88841a0eb92832b` |
+| Connector Fabric files rejected | Version tagged only `fabric` | Admitted in imports by exact hash, only while Sinytra Connector is enabled. Fabric API maps to Forgified Fabric API; no other dependency is auto-installed. Removing Connector is a conflict. |
+| 10 mod+datapack projects rejected | The shared parser classifies any project whose loaders include `datapack` as a datapack | Accepted as mods when `project_type` is `mod` with a real loader. The version must list Forge and ship a JAR. |
+| EasyMagic / LegendaryTooltips / GoetyRevelation / fdbosses pins | Provider pins are upload-time snapshots. EasyMagic Forge pins Puzzles Lib 8.0.15 but its `mods.toml` requires `[8.0.0,)` | `version_pin` conflict with loader-metadata evidence; reviewed `use_version` is accepted unless the metadata rejects it |
+| SkeletonAIFix → Forge Config API Port | Its provider record requires FCAP, which has only Fabric builds for 1.20.1; its Forge `mods.toml` does not declare it | `missing_dependency` with `not_declared` evidence; reviewed `proceed_without` is accepted. A declared requirement is never skippable. |
+| Refined Storage add-ons | Older add-on builds pin RS 1.12.3; e.g. RSInfinityBooster declares `refinedstorage [1.12.3,)` | `version_pin` listing every requester. Candidates include compatible pinned versions when the pack did not select RS itself. |
 
-## Evidence and limits
+All problems are reported together **before anything is downloaded or staged**, with project titles. Installed dependencies follow a requester's pin only to a newer-published build; downgrades always need review. New opt-in extension `manager.v0.2.1`; older clients see byte-identical replies.
 
-Prior Claude runs, **not rerun for this checkpoint**: 133 unit tests, 16 Rust host tests, 7/7 available real-helper scenarios passed; the legacy 0.1.1 scenario was skipped. A Windows installer was built; upgrading installed v0.1.0 to v0.2.0 preserved the tested project. Native Save As remains unverified.
+**Manager:**
 
-Real Revelations v1.4.2 inspection: 407 JARs (~1.30 GB), 399 Forge mods, 3 Fabric mods through Sinytra Connector, 2 libraries, 3 files without normal metadata; 406/406 indexed hashes matched. `fairplayfairrule` had no index entry; `curios` was duplicated. There were 307 exact Modrinth artifact matches and 100 files without a match. Metadata inspection does not establish runtime compatibility.
+- Negotiates `manager.v0.2.1` → `manager.v0.2` → none.
+- Maps structured conflicts to `BackendError('dependency-conflict')` (never by parsing the message).
+- New `DependencyConflicts.vue` panel, in the import dialog and on Review. It shows each library by name, the requesting mods and their versions, requested vs. selected version, an explanation, what each mod's own metadata says, the affected files, and only the actions the helper accepts. Nothing is preselected. The retry is enabled only when every problem has an explicit decision.
+- An import keeps its upload and workspace for the retry, so there's no second upload.
+- Reviewed decisions appear on Review.
+- Mods loaded through Connector show a "via Sinytra Connector" badge.
+- The opt-in real-pack harness now imports every Modrinth-matched file, Connector and mod+datapack files included. `AWAKE_REAL_PACK_REVIEW=accept-evidence` lets it act as the reviewer for reviewable conflicts only, recording every decision.
 
-**The final 265-file lifecycle run was deliberately stopped: no final success result.** Real-pack policy/update/toggle/remove/export/re-import/restart/recovery acceptance and hundreds-of-rows UI performance remain unverified. Real Manager data was snapshotted before installation tests and has not been compared with that baseline.
+**Reproducibility:** outer delivery checksums now hash the exact committed (LF, `-text`) bytes. The `b00caf709789` manifest was corrected. Both deliveries verify 8/8 from a fresh `core.autocrlf=true` clone of GitHub. Source archives no longer nest earlier deliveries (`export-ignore`).
 
-GitHub contains source, fixture tests, opt-in real-helper harnesses, this sanitized evidence summary and Launcher delivery artifacts. Raw evidence stays local under `%USERPROFILE%/AwakeMM-validation/v020-final/`: `real020.log`, `real020-profile-evidence.json`, `realPack*.log`, `pack-profile*-pack-evidence.json`, `inspection/`, `installed-app/`, `source-baseline-{before,after}.json`, `real-manager-data-before.json`, helper profiles and installer. These can contain private paths, filenames and manifests; do not publish them. The stopped run's `realPack6.log` contains only its start banner; no completed evidence JSON exists for it. Unit/host pass counts are prior-session reports, not new CI results.
+## Tests actually run in this session (Windows 11, this machine)
 
-[realPack.test.ts](../tests/realHelper/realPack.test.ts) is a reusable, stateful diagnostic harness; it embeds no pack, manifest or private paths. It defaults to skipped. A future expressly authorized run requires Windows, `AWAKE_REAL_PACK_RUN=1`, `AWAKE_REAL_HELPER`, a **new absolute disposable** `AWAKE_REAL_PROFILE` in an existing parent outside the source pack, and `AWAKE_REAL_PACK` (Forge 1.20.1 instance with `minecraft/mods`, `mmc-pack.json`, `flame/manifest.json`, >200 distinct JAR hashes). Optional `AWAKE_REAL_PACK_SKIP` is a pipe-separated filename list. It reads source files, downloads public matches, mutates disposable workspaces and intentionally interrupts Apply; evidence remains local. Failed import stages invalidate dependent lifecycle results. Do not run it merely to validate this checkpoint.
+- Native: baseline CTest 10/10 before changes; final pin CTest **11/11** (419 s), with the new `DependencyResolutionTest` (12 cases); contract validator 220 checks.
+- Packaged helper IPC harness on the final package: **28/28**. It includes 301-mod crash recovery, `manager.v0.2` replies validated against the previous `b00caf709` schema, legacy replies against the Manager v0.1 schema, live Fabric/Forge workflows, and a **live five-blocker pack from public Modrinth files**. That pack reported every conflict at once in 15.5 s with names and evidence, then imported 9 verified, hash-identical files after the reviewed decisions (17.2 s).
+- Manager: `vitest` **142 passed / 25 skipped** (133 before; +9 error-to-UI tests: domain model, client mapping, older-helper fallback, upload retention, panel, import dialog flow). `vue-tsc` clean. Rust host tests **16 passed, 1 ignored**, with the real staged helper. `stage-helper --check` passed for 200 files.
+- Windows installer built with the staged helper. Location and SHA-256 are in the final report and the commit message.
 
-## Open Native Core blockers and Manager UI issues
+Not run here: the owner's real 407-JAR pack (its files are not on this machine), the installed-app upgrade from v0.1.0, Native Save As, Minecraft gameplay, live authorized CurseForge, large-collection UI performance, and the stopped 265-file lifecycle run (still **no success result**). Comparison of the owner's real Manager data with its saved baseline was not done either. The earlier 903-second figure was a wait after an import failure, not a Prepare benchmark.
 
-1. Two Modrinth Fabric-tagged files used through Sinytra Connector are rejected as loader conflicts.
-2. Ten combined mod/datapack projects are misclassified as datapacks and rejected.
-3. Four mods have conflicting library version pins: EasyMagic, LegendaryTooltips, GoetyRevelation and fdbosses.
-4. SkeletonAIFix declares Forge Config API Port as required, with no compatible Forge 1.20.1 build.
-5. Refined Storage add-ons (ExtraDisks, ExtraStorage, Cable Tiers, RS Requestify, RS Infinity Booster) request conflicting Refined Storage versions (`KDvYkUg3`).
+## Real-pack acceptance on the owner's PC
 
-The installed Manager rejected the 295-file import for the Puzzles Lib conflict. Its error displayed raw project ID `QAGBst4M` instead of **Puzzles Lib** and the requesting mod(s), including EasyMagic. Dependency failures do not identify the responsible files/mods. The 903-second UI wait waited for a review screen after an error: **not a valid preparation-time benchmark**. CurseForge authorization remains disabled; `PROVIDER_RESTRICTED` is expected, and no credentials belong in the repository.
+Use a **new disposable profile**. The source instance is only read. Run from a checkout of this commit after `npm ci` and staging the helper:
 
-This checkpoint changes no stable release, main branch, tag, visibility or permissions; no merge or release is authorized.
+```powershell
+$env:AWAKE_REAL_PACK_RUN = '1'
+$env:AWAKE_REAL_HELPER   = (Resolve-Path 'src-tauri\helper-stage\awake-core-host.exe').Path
+$env:AWAKE_REAL_PROFILE  = "$env:USERPROFILE\AwakeMM-validation\v021-$(Get-Date -Format yyyyMMdd-HHmm)"   # must not exist; parent must
+$env:AWAKE_REAL_PACK     = '<Revelations instance folder containing minecraft\mods, mmc-pack.json, flame\manifest.json>'
+$env:AWAKE_REAL_PACK_REVIEW = 'accept-evidence'   # omit to stop at the first conflict report, as a person would see it
+npx vitest run tests/realHelper/realPack.test.ts
+```
+
+Expected: the isolation stages record the Connector-only subset as a `loader_bridge` conflict (Connector itself is not in that subset) and the mod+datapack subset as importable. The main import first records the conflict list in `<profile>-pack-evidence.json` (`import.conflicts`) and the decisions taken (`import.decisions`). Every installed JAR must then be hash-identical to the owner's file, followed by inventory, policy, update, toggle, remove, export/re-import, restart and interrupted-Apply recovery stages.
+
+Check that no conflict has an empty `resolutions` list; such a conflict is a real incompatibility that needs the owner's decision. Also check the imported Connector files and that the `curios` duplicate and `fairplayfairrule` (not on Modrinth) are reported, not silently changed. The evidence file can contain private file names: keep it local. Then install the built installer over v0.1.0/v0.2.0 on a copy of the real Manager data, compare against `real-manager-data-before.json`, and test Native Save As and an in-game launch through Awake Launcher.
+
+## Remaining release blockers
+
+1. Owner real-pack acceptance (above), including the 100 files that have no Modrinth match (manual/CurseForge files are not imported) and runtime behaviour of the Connector-loaded mods.
+2. Installed-app upgrade and real Manager data comparison, Native Save As, large-list UI performance.
+3. CurseForge stays disabled without separately authorized API access. No credential is embedded.
+4. Attach the helper ZIP, `awake-core-source-b06c9a804503.zip` and both `.sha256` files to any release. Re-pin again if the helper changes.
+5. Builds are not reproducible. A release needs owner approval; none was created.

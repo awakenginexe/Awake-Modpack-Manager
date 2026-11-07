@@ -26,7 +26,7 @@ async function standalone(c = new FakeCore()) {
 
 describe('core protocol 2.0 schema (pinned)', () => {
   it('is pinned to the committed contract and enforces it', () => {
-    expect(CORE_CONTRACT_COMMIT).toMatch(/^b00caf70/);
+    expect(CORE_CONTRACT_COMMIT).toMatch(/^31d0611a/);
     expect(paramsError('workspaces.create', { idempotencyKey: 'k', name: 'x', minecraftVersion: '1.21.1', loader: { id: 'liteloader', version: '1' } })).toMatch(/loader\.id/);
     // 0.2 methods are in x-methods at this pin, including the new lookup and config outbox.
     expect(paramsError('providers.project', { provider: 'modrinth', projectId: 'AANobbMI' })).toBeNull();
@@ -305,9 +305,12 @@ describe('manager.v0.2 negotiation and features (fixture)', () => {
 
   it('negotiates manager.v0.2 and exposes Forge/NeoForge/Quilt, policies and import', async () => {
     core = new FakeCore();
+    core.evidence = false; // a 0.2.0 helper refuses the newer offer; the client asks again with manager.v0.2
     const c = helper(core);
     const hs = await c.connect();
-    expect(core.log[0]).toMatchObject({ method: 'hello', params: { extensions: ['manager.v0.2'] } });
+    expect(core.log[0]).toMatchObject({ method: 'hello', params: { extensions: ['manager.v0.2.1'] } });
+    expect(core.log[1]).toMatchObject({ method: 'hello', params: { extensions: ['manager.v0.2'] } });
+    expect(c.canResolveDependencies?.()).toBe(false);
     expect(hs.capabilities).toEqual(expect.arrayContaining(['mods.policies', 'packs.import', 'instances.create']));
     const cat = await c.versionCatalog!({ minecraftVersion: '1.20.1', loader: 'forge' });
     expect(cat.loaderVersions).toContain('47.4.28');
@@ -322,7 +325,7 @@ describe('manager.v0.2 negotiation and features (fixture)', () => {
     const session = createSession(helper(core), { pollMs: 1 });
     await session.connect();
     const hellos = core.log.filter((l) => l.method === 'hello');
-    expect(hellos.map((h) => 'extensions' in h.params)).toEqual([true, false]);
+    expect(hellos.map((h) => 'extensions' in h.params)).toEqual([true, true, false]);
     expect(session.state.handshake!.capabilities).not.toContain('mods.policies');
     expect(session.state.handshake!.capabilities).not.toContain('packs.import');
     expect(session.state.handshake!.capabilities).toContain('instances.create');

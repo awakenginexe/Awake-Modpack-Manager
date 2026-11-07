@@ -114,9 +114,9 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     packVersions: (prov, id) => current.backend.packVersions(prov, id),
     installPack: async (r) => own(current, await current.backend.installPack(r)),
 
-    async validateDraft(d) {
+    async validateDraft(d, resolutions) {
       const p = byInstance(d.instanceId);
-      const plan = await p.backend.validateDraft(d);
+      const plan = await p.backend.validateDraft(d, resolutions);
       owners.plan.set(plan.planId, p);
       return plan;
     },
@@ -148,9 +148,10 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     canImport: () => !!parts.helper.handshake && !!helper.canImport?.(),
     uploadImport: (f, onProgress, signal) => (helper.uploadImport ? helper.uploadImport(f, onProgress, signal) : noHelper()),
     inspectImport: (token, format) => (helper.inspectImport ? helper.inspectImport(token, format) : noHelper()),
-    async prepareImport(id, token, format, includeOptional) {
+    canResolveDependencies: () => !!parts.helper.handshake && !!helper.canResolveDependencies?.(),
+    async prepareImport(id, token, format, includeOptional, resolutions) {
       if (!helper.prepareImport || byInstance(id) !== parts.helper) return noHelper();
-      const plan = await helper.prepareImport(id, token, format, includeOptional);
+      const plan = await helper.prepareImport(id, token, format, includeOptional, resolutions);
       owners.plan.set(plan.planId, parts.helper);
       return plan;
     },

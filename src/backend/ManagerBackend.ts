@@ -1,7 +1,7 @@
 import type {
   Accepted, ImportInspection, LoaderKind, WorkspaceSnapshot, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
-  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery,
+  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution,
 } from './contract';
 import type { LauncherProfile } from './launcher/transport';
 
@@ -44,7 +44,8 @@ export interface ManagerBackend {
   installPack(request: InstallPackRequest): Promise<Accepted>;
 
   /** Resolve a draft against the authoritative baseline. Rejects with `stale-revision` if the base moved. */
-  validateDraft(draft: Draft): Promise<ResolvedPlan>;
+  /** `resolutions` answers dependency conflicts a previous attempt reported (helpers with dependencies.resolutions.v1). */
+  validateDraft(draft: Draft, resolutions?: DependencyResolution[]): Promise<ResolvedPlan>;
   /** Re-resolve right before apply. The returned hash may differ; the UI must then ask again. */
   preparePlan(planId: string): Promise<ResolvedPlan>;
   /** Accepting is not success: follow the operation to a terminal state. */
@@ -77,7 +78,9 @@ export interface ManagerBackend {
   uploadImport?(file: Blob, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<string>;
   inspectImport?(token: string, format: ImportInspection['format']): Promise<ImportInspection>;
   /** Resolve, download and stage the import for a matching workspace; resolves to the full reviewable plan. */
-  prepareImport?(instanceId: string, token: string, format: ImportInspection['format'], includeOptional: boolean): Promise<ResolvedPlan>;
+  prepareImport?(instanceId: string, token: string, format: ImportInspection['format'], includeOptional: boolean, resolutions?: DependencyResolution[]): Promise<ResolvedPlan>;
+  /** True when the helper accepts reviewed dependency resolutions (manager.v0.2.1). */
+  canResolveDependencies?(): boolean;
   /** Remove the uploaded bytes (idempotent). Workspaces and prepared plans are not touched. */
   discardImport?(token: string): Promise<void>;
   /** Provider identity of every verified file in a workspace, for a Manager-built export. */

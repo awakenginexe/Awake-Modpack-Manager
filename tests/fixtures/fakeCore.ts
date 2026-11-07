@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
  * one state per `operations.get`, and every reply checked against the pinned schema.
  */
 import { paramsError, resultError, type CoreMethod } from '../../src/backend/core/schema';
-import type { CoreDescriptor, CoreInstalled, CoreOperation, CoreVersion, CoreWorkspace } from '../../src/backend/core/types';
+import type { CoreConflictDetails, CoreDescriptor, CoreInstalled, CoreOperation, CoreReviewedResolution, CoreVersion, CoreWorkspace } from '../../src/backend/core/types';
 import { TransportError, type HelperStatus, type PipeTransport } from '../../src/backend/launcher/transport';
 
 const P = { major: 2, minor: 0 } as const;
@@ -43,7 +43,34 @@ export const FIXTURE_IMPORT = {
   files: [{ path: 'config/example.toml', sha256: 'a'.repeat(64), size: '12' }],
   projects: [{ provider: 'modrinth', projectId: 'sodium', versionId: 'sodV1', required: true }], downloadCount: 1, warnings: [],
 };
-interface Op { op: CoreOperation; steps: CoreOperation['state'][]; plan?: { files: { path: string; action: 'install' | 'replace' | 'remove' }[]; deps: CoreVersion['dependencies']; next: CoreInstalled[]; digest: string; base: string } ; createWs?: CoreWorkspace; apply?: boolean }
+interface Op { op: CoreOperation; steps: CoreOperation['state'][]; plan?: { files: { path: string; action: 'install' | 'replace' | 'remove' }[]; deps: CoreVersion['dependencies']; next: CoreInstalled[]; digest: string; base: string; reviewed?: CoreReviewedResolution[] } ; createWs?: CoreWorkspace; apply?: boolean; failure?: CoreOperation['error'] }
+
+/**
+ * Shapes from the real Revelations blockers: Easy Magic pins Puzzles Lib 8.0.15 while its mods.toml accepts
+ * [8.0.0,); Skeleton AI Fix's provider record requires Forge Config API Port, which its mods.toml never declares.
+ */
+export const BLOCKER_CONFLICTS: CoreConflictDetails = {
+  truncated: false,
+  conflicts: [
+    {
+      kind: 'version_pin', provider: 'modrinth', projectId: 'QAGBst4M', title: 'Puzzles Lib',
+      selected: { versionId: 'mIyVGf3d', versionNumber: 'v8.1.33-1.20.1-Forge', fileName: 'PuzzlesLib-v8.1.33-1.20.1-Forge.jar' },
+      requests: [{ provider: 'modrinth', projectId: '9hx3AbJM', title: 'Easy Magic', versionId: 'W2xPEG9I', versionNumber: 'v8.0.1-1.20.1-Forge', fileName: 'EasyMagic-v8.0.1-1.20.1-Forge.jar',
+        requestedVersionId: 'V4g0yKzo', requestedVersionNumber: 'v8.0.15-1.20.1-Forge',
+        evidence: { result: 'satisfied', modId: 'puzzleslib', declaredRange: '[8.0.0,)', mandatory: true, selectedModVersion: '8.1.33' } }],
+      candidates: [{ versionId: 'mIyVGf3d', versionNumber: 'v8.1.33-1.20.1-Forge' }], resolutions: ['use_version'],
+      message: 'Easy Magic pins a different Puzzles Lib version than the selected v8.1.33-1.20.1-Forge.',
+    },
+    {
+      kind: 'missing_dependency', provider: 'modrinth', projectId: 'ohNO6lps', title: 'Forge Config API Port', selected: null,
+      requests: [{ provider: 'modrinth', projectId: 'jn24bUJo', title: 'Skeleton AI Fix', versionId: 'VMGmo5Si', versionNumber: 'v20.1.1-1.20.1-Forge', fileName: 'SkeletonAIFix-v20.1.1-1.20.1-Forge.jar',
+        requestedVersionId: null, requestedVersionNumber: null,
+        evidence: { result: 'not_declared', modId: 'forgeconfigapiport', declaredRange: null, mandatory: null, selectedModVersion: null } }],
+      candidates: [], resolutions: ['proceed_without'],
+      message: 'Skeleton AI Fix requires Forge Config API Port, but no Forge Config API Port version supports Minecraft 1.20.1 with forge.',
+    },
+  ],
+};
 
 const sha256Hex = (t: string) => createHash('sha256').update(t).digest('hex');
 
@@ -69,6 +96,10 @@ export class FakeCore implements PipeTransport {
   legacy = false;
   /** Behave like the pre-final 0.2.0 helper (3b279ff): accepts the offer but does not echo it. */
   noEcho = false;
+  /** A 0.2.1 helper accepts manager.v0.2.1; set false to model 0.2.0, which rejects that offer as INVALID_REQUEST. */
+  evidence = true;
+  /** Dependency conflicts the next prepare reports until a request resolves every one of them. */
+  conflicts: CoreConflictDetails | null = null;
   /** Native Packwiz update=false locks, by inventory id. */
   nativeLocks = new Set<string>();
   /** Policy-tracked, unchanged config overrides the outbox may export (.minecraft-relative path -> text). */
@@ -78,7 +109,7 @@ export class FakeCore implements PipeTransport {
   policies = new Map<string, { pinnedVersion: string | null; excluded: boolean }>();
   uploads = new Map<string, { size: number; sha256: string; data: string[]; received: number; complete: boolean; discarded: boolean }>();
   inspectError: string | null = null;
-  private conns = new Map<number, { hello: boolean; ext: boolean }>();
+  private conns = new Map<number, { hello: boolean; ext: boolean; evidence?: boolean }>();
   private seq = 0;
 
   constructor(o: { caps?: Partial<Record<CoreMethod, boolean>>; mods?: number } = {}) {
@@ -152,6 +183,20 @@ export class FakeCore implements PipeTransport {
   }
 
   private err(code: string, message = code) { return Object.assign(new Error(message), { code }); }
+  /** Reported conflicts fail the prepare (before staging) until every one has a resolution the fixture accepts. */
+  private reviewConflicts(o: Op, p: Record<string, unknown>) {
+    if (!this.conflicts) return;
+    const given = (p.dependencyResolutions as { projectId: string; versionId: string | null }[] | undefined) ?? [];
+    const open = this.conflicts.conflicts.filter((c) => !given.some((r) => r.projectId === c.projectId && (c.kind === 'version_pin' ? r.versionId === c.selected?.versionId : r.versionId === null)));
+    if (open.length) {
+      o.steps = ['resolving', 'failed'];
+      o.failure = { code: 'DEPENDENCY_CONFLICT', retryable: false, message: `Dependency review required (${open.length}): ${open.map((c) => `${c.title} (${c.requests.map((r) => r.title).join(', ')})`).join('; ')}`,
+        details: { truncated: this.conflicts.truncated, conflicts: open } };
+      return;
+    }
+    o.plan!.reviewed = this.conflicts.conflicts.map((c) => ({ projectId: c.projectId, title: c.title, versionId: c.kind === 'version_pin' ? c.selected!.versionId : null,
+      requestedBy: c.requests.map((r) => ({ projectId: r.projectId, title: r.title, requestedVersionId: r.requestedVersionId, evidence: r.evidence.result as 'satisfied' | 'not_declared' | 'unknown' })) }));
+  }
   private now = 1_762_000_000_000;
   private newOp(kind: CoreOperation['kind'], steps: CoreOperation['state'][], physicalId?: string): Op {
     const operationId = uuid(`op-${this.ops.size + 1}-${kind}`);
@@ -196,18 +241,23 @@ export class FakeCore implements PipeTransport {
       o.op.result = { planDigest: o.plan.digest, instanceRevision: e.ws.instanceRevision, fileCount: o.plan.files.length, verified: true };
       delete o.op.progress;
     }
+    if (next === 'failed' && o.failure) { o.op.error = o.failure; delete o.op.progress; }
     if (next === 'rolled_back') o.op.error = { code: 'INTEGRITY_FAILED', message: 'A downloaded file did not match its hash; nothing was changed.', retryable: false };
     if (next === 'recovery_required') o.op.error = { code: 'RECOVERY_REQUIRED', message: 'The change was interrupted. Roll it back before using this project.', retryable: false };
   }
 
-  private handle(m: CoreMethod, p: Record<string, unknown>, c: { hello: boolean; ext: boolean }): Record<string, unknown> {
+  private handle(m: CoreMethod, p: Record<string, unknown>, c: { hello: boolean; ext: boolean; evidence?: boolean }): Record<string, unknown> {
     switch (m) {
       case 'hello': {
         if (p.extensions && this.legacy) throw this.err('INVALID_REQUEST', 'hello.params.extensions: not allowed');
+        const offered = Array.isArray(p.extensions) ? p.extensions as string[] : [];
+        if (offered.includes('manager.v0.2.1') && !this.evidence) throw this.err('INVALID_REQUEST', 'Invalid hello parameters.');
         c.hello = true;
-        c.ext = Array.isArray(p.extensions) && p.extensions.length > 0;
+        c.ext = offered.length > 0;
+        c.evidence = offered.includes('manager.v0.2.1');
         // 0.1 inbox flags stay false without the extension (core-protocol.md).
-        const caps = c.ext ? { ...this.capabilities, ...this.extCaps } : { ...this.capabilities, 'inbox.begin': false, 'inbox.write': false, 'inbox.commit': false, 'inbox.status': false };
+        const caps = c.ext ? { ...this.capabilities, ...this.extCaps, ...(c.evidence ? { 'dependencies.resolutions.v1': true, 'loaders.connector.v1': true } : {}) }
+          : { ...this.capabilities, 'inbox.begin': false, 'inbox.write': false, 'inbox.commit': false, 'inbox.status': false };
         return { protocol: P, role: this.helloRole, coreVersion: c.ext ? '0.2.0-fixture' : '0.1.1-fixture', storageVersion: 1, profileId: this.profileId, sessionId: this.sessionId, capabilities: caps, limits: { frameBytes: 1048576, clients: 8, pageItems: 200 }, ...(Array.isArray(p.extensions) && !this.noEcho ? { extensions: p.extensions } : {}) };
       }
       case 'core.info':
@@ -258,6 +308,7 @@ export class FakeCore implements PipeTransport {
           const o = this.newOp('modpack-change', ['resolving', 'downloading', 'prepared'], e.ws.physicalId);
           o.plan = this.resolve(e.mods, [{ action: 'install', projectId: 'sodium', versionId: 'sodV1' }], o.op.operationId, e.ws.instanceRevision);
           o.plan.files.push({ path: 'config/example.toml', action: 'install' });
+          this.reviewConflicts(o, p);
           return o;
         });
       }
@@ -332,6 +383,7 @@ export class FakeCore implements PipeTransport {
         return this.idem(m, p, () => {
           const o = this.newOp('modpack-change', ['resolving', 'downloading', 'prepared'], e.ws.physicalId);
           o.plan = this.resolve(e.mods, p.changes as Change[], o.op.operationId, e.ws.instanceRevision);
+          this.reviewConflicts(o, p);
           return o;
         });
       }
@@ -340,7 +392,7 @@ export class FakeCore implements PipeTransport {
         if (!o?.plan || o.op.state !== 'prepared') throw this.err('NOT_FOUND');
         const kind = (path: string) => /(^|\/)mods\//.test(path) ? 'mod' : /(\.awake-integration|\.index)\/|instance\.cfg$|mmc-pack\.json$/.test(path) ? 'bookkeeping' : 'override';
         const { slice, total, nextOffset } = this.page(o.plan.files.map((f) => ({ ...f, ...(c.ext ? { kind: kind(f.path) } : {}), beforeSha256: f.action === 'install' ? 'missing' : hex(f.path), afterSha256: f.action === 'remove' ? 'missing' : hex(f.path + 'new'), size: '1000' })), p);
-        return { operationId: o.op.operationId, planDigest: o.plan.digest, instanceRevision: o.plan.base, expectedInstanceRevision: hex(`exp-${o.op.operationId}`), files: slice, total, nextOffset, warnings: o.plan.files.some((f) => f.action === 'remove') ? ['Removed files are kept in the operation backup until the change is verified.'] : [], dependencies: o.plan.deps };
+        return { operationId: o.op.operationId, planDigest: o.plan.digest, instanceRevision: o.plan.base, expectedInstanceRevision: hex(`exp-${o.op.operationId}`), files: slice, total, nextOffset, warnings: o.plan.files.some((f) => f.action === 'remove') ? ['Removed files are kept in the operation backup until the change is verified.'] : [], dependencies: o.plan.deps, ...(c.evidence && o.plan.reviewed ? { dependencyResolutions: o.plan.reviewed } : {}) };
       }
       case 'transactions.apply': {
         const o = this.ops.get(String(p.operationId));
@@ -363,6 +415,8 @@ export class FakeCore implements PipeTransport {
         const o = this.ops.get(String(p.operationId));
         if (!o) throw this.err('NOT_FOUND');
         this.advance(o);
+        // Like the helper: conflict details only for manager.v0.2.1 clients.
+        if (o.op.error?.details && !c.evidence) { const { details: _, ...error } = o.op.error; return { ...o.op, error } as unknown as Record<string, unknown>; }
         return o.op as unknown as Record<string, unknown>;
       }
       case 'operations.list': {

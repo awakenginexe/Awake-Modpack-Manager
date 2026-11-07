@@ -242,6 +242,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
                       <span v-if="m.metadataState === 'conflict'" class="badge warn tiny" :title="t('metadataConflictHint')">{{ t('metadataConflict') }}</span>
                       <span v-if="m.kind === 'directory'" class="badge tiny">{{ t('kindFolder') }}</span>
                       <span v-if="m.linked" class="badge tiny" :title="t('linkedHint')">{{ t('linkedFile') }}</span>
+                      <span v-if="m.loaderBridge" class="badge info tiny">{{ t('connectorBadge') }}</span>
                       <Lock v-if="policies ? m.nativeLock : m.updateLocked" :size="13" class="pin" :aria-label="t(policies ? 'lockedByPack' : 'lockedInLauncher')" />
                       <BellOff v-if="m.updateExcluded" :size="13" class="pin" :aria-label="t('excludedFromUpdates')" />
                     </span>

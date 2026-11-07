@@ -219,6 +219,8 @@ export interface InstalledMod {
   nativeLock?: boolean;
   /** Excluded from update checks by the helper's policy (policies.v1). */
   updateExcluded?: boolean;
+  /** A Fabric mod loaded through Sinytra Connector in a Forge/NeoForge project (manager.v0.2.1). */
+  loaderBridge?: 'sinytra-connector';
 }
 
 export interface ModInventory {
@@ -305,6 +307,8 @@ export interface PlanIssue {
     | 'unknown-dependency'
     /** A required dependency the coordinator added and verified. */
     | 'dependency-included'
+    /** A dependency conflict the user reviewed and resolved for this plan (manager.v0.2.1). */
+    | 'dependency-reviewed'
     /** Free-text warning from the coordinator's plan. */
     | 'coordinator-warning';
   message: string;
@@ -507,10 +511,42 @@ export type BackendErrorCode =
   /** Unsupported or unsafe archive (ZIP64, encryption, traversal...): the helper's INVALID_ARCHIVE. */
   | 'invalid-archive'
   /** A file must be downloaded manually or its host is not allowed (PROVIDER_RESTRICTED / PROVIDER_UNAVAILABLE). */
-  | 'provider-restricted';
+  | 'provider-restricted'
+  /** DEPENDENCY_CONFLICT: `conflicts` carries the structured review data when the helper provides it. */
+  | 'dependency-conflict';
+
+/** What loader metadata inside the verified JARs says about a provider dependency claim. */
+export interface DependencyEvidence {
+  result: 'satisfied' | 'violated' | 'not_declared' | 'unknown';
+  modId: string | null;
+  declaredRange: string | null;
+  mandatory: boolean | null;
+  selectedModVersion: string | null;
+}
+/** One dependency problem found while preparing a plan, with everything a person needs to decide. */
+export interface DependencyConflict {
+  kind: 'version_pin' | 'missing_dependency' | 'incompatible' | 'loader_bridge';
+  provider: ProviderId;
+  projectId: string;
+  /** Friendly project name (never only the raw provider ID when the helper knows the title). */
+  title: string;
+  selected: { versionId: string; versionNumber: string; fileName: string } | null;
+  requests: {
+    provider: ProviderId; projectId: string; title: string; versionId: string; versionNumber: string; fileName: string;
+    requestedVersionId: string | null; requestedVersionNumber: string | null; evidence: DependencyEvidence;
+  }[];
+  candidates: { versionId: string; versionNumber: string }[];
+  /** Choices the helper accepts for this conflict; empty when it cannot be resolved by review. */
+  resolutions: ('use_version' | 'proceed_without')[];
+  message: string;
+}
+/** A reviewed decision: keep/choose `versionId` of the dependency, or `null` to proceed without it. */
+export interface DependencyResolution { provider: ProviderId; projectId: string; versionId: string | null }
 
 export class BackendError extends Error {
-  constructor(readonly code: BackendErrorCode, message: string, readonly detail?: string) {
+  constructor(readonly code: BackendErrorCode, message: string, readonly detail?: string,
+    /** Structured dependency conflicts (code `dependency-conflict`, manager.v0.2.1 helpers). */
+    readonly conflicts?: DependencyConflict[], readonly conflictsTruncated = false) {
     super(message);
     this.name = 'BackendError';
   }

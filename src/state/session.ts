@@ -1,6 +1,6 @@
 import { computed, inject, reactive, ref, shallowRef, watch, type InjectionKey } from 'vue';
 import {
-  BackendError, type Capability, type CreateInstanceRequest, type Draft, type ExportRequest, type Handshake,
+  BackendError, type Capability, type CreateInstanceRequest, type DependencyResolution, type Draft, type ExportRequest, type Handshake,
   type InstallPackRequest, type InstanceSummary, type InstanceWarning, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan,
 } from '../backend/contract';
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
@@ -58,6 +58,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     error: null as BackendError | null,
     /** Set when the plan came from a modpack import rather than the mod draft (shown on Review). */
     origin: null as string | null,
+    /** Which request produced the current plan or failure: retries with dependency decisions go back there. */
+    source: null as 'draft' | 'import' | null,
   });
   let pending = load<PendingApply | null>('pendingApply', null);
   const following = new Set<string>();
@@ -235,15 +237,16 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   /* ----- review → prepare → apply → follow ----- */
 
   function resetReview() {
-    Object.assign(review, { phase: 'idle', plan: null, planDraft: '', operation: null, error: null, origin: null });
+    Object.assign(review, { phase: 'idle', plan: null, planDraft: '', operation: null, error: null, origin: null, source: null });
   }
 
-  async function validate() {
+  /** `resolutions` answers dependency conflicts the previous attempt reported (reviewed by the user). */
+  async function validate(resolutions?: DependencyResolution[]) {
     const d = draft.value;
     if (!d || !can('plan.validate')) return;
-    Object.assign(review, { phase: 'resolving', error: null, operation: null });
+    Object.assign(review, { phase: 'resolving', error: null, operation: null, source: 'draft' });
     try {
-      review.plan = await backend.validateDraft({ ...d, pinnedKeys: [...pinned.value] });
+      review.plan = await backend.validateDraft({ ...d, pinnedKeys: [...pinned.value] }, resolutions?.length ? resolutions : undefined);
       review.origin = null;
       review.planDraft = JSON.stringify(d.changes);
       review.phase = 'reviewed';
@@ -427,22 +430,27 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
    * downloads and stages it; the full plan becomes the reviewed plan for the Review screen. The
    * upload is discarded once staged (the prepared plan does not need it).
    */
-  async function prepareImport(instanceId: string, token: string, format: 'mrpack' | 'curseforge', includeOptional: boolean, label: string) {
+  async function prepareImport(instanceId: string, token: string, format: 'mrpack' | 'curseforge', includeOptional: boolean, label: string,
+    resolutions?: DependencyResolution[], keepUploadOnFailure = false) {
     if (!backend.prepareImport) throw new BackendError('unsupported', 'This backend cannot import modpacks.');
     if (drafts.value[instanceId]?.changes.length) throw new BackendError('rejected', 'This project has unreviewed changes. Review or discard them before importing into it.');
     await selectInstance(instanceId);
     resetReview();
     review.phase = 'resolving';
+    review.source = 'import';
+    let keep = false;
     try {
-      const plan = await backend.prepareImport(instanceId, token, format, includeOptional);
+      const plan = await backend.prepareImport(instanceId, token, format, includeOptional, resolutions?.length ? resolutions : undefined);
       Object.assign(review, { plan, planDraft: JSON.stringify(draft.value?.changes ?? []), phase: 'reviewed', origin: label });
       return plan;
     } catch (e) {
       review.error = asError(e);
       review.phase = 'failed';
+      // A reviewable dependency conflict keeps the upload so the caller can retry with decisions; it then discards it.
+      keep = keepUploadOnFailure && review.error.code === 'dependency-conflict';
       throw review.error;
     } finally {
-      await backend.discardImport?.(token).catch(() => undefined);
+      if (!keep) await backend.discardImport?.(token).catch(() => undefined);
     }
   }
 

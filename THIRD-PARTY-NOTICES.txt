@@ -214,16 +214,16 @@ used only to identify where content comes from. The SVG files were taken from Aw
 (GPL-3.0): https://github.com/awakenginexe/Awake-Launcher
 
 == Awake Native Core helper (core-host/windows-x64/awake-core-host.exe) — GPL-3.0-only ==
-awake-core-host.exe (Awake Native Core 0.2.0, protocol 2.0 with the manager.v0.2 extension) is
+awake-core-host.exe (Awake Native Core 0.2.1, protocol 2.0 with the manager.v0.2.1 extension) is
 built from the Awake Launcher repository, directory native-core/, at commit
-b00caf7097897ab60ad0aa247e4964ece667976c (branch feat/native-core-manager-020). It is a separate
+b06c9a804503545207bacfa3bfdf8bfe23604e07 (branch feat/native-core-manager-020). It is a separate
 program that the Manager starts and talks to over a local named pipe.
 Copyright (C) Awake Launcher contributors and the upstream projects listed in
 core-host/windows-x64/COPYING.md (shipped next to the executable).
 
 Complete corresponding source code (including the vendored libraries and build files) is
 published with every Awake Modpack Manager release that ships this helper, as
-awake-core-source-b00caf709789.zip (SHA-256 3352fe74952dba6dc37c6287df7c5f397312d9f39bae84c5a245aaa7561c64ad):
+awake-core-source-b06c9a804503.zip (SHA-256 543dcc404bdb9bb6f319dceb6e860b1040a7c55611fba5443d934444237503ee):
 https://github.com/awakenginexe/Awake-Modpack-Manager/releases. Its BUILD-AND-REDISTRIBUTE.md and
 SOURCE.json are authoritative for the build; reproducible builds are not claimed.
 Build: cmake -S native-core -B <build> -G Ninja -DCMAKE_BUILD_TYPE=Release

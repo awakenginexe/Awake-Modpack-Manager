@@ -18,6 +18,11 @@ import { nodeHelperTransport } from './nodeTransport';
  * Evidence at <profile>-pack-evidence.json can contain private filenames and errors; keep it local.
  * Requires minecraft/mods, mmc-pack.json and flame/manifest.json; scans >200 distinct JAR hashes.
  * AWAKE_REAL_PACK_SKIP is an optional pipe-separated list of filenames to omit from import.
+ * AWAKE_REAL_PACK_REVIEW=accept-evidence lets this harness act as the reviewer in the disposable profile:
+ * when the helper reports dependency conflicts it records every one (titles, requesters, versions, loader
+ * evidence) and retries once with the resolutions the helper marked reviewable (keep the selected version,
+ * or proceed without an undeclared requirement). Blocked conflicts are never accepted. Without the variable
+ * the conflicts are recorded and the import stage fails, as a person would see it.
  * The stages share state: a failed import invalidates later lifecycle results.
  */
 const exe = process.env.AWAKE_REAL_HELPER;
@@ -37,6 +42,7 @@ afterAll(() => { if (on) writeFileSync(`${profile}-pack-evidence.json`, JSON.str
 const sha = (alg: string, b: Uint8Array) => createHash(alg).update(b).digest('hex');
 const ms = async <T>(k: string, f: () => Promise<T>): Promise<T> => { const t = performance.now(); try { return await f(); } finally { note(`time.${k}.ms`, Math.round(performance.now() - t)); } };
 const UA = { 'User-Agent': 'awake-modpack-manager-validation' };
+const acceptReviewed = process.env.AWAKE_REAL_PACK_REVIEW === 'accept-evidence';
 
 type MrFile = { url: string; filename: string; size: number; primary: boolean; hashes: { sha1: string; sha512: string } };
 type MrVersion = { id: string; project_id: string; version_number: string; loaders: string[]; game_versions: string[]; files: MrFile[] };
@@ -89,8 +95,23 @@ describe.skipIf(!on)('REAL Forge 1.20.1 pack (explicit opt-in, read-only source)
     const made = await ms(`${label}.createWorkspace`, () => session.createInstance({ name, minecraftVersion: ins.minecraftVersion, loader: ins.loader.kind, loaderVersion: ins.loader.version || undefined }));
     expect(made?.state, JSON.stringify(made?.error)).toBe('completed');
     await session.refreshInstances();
-    const plan = await ms(`${label}.prepareImport`, () => session.prepareImport(made!.result!.instanceId!, token, format, false, name));
-    return { ins, plan, id: made!.result!.instanceId!, error: session.review.error };
+    const id = made!.result!.instanceId!;
+    let plan = await ms(`${label}.prepareImport`, () => session.prepareImport(id, token, format, false, name, undefined, true)).catch(() => null);
+    const first = session.review.error;
+    if (!plan && first?.code === 'dependency-conflict') {
+      const conflicts = first.conflicts ?? [];
+      note(`${label}.conflicts`, { truncated: first.conflictsTruncated, structured: conflicts.length > 0, message: first.message.slice(0, 600),
+        conflicts: conflicts.map((c) => ({ kind: c.kind, dependency: c.title, selected: c.selected?.versionNumber ?? null, resolutions: c.resolutions,
+          requests: c.requests.map((r) => ({ mod: r.title, version: r.versionNumber, requested: r.requestedVersionNumber, evidence: r.evidence.result, range: r.evidence.declaredRange })) })) });
+      const reviewable = conflicts.length > 0 && conflicts.every((c) => c.resolutions.length);
+      if (acceptReviewed && reviewable) {
+        const decisions = conflicts.map((c) => ({ provider: c.provider, projectId: c.projectId, versionId: c.kind === 'version_pin' ? c.selected!.versionId : null }));
+        note(`${label}.decisions`, decisions);
+        plan = await ms(`${label}.prepareImportReviewed`, () => session.prepareImport(id, token, format, false, name, decisions, true)).catch(() => null);
+      }
+    }
+    if (!plan) await session.backend.discardImport?.(token).catch(() => undefined);
+    return { ins, plan, id, error: plan ? null : session.review.error };
   }
   const project = (name: string, mods: ProjectMod[]) => newProject({ name, version: '1.0.0', minecraftVersion: '1.20.1', loader: { kind: 'forge', version: LOADER.version }, mods });
 
@@ -132,7 +153,8 @@ describe.skipIf(!on)('REAL Forge 1.20.1 pack (explicit opt-in, read-only source)
   }));
   const forgeTagged = (x: (typeof onModrinth)[number]) => x.v.loaders.includes('forge') && x.v.game_versions.includes('1.20.1');
 
-  it('isolates the import failure: Modrinth versions not tagged forge+1.20.1 (Fabric mods the pack runs via Sinytra Connector)', async () => {
+  // Alone, these Fabric files lack Sinytra Connector in the subset: 0.2.1 reports a loader_bridge conflict here.
+  it('isolates Modrinth versions not tagged forge+1.20.1 (Fabric mods the pack runs via Sinytra Connector)', async () => {
     const other = onModrinth.filter((x) => !forgeTagged(x));
     note('nonForgeTagged', other.map((x) => ({ file: x.local, loaders: x.v.loaders, games: x.v.game_versions })));
     if (!other.length) return;
@@ -143,10 +165,10 @@ describe.skipIf(!on)('REAL Forge 1.20.1 pack (explicit opt-in, read-only source)
     session.discardDraft();
   }, 900_000);
 
-  // Projects whose Modrinth loaders include "datapack" (mod + datapack in one project) are classified as
-  // datapacks by the helper's Prism parser and refused, although project_type is "mod".
+  // Projects whose Modrinth loaders include "datapack" (mod + datapack in one project). Helpers before 0.2.1
+  // refused them as datapacks; 0.2.1 admits them as mods when the version lists Forge and ships a JAR.
   const datapackProjects = new Set<string>();
-  it('isolates the second import failure: mod+datapack Modrinth projects', async () => {
+  it('isolates mod+datapack Modrinth projects', async () => {
     const ids = [...new Set(onModrinth.map((x) => x.v.project_id))];
     for (let i = 0; i < ids.length; i += 100) {
       const list = (await (await fetch(`https://api.modrinth.com/v2/projects?ids=${encodeURIComponent(JSON.stringify(ids.slice(i, i + 100)))}`, { headers: UA })).json()) as { id: string; loaders: string[] }[];
@@ -162,11 +184,12 @@ describe.skipIf(!on)('REAL Forge 1.20.1 pack (explicit opt-in, read-only source)
     session.discardDraft();
   }, 900_000);
 
-  it('imports every supported Modrinth file of the pack as .mrpack: helper downloads, verifies, applies; hashes equal the owner files', async () => {
-    // Files whose Modrinth dependency pins conflict with the pack's own library versions (helper refuses the whole plan).
+  it('imports every Modrinth-identified file of the pack as .mrpack: helper downloads, verifies, applies; hashes equal the owner files', async () => {
+    // Native Core 0.2.1 admits Connector-loaded Fabric files and mod+datapack projects; nothing is filtered by loader.
     const skip = new Set((process.env.AWAKE_REAL_PACK_SKIP ?? '').split('|').filter(Boolean));
-    note('import.skippedPinConflicts', [...skip]);
-    onModrinth.splice(0, onModrinth.length, ...onModrinth.filter((x) => forgeTagged(x) && !datapackProjects.has(x.v.project_id) && !skip.has(x.local)));
+    note('import.skipped', [...skip]);
+    note('import.includesConnectorAndDatapackFiles', { nonForgeTagged: onModrinth.filter((x) => !forgeTagged(x)).length, modAndDatapack: onModrinth.filter((x) => datapackProjects.has(x.v.project_id)).length });
+    onModrinth.splice(0, onModrinth.length, ...onModrinth.filter((x) => !skip.has(x.local)));
     note('import.fileCount', onModrinth.length);
     const mods: ProjectMod[] = onModrinth.map(({ v, f }) => ({
       key: modKey('modrinth', v.project_id), name: f.filename, provider: 'modrinth', projectId: v.project_id, versionId: v.id, versionName: v.version_number,

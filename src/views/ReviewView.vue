@@ -10,6 +10,9 @@ import {
   Sparkles, Trash2, TriangleAlert, Undo2,
 } from '@lucide/vue';
 import Avatar from '../components/Avatar.vue';
+import DependencyConflicts from '../components/DependencyConflicts.vue';
+import { mergeResolutions } from '../domain/conflicts';
+import type { DependencyResolution } from '../backend/contract';
 import VirtualList from '../components/VirtualList.vue';
 import type { ViewId } from '../App.vue';
 
@@ -41,6 +44,14 @@ watch(() => plan.value?.planHash, () => { acknowledged.value = false; });
 const changeLabel: Record<DraftChange['kind'], MessageKey> = { install: 'pendingInstall', update: 'pendingUpdate', remove: 'pendingRemove', enable: 'pendingEnable', disable: 'pendingDisable', policy: 'pendingPolicy' };
 /** An import plan has no draft behind it; it is reviewed as it is. */
 const fromImport = computed(() => !!review.origin && !!plan.value);
+/** Dependency decisions for the current draft, kept across retries until the draft changes. */
+const decisions = ref<DependencyResolution[]>([]);
+watch(changes, () => { decisions.value = []; });
+const canResolve = computed(() => review.source === 'draft' && !!session.backend.canResolveDependencies?.());
+function retryWithDecisions(resolutions: DependencyResolution[]) {
+  decisions.value = mergeResolutions(decisions.value, resolutions);
+  void session.validate(decisions.value);
+}
 /** Big groups (imports, bulk plans) are windowed so 10,000 files stay responsive. */
 const BIG = 80;
 const nameOf = (c: DraftChange) => (c.kind === 'install' ? c.name : modName.value.get(c.modKey) ?? c.modKey);
@@ -129,7 +140,7 @@ function reasonText(i: PlanItem) {
             <button class="icon-btn" type="button" :disabled="busy" :aria-label="t('undoChange')" :title="t('undoChange')" @click="undo(c)"><Undo2 :size="15" /></button>
           </li>
         </ul>
-        <button class="btn btn-primary btn-block" type="button" :disabled="busy || stale || !changes.length || !session.can('plan.validate')" @click="session.validate()">
+        <button class="btn btn-primary btn-block" type="button" :disabled="busy || stale || !changes.length || !session.can('plan.validate')" @click="session.validate(decisions)">
           <Loader v-if="review.phase === 'resolving'" :size="16" class="spin" /><Sparkles v-else :size="16" />
           {{ review.phase === 'resolving' ? t('resolving') : t('resolve') }}
         </button>
@@ -215,7 +226,8 @@ function reasonText(i: PlanItem) {
 
         <p v-if="review.phase === 'applying' && !review.operation" class="notice small" role="status"><Loader :size="16" class="spin" />{{ t('applyAccepted') }}</p>
         <p v-if="review.phase === 'unconfirmed'" class="notice warn small" role="status"><Loader :size="16" class="spin" />{{ t('applyLostReply') }}</p>
-        <div v-if="review.phase === 'failed'" class="notice error" role="alert">
+        <DependencyConflicts v-if="review.phase === 'failed' && review.error?.code === 'dependency-conflict'" :error="review.error" :can-resolve="canResolve" :busy="busy" @retry="retryWithDecisions" />
+        <div v-else-if="review.phase === 'failed'" class="notice error" role="alert">
           <CircleAlert :size="18" />
           <div class="grow">
             <strong>{{ t('applyFailed') }}</strong>

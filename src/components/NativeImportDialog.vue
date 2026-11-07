@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { CircleAlert, FileArchive, Loader, TriangleAlert } from '@lucide/vue';
-import type { BackendError, ImportInspection, InstanceSummary } from '../backend/contract';
+import type { BackendError, DependencyResolution, ImportInspection, InstanceSummary } from '../backend/contract';
+import DependencyConflicts from './DependencyConflicts.vue';
+import { mergeResolutions } from '../domain/conflicts';
 import { HELPER_INSTALLATION } from '../backend/helper/HelperClient';
 import type { ImportPreview } from '../domain/packFormats';
 import { formatNumber, t } from '../i18n';
@@ -27,6 +29,10 @@ const target = ref<'new' | string>('new');
 const name = ref(props.preview.project.name.slice(0, 80));
 const includeOptional = ref(false);
 let abort: AbortController | null = null;
+/** Upload and workspace kept after a reviewable dependency conflict, so a retry needs no new upload. */
+const pending = ref<{ instanceId: string; token: string } | null>(null);
+const decisions = ref<DependencyResolution[]>([]);
+const canResolve = computed(() => !!session.backend.canResolveDependencies?.());
 
 const pack = props.preview.project;
 /** An existing workspace qualifies only with the exact Minecraft and loader versions of the pack. */
@@ -69,11 +75,9 @@ async function run() {
         throw asError(new Error(t('importMismatch', { version: ins.minecraftVersion, loader: `${loaderLabel(ins.loader.kind)} ${ins.loader.version}`.trim() })));
       }
     }
-    step.value = 'preparing';
     const t0 = token;
-    token = null; // prepareImport discards the upload itself, success or not
-    await session.prepareImport(instanceId, t0, props.preview.format, includeOptional.value, props.file.name);
-    emit('review');
+    token = null; // prepare() owns the upload from here on
+    await prepare(instanceId, t0, []);
   } catch (e) {
     error.value = asError(e);
     step.value = 'choose';
@@ -82,9 +86,40 @@ async function run() {
     abort = null;
   }
 }
+/**
+ * The helper reports every dependency problem at once, before it stages any file. A problem the user can
+ * decide keeps the upload for a retry with those decisions; anything else discards it immediately.
+ */
+async function prepare(instanceId: string, token: string, resolutions: DependencyResolution[]) {
+  step.value = 'preparing';
+  error.value = null;
+  try {
+    await session.prepareImport(instanceId, token, props.preview.format, includeOptional.value, props.file.name, resolutions, true);
+    pending.value = null;
+    emit('review');
+  } catch (e) {
+    const err = asError(e);
+    error.value = err;
+    const reviewable = err.code === 'dependency-conflict' && !!err.conflicts?.length && canResolve.value && err.conflicts.every((c) => c.resolutions.length);
+    pending.value = reviewable ? { instanceId, token } : null;
+    if (!reviewable && err.code === 'dependency-conflict') await session.backend.discardImport?.(token).catch(() => undefined);
+  } finally {
+    step.value = 'choose';
+  }
+}
+async function retry(resolutions: DependencyResolution[]) {
+  if (!pending.value) return;
+  decisions.value = mergeResolutions(decisions.value, resolutions);
+  await prepare(pending.value.instanceId, pending.value.token, decisions.value);
+}
+async function dropPending() {
+  const p = pending.value;
+  pending.value = null;
+  if (p) await session.backend.discardImport?.(p.token).catch(() => undefined);
+}
 function cancel() {
   if (abort) abort.abort();
-  else emit('close');
+  else { void dropPending(); emit('close'); }
 }
 const busy = computed(() => step.value !== 'choose');
 const stepText = computed(() => ({
@@ -95,7 +130,7 @@ const hint = computed(() => (error.value ? importErrorHint(error.value.code) : n
 </script>
 
 <template>
-  <div class="dialog-overlay" @click.self="!busy && emit('close')" @keydown.esc="!busy && emit('close')">
+  <div class="dialog-overlay" @click.self="!busy && cancel()" @keydown.esc="!busy && cancel()">
     <form class="dialog glass" role="dialog" aria-modal="true" aria-labelledby="native-import" @submit.prevent="run">
       <header>
         <h2 id="native-import"><FileArchive :size="18" /> {{ t('importNativeTitle') }}</h2>
@@ -125,7 +160,8 @@ const hint = computed(() => (error.value ? importErrorHint(error.value.code) : n
         <div v-if="inspection?.warnings.length" class="notice warn small">
           <TriangleAlert :size="18" /><ul class="warn-list"><li v-for="(w, i) in inspection.warnings" :key="i">{{ w }}</li></ul>
         </div>
-        <div v-if="error" class="notice error" role="alert">
+        <DependencyConflicts v-if="error?.code === 'dependency-conflict'" :error="error" :can-resolve="canResolve" :busy="busy" @retry="retry" />
+        <div v-else-if="error" class="notice error" role="alert">
           <CircleAlert :size="18" />
           <div class="grow">
             <strong>{{ t('importNativeFailed') }}</strong>
@@ -136,7 +172,7 @@ const hint = computed(() => (error.value ? importErrorHint(error.value.code) : n
       </div>
       <footer>
         <button class="btn" type="button" :disabled="busy && step !== 'uploading'" @click="cancel">{{ t('cancel') }}</button>
-        <button class="btn btn-primary" type="submit" :disabled="busy || (target === 'new' && !name.trim())">{{ t('importPrepare') }}</button>
+        <button v-if="!pending" class="btn btn-primary" type="submit" :disabled="busy || (target === 'new' && !name.trim())">{{ t('importPrepare') }}</button>
       </footer>
     </form>
   </div>

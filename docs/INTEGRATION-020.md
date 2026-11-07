@@ -1,19 +1,41 @@
-# Native Core 0.2.0 integration (Manager v0.2.0)
+# Native Core 0.2.x integration (Manager v0.2.0; helper 0.2.1)
 
 ## Pins
 
 | What | Value |
 |---|---|
-| Contract (schema, protocol doc) | Awake Launcher `b00caf7097897ab60ad0aa247e4964ece667976c`, branch `feat/native-core-manager-020`; delivered by `9622abce7b5232f14e0a64a6a1997010b728de26` (artifacts + `handoff.md` only; schema identical) |
-| `src/backend/core/core.schema.json` | byte-identical to `docs/modpack-manager/core.schema.json` at `b00caf709`, SHA-256 `931f1115c3447737551dbec272d883cbdb9d04b3aaa98cbc9e61c8c82b5edbcb` |
-| Helper executable | `awake-core-host.exe` 0.2.0, SHA-256 `b33f41c23c5ad7e3708dce7cb0b466311ce8ea526887cbfa3e110e44f58832e6` |
-| Helper package manifest (`SHA256SUMS`) | SHA-256 `1e7570229e7742995f2ee56afcdd35ce3cc17af234016657b15a2139160aac97` |
-| Codex package ZIP | `awake-core-manager-v0.2.0-windows-x64.zip`, SHA-256 `2286079e486b4f067b946121ce7b997a15e985e8ec9598082b13b4995af0b37c` (6,742,421 bytes) |
-| Corresponding source | `awake-core-source-b00caf709789.zip`, SHA-256 `3352fe74952dba6dc37c6287df7c5f397312d9f39bae84c5a245aaa7561c64ad` (two committed parts joined and verified) |
+| Contract (schema, protocol doc) | Awake Launcher `31d0611a9de0409560f0b62282de078e5970a396` (branch `feat/native-core-manager-020`); unchanged through the executable pin `b06c9a804503545207bacfa3bfdf8bfe23604e07`; delivered by `75b362c6958fe9a5829faf4371146f9132b7ebc2` |
+| `src/backend/core/core.schema.json` | byte-identical to the Git blob `docs/modpack-manager/core.schema.json` at `31d0611a9`, SHA-256 `26539795e4da1929fd6977032da25798de6f0274c8af7375740c5b403ba0e3e7` |
+| Helper executable | `awake-core-host.exe` 0.2.1, SHA-256 `a71b35e946ffef00bed4b1200c4796e7d16001dac8089481d0192035ae64124b` |
+| Helper package manifest (`SHA256SUMS`) | SHA-256 `aacd3d97188c45aa63b1f9a290d0c1d39a531c74e1126e7ef044e8c81116f752` |
+| Helper package ZIP | `awake-core-manager-v0.2.1-windows-x64.zip`, SHA-256 `0aea4ce7f3adcd7fd920d55c4b751623c5846be24331b2846e9624b026bc6792` (6,814,993 bytes) |
+| Corresponding source | `awake-core-source-b06c9a804503.zip`, SHA-256 `543dcc404bdb9bb6f319dceb6e860b1040a7c55611fba5443d934444237503ee` (107,287,939 bytes; two committed parts joined and verified) |
 
 `scripts/helper-pin.json` records these. `stage-helper.mjs --from` and `--check` refuse any package
 whose executable, manifest, file set or `SOURCE.json` differs; the Rust host embeds the staged
 `SHA256SUMS` at build time and refuses to start a helper folder with a changed, missing or extra file.
+
+## Native Core 0.2.1: reviewed dependency conflicts (`manager.v0.2.1`)
+
+* `hello` offers `manager.v0.2.1` first, then `manager.v0.2`, then nothing, each alone on a fresh connection
+  (`coordinator/rpc.ts`). A 0.2.0 helper rejects the newer offer with INVALID_REQUEST and keeps working at
+  the 0.2 level. `manager.v0.2.1` implies every 0.2 feature (`ext()` accepts either).
+* With `dependencies.resolutions.v1`, a failed `plans.prepare` / `imports.prepare` operation carries
+  `error.details.conflicts[]` (only in `operations.get`). `HelperClient` maps them, never the message text, to
+  `BackendError('dependency-conflict', …, conflicts)`. `domain/conflicts.ts` turns each conflict into what the
+  UI shows: friendly project name, requesting mods and their versions, requested and selected versions, what
+  the mods' own loader metadata says (`satisfied`, `violated`, `not_declared`, `unknown`), affected files and
+  only the actions the helper accepts.
+* `components/DependencyConflicts.vue` appears in place, in the import dialog and on Review, as soon as the
+  helper reports conflicts. That happens before anything is downloaded or staged. No choice is preselected. The retry is enabled only when every
+  problem has an explicit decision and none is blocked. The import dialog keeps the upload and the new
+  workspace for the retry (`session.prepareImport(..., resolutions, keepUploadOnFailure)`) and discards the
+  upload when the dialog is cancelled. Decisions accumulate across rounds (`mergeResolutions`).
+* Retries send `dependencyResolutions` (`{projectId, provider?, versionId | null}`). The helper re-checks the
+  evidence and binds accepted decisions into `planDigest`. Review lists each one (`dependency-reviewed`).
+* Mods loaded through Sinytra Connector show a "via Sinytra Connector" badge (`mods.list.loaderBridge`).
+* A helper without the extension still fails with DEPENDENCY_CONFLICT: the panel then says the details are
+  unavailable, and the client never sends decisions to it.
 
 ## Handshake and compatibility
 
