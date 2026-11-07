@@ -3,23 +3,21 @@
 A Windows desktop app for building and maintaining large Minecraft modpacks (200-300+ mods).
 It works on its own, and alongside Awake Launcher when that is installed.
 
-> **Status (Windows x64):** the Manager side of standalone mode is done; real installs are waiting on
-> Codex's helper build.
+> **Status (Windows x64): local MVP.** Standalone Fabric/vanilla projects with real Modrinth mods.
 >
-> * **Standalone (no Launcher):** the Manager talks to its bundled native helper
->   (`awake-core-host.exe`, protocol 2.0, pinned to Launcher commit `861cebc1a`). It starts the
->   helper on demand. The helper owns:
->   * workspaces;
->   * Modrinth search and downloads;
->   * dependency resolution;
->   * reviewed prepare/apply;
->   * recovery.
+> * **Standalone (no Launcher):** the Manager bundles Awake's native helper
+>   (`awake-core-host.exe` 0.1.1, protocol 2.0, built from Launcher commit `299c140bd`) and
+>   starts it on demand. The helper owns:
+>   * workspaces (new vanilla/Fabric projects with exact versions);
+>   * Modrinth search, versions and verified downloads (size, SHA-512, SHA-1);
+>   * required-dependency resolution;
+>   * reviewed prepare/apply, updates, enable/disable/remove;
+>   * durable operations and recovery.
 >
->   The Manager implements the whole client against that contract. It is tested against a
->   protocol fixture, not a real helper.
-> * **This build's helper:** it bundles a **test stub** (`tools/stub-helper`). The app labels it,
->   and it can't create, download or install anything. Stage Codex's real helper build with
->   `node scripts/stage-helper.mjs --from <build folder>` once it's committed.
+>   Not available yet: CurseForge, import/export through the helper, adopting existing Launcher
+>   instances, loader changes after creation, mod display titles.
+> * **Real-backend tests:** `tests/realHelper` (opt-in) drives the TypeScript client against the
+>   packaged helper and live Modrinth; the Rust host has an opt-in real-helper identity test.
 > * **Projects:** drafts with `.mrpack`/CurseForge ZIP import preview and verified export.
 >   * Exports use the native Save As dialog.
 >   * Drafts are saved in a versioned file under `%LOCALAPPDATA%\AwakeModpackManager\projects`.
@@ -36,9 +34,15 @@ npm run dev             # browser preview at http://127.0.0.1:5173, demo data on
 npm test                # Vitest: unit, component and fixture-IPC tests
 npm run test:host       # Rust host tests
 npm run build           # typecheck + web bundle in dist/
-npm run desktop:build   # Windows release build (NSIS installer; stages the stub helper if none is staged)
-npm run helper:stub     # build and stage the test stub helper
-node scripts/stage-helper.mjs --from <dir>   # stage a real helper build instead
+node scripts/stage-helper.mjs --from <helper package folder> <source commit>   # stage the real helper (whole folder)
+npm run desktop:build   # Windows release build (NSIS installer); refuses a missing, stub or modified helper stage
+npm run helper:stub     # stage the test stub helper (tests only; desktop:build refuses it)
+```
+
+Real-backend tests (disposable profile, live Modrinth):
+
+```bash
+AWAKE_REAL_HELPER=src-tauri/helper-stage/awake-core-host.exe AWAKE_REAL_PROFILE=<new empty folder> npx vitest run tests/realHelper
 ```
 
 Testing with disposable data: set `AWAKE_MM_DATA_DIR` to a scratch folder before starting the

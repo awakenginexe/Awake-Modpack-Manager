@@ -177,15 +177,23 @@ and the Manager will add it in the same re-pin, or map it to a schema state on t
 
 ## Native helper (protocol 2.0)
 
-**Adopted:** Codex committed the helper contract in `861cebc1a`
-(`docs/modpack-manager/core-protocol.md`, `core.schema.json`). The Manager pins a verbatim copy in
-`src/backend/core/core.schema.json`, and validates every request and every reply against it.
+**Adopted:** Codex committed the helper contract in `861cebc1a` and the implementation (0.1.1) in
+`299c140bd`, handed off in `68c55f2c7`. The Manager pins the verbatim `core.schema.json` from
+`299c140bd` in `src/backend/core/core.schema.json`, and validates every request and every reply
+against it. The bundled helper is Codex's tested package `.validation/core-host-final`
+(exe SHA-256 `d4b01dbe…c310c`), staged whole; `src-tauri/helper-stage/HELPER-SOURCE.txt` lists
+every file's hash.
 
 **What the Manager implements:**
 * **Startup (`src-tauri/src/helper.rs`):** the Rust host starts the bundled
   `core-host\windows-x64\awake-core-host.exe --profile %LOCALAPPDATA%\AwakeModpackManager\core`
-  with `CREATE_NO_WINDOW` (and breakaway from the app's job where allowed). It never kills the
-  helper.
+  with `CREATE_NO_WINDOW` and breakaway from the app's job. It never kills the helper.
+  * A new profile is created with a protected DACL (current user, SYSTEM, Administrators; owner
+    = user). An existing profile is never re-permissioned; the helper refuses a permissive one.
+  * If breakaway is denied and the job kills its processes on close, the host refuses to start
+    the helper instead of silently starting it inside that job.
+  * A helper that is still starting (e.g. running startup recovery) is waited for, not failed.
+  * `helper.log` (stderr) is written next to the profile, not inside it.
 * **Descriptor and pipe:** the host reads `integration\core-v2\endpoint.json`, and opens only
   `awake-core-v2-<uuid>` pipes.
 * **Identity checks:**
@@ -213,17 +221,14 @@ and the Manager will add it in the same re-pin, or map it to a schema state on t
 * **Prepared plans:** the Manager cancels a prepared plan it replaces, because prepared plans
   never expire on their own.
 
+* **Plan review:** mod files directly in `mods/` are the review items (a remove + install of a
+  renamed `.disabled` JAR is shown as one disable/enable); the helper's bookkeeping files
+  (`mods/.index/*.pw.toml`, `.awake-integration/policies.json`) are listed in one note.
+
 **Still needed from Codex:**
-* **H5. A committed helper build** (the folder with `awake-core-host.exe`, its Qt DLLs, `qt.conf`
-  and plugins) plus the "verified runtime table" the handoff mentions. Until then the Manager
-  ships the test stub and real standalone installs can't run. The Manager stages it with
-  `node scripts/stage-helper.mjs --from <folder>`.
-* **H6. Install/upgrade drain.** `core.shutdown` is refused until it's safe. The installer waits
-  for `awake-core-host.exe` to exit (`src-tauri/installer-hooks.nsh`) and never kills it. Please
-  confirm the helper exits on its own when it's idle and has no active, prepared or recovery
-  work, or say what the Manager should call first.
-* **H7. Display names for installed mods.** `installed` has no title, so the Mods list shows
-  file names.
+* **H7. Display names for installed mods.** `installed` has no title (handoff: titles are not
+  extracted from JARs), so the Mods list shows file names, and optional-dependency suggestions
+  show Modrinth project IDs.
 * **H8. Import/export via inbox/outbox**, when enabled. Until then, the Manager's own
   `.mrpack`/CurseForge import preview and verified export stay in Projects.
 
@@ -232,3 +237,6 @@ and the Manager will add it in the same re-pin, or map it to a schema state on t
 * H2: PID/SID verification is specified; the Manager adds its image check.
 * H3: inbox/outbox tokens are reserved.
 * H4: the helper owns its lifetime; `core.shutdown` waits until it's safe.
+* H5: helper build delivered (`299c140bd`, package `core-host-final`).
+* H6: the helper exits by itself after 60 s idle with no clients, prepared/active work or
+  recovery; the installer waits for that and never kills it.
