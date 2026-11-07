@@ -34,7 +34,8 @@ async function loadCatalog() {
     const loader = form.value.loader;
     const c = await backend.versionCatalog({ minecraftVersion: form.value.minecraftVersion || undefined, loader: loader === 'vanilla' ? undefined : loader });
     catalog.value = c;
-    if (!c.minecraftVersions.includes(form.value.minecraftVersion)) form.value.minecraftVersion = c.minecraftVersions[0] ?? '';
+    // The catalog has no release/snapshot types; plain dotted numbers (1.21.1, 26.3) are releases.
+    if (!c.minecraftVersions.includes(form.value.minecraftVersion)) form.value.minecraftVersion = c.minecraftVersions.find((v) => /^\d+(\.\d+)+$/.test(v)) ?? c.minecraftVersions[0] ?? '';
     if (!c.loaders.includes(form.value.loader)) form.value.loader = c.loaders.find((l) => l !== 'vanilla') ?? c.loaders[0] ?? 'vanilla';
     if (form.value.loader !== 'vanilla' && !c.loaderVersions.includes(form.value.loaderVersion)) form.value.loaderVersion = c.loaderVersions[0] ?? '';
   } catch (e) {
