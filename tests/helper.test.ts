@@ -26,7 +26,7 @@ async function standalone(c = new FakeCore()) {
 
 describe('core protocol 2.0 schema (pinned)', () => {
   it('is pinned to the committed contract and enforces it', () => {
-    expect(CORE_CONTRACT_COMMIT).toMatch(/^861cebc1a/);
+    expect(CORE_CONTRACT_COMMIT).toMatch(/^299c140bd/);
     expect(paramsError('workspaces.create', { idempotencyKey: 'k', name: 'x', minecraftVersion: '1.21.1', loader: { id: 'forge', version: '1' } })).toMatch(/loader\.id/);
     expect(paramsError('workspaces.create', { idempotencyKey: 'k', name: 'x', minecraftVersion: '1.21.1', loader: { id: 'fabric', version: '0.16.9' }, extra: 1 })).toMatch(/not allowed/);
     expect(paramsError('plans.prepare', { idempotencyKey: 'k', physicalId: 'p', instanceRevision: 'a'.repeat(64), changes: [] })).toMatch(/too few/);
@@ -135,6 +135,9 @@ describe('HelperClient protocol 2.0 (fixture)', () => {
     expect(core.log.find((l) => l.method === 'plans.prepare')?.params.changes).toEqual([
       { action: 'replace', projectId: 'sodium', versionId: 'sodV2' }, { action: 'disable', inventoryId: 'b' }, { action: 'remove', inventoryId: 'c' },
     ]);
+    // File-level remove+install of a renamed JAR is shown as one disable; bookkeeping is one note.
+    expect(session.review.plan!.items.map((i) => [i.action, i.name])).toEqual([['update', 'sodium-0.6.0.jar'], ['disable', 'fabricapi-0.100.0.jar'], ['remove', 'c-x.jar']]);
+    expect(session.review.plan!.issues.some((i) => i.severity === 'info' && i.message.includes('.awake-integration/policies.json'))).toBe(true);
     await session.apply();
     expect(session.review.phase).toBe('done');
     await wait();
@@ -142,6 +145,18 @@ describe('HelperClient protocol 2.0 (fixture)', () => {
     expect(mods.find((m) => m.projectId === 'sodium')?.installed?.id).toBe('sodV2');
     expect(mods.find((m) => m.key === 'b')?.enabled).toBe(false);
     expect(mods.some((m) => m.key === 'c')).toBe(false);
+  });
+
+  it('cancels a prepared plan left by an earlier Manager run, so the helper can exit when idle', async () => {
+    const first = await standalone();
+    first.setDraft(addChange(first.draft.value!, { kind: 'install', provider: 'modrinth', projectId: 'lithium', name: 'Lithium' }));
+    await first.validate();
+    const planId = first.review.plan!.planId;
+    expect((await first.backend.getOperation(planId)).state).toBe('prepared');
+    const next = createSession(helper(core), { pollMs: 1 });
+    await next.connect();
+    expect(core.log.some((l) => l.method === 'operations.cancel' && l.params.operationId === planId)).toBe(true);
+    expect((await next.backend.getOperation(planId)).state).toBe('cancelled');
   });
 
   it('stops on a stale revision instead of preparing against changed files', async () => {

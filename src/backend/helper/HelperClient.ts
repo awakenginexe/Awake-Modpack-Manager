@@ -117,6 +117,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
   const digests = new Map<string, string>();
   /** The prepared, not yet applied plan per workspace; replaced plans are cancelled (no auto-expiry). */
   const prepared = new Map<string, string>();
+  let startupCleaned = false;
 
   const coreLoader = (l: LoaderKind | undefined): CoreLoader => {
     if (l && (CORE_LOADERS as readonly string[]).includes(l)) return l as CoreLoader;
@@ -245,14 +246,30 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     const { items: files, first } = await all<CorePlanPage['files'][number], CorePlanPage>('plans.get', { operationId }, (p) => p.files);
     const head = first!;
     digests.set(operationId, head.planDigest);
-    const items: PlanItem[] = files.map((f) => ({
-      action: f.action === 'replace' ? 'update' : f.action,
-      modKey: f.path, name: f.path.split('/').pop() ?? f.path,
-      reason: 'requested',
-      destructive: f.action !== 'install',
-    }));
+    // Mod files (directly in mods/) are the review items; the rest is the helper's bookkeeping
+    // (Packwiz .index, policies), listed in one note so every change is still shown.
+    const isMod = (p: string) => /(^|\/)mods\/[^/]+$/.test(p);
+    const mods = files.filter((f) => isMod(f.path));
+    const meta = files.filter((f) => !isMod(f.path));
+    const paths = new Set(mods.map((f) => `${f.action}:${f.path}`));
+    const items: PlanItem[] = [];
+    for (const f of mods) {
+      const name = f.path.split('/').pop() ?? f.path;
+      // Disable = remove x.jar + install x.jar.disabled; enable is the reverse. Show each as one item.
+      if (f.action === 'install' && /\.disabled$/i.test(f.path) && paths.has(`remove:${f.path.replace(/\.disabled$/i, '')}`)) {
+        items.push({ action: 'disable', modKey: f.path, name: name.replace(/\.disabled$/i, ''), reason: 'requested' });
+      } else if (f.action === 'install' && paths.has(`remove:${f.path}.disabled`)) {
+        items.push({ action: 'enable', modKey: f.path, name, reason: 'requested' });
+      } else if (f.action === 'remove' && (paths.has(`install:${f.path}.disabled`) || (/\.disabled$/i.test(f.path) && paths.has(`install:${f.path.replace(/\.disabled$/i, '')}`)))) {
+        continue;
+      } else {
+        items.push({ action: f.action === 'replace' ? 'update' : f.action, modKey: f.path, name, reason: 'requested', destructive: f.action !== 'install' });
+      }
+    }
     const issues: PlanIssue[] = [
-      ...head.warnings.map((w) => ({ severity: 'warning' as const, code: 'coordinator-warning' as const, message: w, modKeys: [] })),
+      // Optional dependencies are listed as suggestions below; the helper also words them as warnings.
+      ...head.warnings.filter((w) => !/^optional dependency/i.test(w)).map((w) => ({ severity: 'warning' as const, code: 'coordinator-warning' as const, message: w.trim(), modKeys: [] })),
+      ...(meta.length ? [{ severity: 'info' as const, code: 'coordinator-warning' as const, message: `Also updates ${meta.length} metadata file(s): ${meta.map((f) => f.path).join(', ')}`, modKeys: [] }] : []),
       ...head.dependencies.filter((d) => d.type === 'incompatible').map((d) => ({ severity: 'warning' as const, code: 'incompatible' as const, message: `Declared incompatible: ${d.projectId ?? 'unknown project'}`, modKeys: [] })),
       ...head.dependencies.filter((d) => d.type === 'required').map((d) => ({ severity: 'info' as const, code: 'dependency-included' as const, message: `Required dependency included and verified: ${d.projectId ?? 'unknown project'}${d.versionId ? ` (${d.versionId})` : ''}`, modKeys: [] })),
     ];
@@ -298,6 +315,13 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       }
       setState('connected');
       startHeartbeat();
+      // A prepared plan never expires and keeps the helper (and so upgrades) waiting. Plans left
+      // by an earlier Manager run can't be applied from this one, so cancel them once at start.
+      if (!startupCleaned && has('operations.list') && has('operations.cancel', true)) {
+        startupCleaned = true;
+        const { items } = await all<CoreOperation, { operations: CoreOperation[]; nextOffset: number | null }>('operations.list', {}, (p) => p.operations).catch(() => ({ items: [] as CoreOperation[] }));
+        for (const op of items) if (op.state === 'prepared') await call('operations.cancel', { operationId: op.operationId }).catch(() => undefined);
+      }
       const search = has('providers.search');
       const reason = stub() ? 'helper-stub' : 'helper-pending';
       return {
@@ -337,9 +361,10 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
             'updates.check', { physicalId: w.physicalId }, (p) => p.updates,
           );
           for (const u of updates) {
-            if (u.excluded || !u.candidate) continue;
+            if (u.excluded) continue;
             const m = mods.find((x) => x.projectId === u.projectId && x.installed?.id === u.installedVersionId);
-            if (m) m.available = { id: u.candidate.versionId, name: u.candidate.versionNumber, releaseType: u.candidate.releaseType };
+            // Checked with no newer stable version: shown as up to date (available = installed).
+            if (m) m.available = u.candidate ? { id: u.candidate.versionId, name: u.candidate.versionNumber, releaseType: u.candidate.releaseType } : m.installed ?? undefined;
           }
         } catch { /* update availability is optional; the inventory stands on its own */ }
       }

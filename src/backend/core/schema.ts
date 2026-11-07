@@ -4,12 +4,12 @@ import schema from './core.schema.json';
  * Awake native helper protocol 2.0 (role `modpack-core`).
  *
  * Source of truth: Awake Launcher docs/modpack-manager/{core-protocol.md, core.schema.json} at
- * commit 861cebc1a613011aa7d5e732af356ba3e3235a5b (branch feat/modpack-manager-integration),
+ * commit 299c140bd91656cf988efc4cff27887b54ae1efc (branch feat/modpack-manager-integration),
  * copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
  * accepts is checked against that schema, so the client can neither send nor trust anything the
  * contract does not define. Re-pin by replacing the JSON file and this commit.
  */
-export const CORE_CONTRACT_COMMIT = '861cebc1a613011aa7d5e732af356ba3e3235a5b';
+export const CORE_CONTRACT_COMMIT = '299c140bd91656cf988efc4cff27887b54ae1efc';
 export const CORE_VERSION = { major: 2, minor: 0 } as const;
 
 type Schema = Record<string, unknown>;

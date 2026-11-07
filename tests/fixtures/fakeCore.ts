@@ -296,9 +296,17 @@ export class FakeCore implements PipeTransport {
         const i = next.findIndex((x) => x.inventoryId === ch.inventoryId);
         if (i < 0) throw this.err('NOT_FOUND', 'Unknown inventory item.');
         if (ch.action === 'remove') { files.push({ path: `mods/${next[i]!.fileName}`, action: 'remove' }); next.splice(i, 1); }
-        else { const enabled = ch.action === 'enable'; next[i] = { ...next[i]!, enabled, fileName: next[i]!.fileName.replace(/\.disabled$/, '') + (enabled ? '' : '.disabled') }; files.push({ path: `mods/${next[i]!.fileName}`, action: 'replace' }); }
+        else {
+          // Like the real helper (299c140bd): a toggle is remove old name + install new name.
+          const enabled = ch.action === 'enable';
+          const from = next[i]!.fileName;
+          next[i] = { ...next[i]!, enabled, fileName: from.replace(/\.disabled$/, '') + (enabled ? '' : '.disabled') };
+          files.push({ path: `.minecraft/mods/${from}`, action: 'remove' }, { path: `.minecraft/mods/${next[i]!.fileName}`, action: 'install' });
+        }
       }
     }
+    // The real helper also lists its bookkeeping files.
+    if (files.length) files.push({ path: '.awake-integration/policies.json', action: 'replace' });
     return { files, deps, next, digest: hex(`digest-${opId}`), base };
   }
 }
