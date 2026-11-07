@@ -1,5 +1,5 @@
 import type {
-  Accepted, LoaderKind, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
+  Accepted, ImportInspection, LoaderKind, WorkspaceSnapshot, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
   OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery,
 } from './contract';
@@ -67,6 +67,21 @@ export interface ManagerBackend {
   projectVersions?(instanceId: string, provider: ProviderId, projectId: string): Promise<ProjectVersion[]>;
   /** Ask the coordinator to roll back an operation that is waiting for recovery. */
   runRecovery?(operationId: string, idempotencyKey: string): Promise<Accepted>;
+
+  /**
+   * Native modpack import (helper with manager.v0.2, imports.* and inbox.*). Absent or rejecting
+   * with `unsupported` otherwise. The archive travels through bounded upload chunks, never as a path.
+   */
+  canImport?(): boolean;
+  /** Upload and commit an archive; resolves to its transfer token. */
+  uploadImport?(file: Blob, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<string>;
+  inspectImport?(token: string, format: ImportInspection['format']): Promise<ImportInspection>;
+  /** Resolve, download and stage the import for a matching workspace; resolves to the full reviewable plan. */
+  prepareImport?(instanceId: string, token: string, format: ImportInspection['format'], includeOptional: boolean): Promise<ResolvedPlan>;
+  /** Remove the uploaded bytes (idempotent). Workspaces and prepared plans are not touched. */
+  discardImport?(token: string): Promise<void>;
+  /** Provider identity of every verified file in a workspace, for a Manager-built export. */
+  snapshotWorkspace?(instanceId: string, onProgress?: (done: number, total: number) => void): Promise<WorkspaceSnapshot>;
 
   /** Accepting is not "started": follow the operation until the Launcher reports process-started. */
   requestLaunch(instanceId: string, idempotencyKey: string): Promise<Accepted>;

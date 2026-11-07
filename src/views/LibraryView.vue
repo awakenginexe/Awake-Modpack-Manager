@@ -49,6 +49,8 @@ watch(() => [form.value.minecraftVersion, form.value.loader], () => { if (showCr
 const minecraftChoices = computed(() => catalog.value?.minecraftVersions ?? ['1.21.1', '1.20.1', '1.19.2', '1.18.2']);
 const loaderChoices = computed(() => catalog.value?.loaders ?? ALL_LOADERS);
 const needsLoaderVersion = computed(() => !!catalog.value && form.value.loader !== 'vanilla');
+/** The helper validated this pair and has no loader build for it: say so instead of an empty list. */
+const incompatible = computed(() => needsLoaderVersion.value && !catalogLoading.value && !catalog.value!.loaderVersions.length);
 
 const shown = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -91,7 +93,7 @@ async function create() {
     const result = await session.createInstance({ ...form.value, name: form.value.name.trim() });
     if (result?.state === 'completed') {
       showCreate.value = false;
-      notice.value = t('createDone');
+      notice.value = helper.value ? t('createDoneHelper', { name: form.value.name.trim() }) : t('createDone');
       form.value.name = '';
     } else if (result) createError.value = result.error?.message ?? t('applyFailed');
   } catch (e) {
@@ -239,12 +241,14 @@ async function create() {
                 <option v-for="v in catalog!.loaderVersions" :key="v" :value="v">{{ v }}</option>
               </select>
             </label>
+            <p v-if="incompatible" class="notice warn" role="alert"><TriangleAlert :size="18" />{{ t('createIncompatible', { loader: loaderLabel(form.loader), version: form.minecraftVersion }) }}</p>
+            <p v-if="catalogLoading" class="muted small" role="status"><Loader :size="14" class="spin" /> {{ t('catalogLoading') }}</p>
             <p v-if="catalogError" class="notice error" role="alert"><CircleAlert :size="18" />{{ catalogError }}</p>
             <p v-if="createError" class="notice error" role="alert"><CircleAlert :size="18" />{{ createError }}</p>
           </div>
           <footer>
             <button class="btn" type="button" @click="showCreate = false">{{ t('cancel') }}</button>
-            <button class="btn btn-primary" type="submit" :disabled="creating || !form.name.trim() || (needsLoaderVersion && !form.loaderVersion)">{{ creating ? t('creating') : t('createSubmit') }}</button>
+            <button class="btn btn-primary" type="submit" :disabled="creating || catalogLoading || incompatible || !form.name.trim() || (needsLoaderVersion && !form.loaderVersion)">{{ creating ? t('creating') : t('createSubmit') }}</button>
           </footer>
         </form>
       </div>

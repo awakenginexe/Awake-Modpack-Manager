@@ -67,7 +67,7 @@ const statusText = computed(() => {
 });
 const statusTone = computed(() => (state.connection === 'connected' ? (isMock ? 'warn' : 'ok') : state.connection === 'connecting' || state.reconnecting ? 'info' : 'error'));
 const supported = computed(() => hs.value?.capabilities.length ?? 0);
-const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : reason === 'launcher-read-only' ? t('launcherReadOnly') : reason ?? t('unavailable'));
+const reasonText = (reason?: string) => (reason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : reason === 'curseforge-disabled' ? t('curseforgeDisabled') : reason === 'launcher-read-only' ? t('launcherReadOnly') : reason ?? t('unavailable'));
 
 /* Data source and Launcher profiles */
 const sources: { id: DataSource; label: MessageKey; hint: MessageKey }[] = [

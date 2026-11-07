@@ -4,7 +4,7 @@ export const newDraft = (instanceId: string, baseRevision: string): Draft => ({ 
 
 const keyOf = (c: DraftChange) => (c.kind === 'install' ? `install:${c.projectId}` : c.modKey);
 /** Content changes (update/remove) and state changes (enable/disable) are tracked separately per mod. */
-const slot = (c: DraftChange) => (c.kind === 'enable' || c.kind === 'disable' ? 'state' : 'content');
+const slot = (c: DraftChange) => (c.kind === 'enable' || c.kind === 'disable' ? 'state' : c.kind === 'policy' ? 'policy' : 'content');
 
 /** Add a change, replacing any earlier change it supersedes. Removing a mod drops its other changes. */
 export function addChange(draft: Draft, change: DraftChange): Draft {
@@ -40,7 +40,8 @@ export function rebase(draft: Draft, revision: string, mods: readonly InstalledM
     const mod = c.kind === 'install' ? undefined : byKey.get(c.modKey);
     const ok = c.kind === 'install'
       ? !installed.has(c.projectId)
-      : !!mod && (c.kind === 'remove' || (c.kind === 'update' && mod.installed?.id !== c.targetVersionId) || (c.kind === 'enable' && !mod.enabled) || (c.kind === 'disable' && mod.enabled));
+      : !!mod && (c.kind === 'remove' || (c.kind === 'update' && mod.installed?.id !== c.targetVersionId) || (c.kind === 'enable' && !mod.enabled) || (c.kind === 'disable' && mod.enabled)
+        || (c.kind === 'policy' && (!!mod.updateLocked !== c.pinned || !!mod.updateExcluded !== c.excluded)));
     (ok ? kept : dropped).push(c);
   }
   return { draft: { ...draft, baseRevision: revision, changes: kept }, dropped };

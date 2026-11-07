@@ -29,7 +29,18 @@ export const CATALOG: Record<string, { title: string; versions: CoreVersion[] }>
   lithium: { title: 'Lithium', versions: [version('lithium', 'litV2', '0.13.0', [], 'beta'), version('lithium', 'litV1', '0.12.0')] },
 };
 
-type Change = { action: string; projectId?: string; versionId?: string; inventoryId?: string };
+type Change = { action: string; projectId?: string; versionId?: string; inventoryId?: string; pinnedVersion?: string | null; excluded?: boolean };
+/** Extension capabilities a 0.2 helper reports when hello carries manager.v0.2 (CurseForge stays off, as shipped). */
+export const EXT_CAPS = {
+  'loaders.forge.v1': true, 'loaders.neoforge.v1': true, 'loaders.quilt.v1': true, 'policies.v1': true, 'providers.curseforge.v1': false,
+  'imports.inspect': true, 'imports.prepare': true, 'inbox.discard': true, 'inbox.discard.v1': true,
+} as Record<string, boolean>;
+/** What imports.inspect reports for the fixture archive (any uploaded bytes). */
+export const FIXTURE_IMPORT = {
+  minecraftVersion: '1.20.1', loader: { id: 'forge', version: '47.4.28' },
+  files: [{ path: 'config/example.toml', sha256: 'a'.repeat(64), size: '12' }],
+  projects: [{ provider: 'modrinth', projectId: 'sodium', versionId: 'sodV1', required: true }], downloadCount: 1, warnings: [],
+};
 interface Op { op: CoreOperation; steps: CoreOperation['state'][]; plan?: { files: { path: string; action: 'install' | 'replace' | 'remove' }[]; deps: CoreVersion['dependencies']; next: CoreInstalled[]; digest: string; base: string } ; createWs?: CoreWorkspace; apply?: boolean }
 
 export class FakeCore implements PipeTransport {
@@ -50,12 +61,19 @@ export class FakeCore implements PipeTransport {
   /** Drop the reply to the next request of this method (the work still happens). */
   dropReplyFor: CoreMethod | null = null;
   extraFieldNext = false;
-  private conns = new Map<number, { hello: boolean }>();
+  /** Behave like the 0.1 helper: hello with `extensions` is an invalid request. */
+  legacy = false;
+  extCaps: Record<string, boolean> = { ...EXT_CAPS };
+  /** Policies per inventory id (pinned version / excluded). */
+  policies = new Map<string, { pinnedVersion: string | null; excluded: boolean }>();
+  uploads = new Map<string, { size: number; sha256: string; data: string[]; received: number; complete: boolean; discarded: boolean }>();
+  inspectError: string | null = null;
+  private conns = new Map<number, { hello: boolean; ext: boolean }>();
   private seq = 0;
 
   constructor(o: { caps?: Partial<Record<CoreMethod, boolean>>; mods?: number } = {}) {
     const all: CoreMethod[] = ['hello', 'core.info', 'core.shutdown', 'catalog.versions', 'workspaces.create', 'workspaces.list', 'providers.search', 'providers.versions', 'plans.prepare', 'plans.get', 'transactions.apply', 'mods.list', 'updates.check', 'operations.get', 'operations.list', 'operations.cancel', 'events.poll', 'recovery.list', 'recovery.run', 'inbox.begin', 'inbox.write', 'inbox.commit', 'inbox.status', 'outbox.read'];
-    for (const m of all) this.capabilities[m] = !['core.shutdown', 'events.poll', 'inbox.begin', 'inbox.write', 'inbox.commit', 'inbox.status', 'outbox.read'].includes(m);
+    for (const m of all) this.capabilities[m] = !['core.shutdown', 'events.poll', 'outbox.read'].includes(m);
     Object.assign(this.capabilities, o.caps ?? {});
     if (o.mods) {
       const ws = this.addWorkspace('Big pack');
@@ -88,7 +106,7 @@ export class FakeCore implements PipeTransport {
   async openHelper(serverName: string, pid: string): Promise<number> {
     if (!this.running) throw new TransportError('not-running', 'gone');
     if (serverName !== this.descriptor.serverName || pid !== this.descriptor.pid) throw new TransportError('identity', 'wrong server');
-    this.conns.set(++this.seq, { hello: false });
+    this.conns.set(++this.seq, { hello: false, ext: false });
     return this.seq;
   }
   async close(id: number) { this.conns.delete(id); }
@@ -106,7 +124,9 @@ export class FakeCore implements PipeTransport {
     let reply: { result: Record<string, unknown> } | { error: { code: string; message: string; retryable: boolean } };
     try {
       if (req.method !== 'hello' && !c.hello) throw this.err('HANDSHAKE_REQUIRED');
-      if (req.method !== 'hello' && !this.capabilities[req.method]) throw this.err('UNSUPPORTED_CAPABILITY');
+      // A 0.1 helper has no inbox; a 0.2 helper enables it only for manager.v0.2 clients.
+      const inbox = req.method.startsWith('inbox.') || req.method.startsWith('imports.');
+      if (req.method !== 'hello' && (inbox ? !c.ext || !(this.capabilities[req.method] ?? this.extCaps[req.method]) : !this.capabilities[req.method])) throw this.err('UNSUPPORTED_CAPABILITY');
       const result = this.handle(req.method, req.params, c);
       const wrong = resultError(req.method, result);
       if (wrong) this.violations.push(`fixture reply ${wrong}`);
@@ -169,15 +189,67 @@ export class FakeCore implements PipeTransport {
     if (next === 'recovery_required') o.op.error = { code: 'RECOVERY_REQUIRED', message: 'The change was interrupted. Roll it back before using this project.', retryable: false };
   }
 
-  private handle(m: CoreMethod, p: Record<string, unknown>, c: { hello: boolean }): Record<string, unknown> {
+  private handle(m: CoreMethod, p: Record<string, unknown>, c: { hello: boolean; ext: boolean }): Record<string, unknown> {
     switch (m) {
-      case 'hello':
+      case 'hello': {
+        if (p.extensions && this.legacy) throw this.err('INVALID_REQUEST', 'hello.params.extensions: not allowed');
         c.hello = true;
-        return { protocol: P, role: this.helloRole, coreVersion: '2.0.0-fixture', storageVersion: 1, profileId: this.profileId, sessionId: this.sessionId, capabilities: this.capabilities, limits: { frameBytes: 1048576, clients: 8, pageItems: 200 } };
+        c.ext = !!p.extensions;
+        // 0.1 inbox flags stay false without the extension (core-protocol.md).
+        const caps = c.ext ? { ...this.capabilities, ...this.extCaps } : { ...this.capabilities, 'inbox.begin': false, 'inbox.write': false, 'inbox.commit': false, 'inbox.status': false };
+        return { protocol: P, role: this.helloRole, coreVersion: c.ext ? '0.2.0-fixture' : '0.1.1-fixture', storageVersion: 1, profileId: this.profileId, sessionId: this.sessionId, capabilities: caps, limits: { frameBytes: 1048576, clients: 8, pageItems: 200 } };
+      }
       case 'core.info':
-        return { role: 'modpack-core', coreVersion: '2.0.0-fixture', profileId: this.profileId, dataRoot: 'C:\\Temp\\core-fixture', workspaceRoot: 'C:\\Temp\\core-fixture\\workspaces', state: 'ready', supportedLoaders: ['vanilla', 'fabric'] };
+        return { role: 'modpack-core', coreVersion: '2.0.0-fixture', profileId: this.profileId, dataRoot: 'C:\\Temp\\core-fixture', workspaceRoot: 'C:\\Temp\\core-fixture\\workspaces', state: 'ready', supportedLoaders: c.ext ? ['vanilla', 'fabric', 'forge', 'neoforge', 'quilt'] : ['vanilla', 'fabric'] };
       case 'catalog.versions':
-        return { minecraftVersions: ['1.21.1', '1.20.1'], loaderVersions: p.loader === 'fabric' ? ['0.16.9', '0.16.5'] : [] };
+        if (!c.ext && p.loader && !['vanilla', 'fabric'].includes(String(p.loader))) throw this.err('UNSUPPORTED_CAPABILITY');
+        return { minecraftVersions: ['1.21.1', '1.20.1'], loaderVersions: p.loader === 'fabric' ? ['0.16.9', '0.16.5'] : p.loader === 'forge' ? (p.minecraftVersion === '1.20.1' ? ['47.4.28', '47.3.0'] : []) : [] };
+      case 'inbox.begin': {
+        const token = uuid(`upload-${String(p.idempotencyKey)}`);
+        if (!this.uploads.has(token)) this.uploads.set(token, { size: Number(p.size), sha256: String(p.sha256), data: [], received: 0, complete: false, discarded: false });
+        return this.transfer(token);
+      }
+      case 'inbox.write': {
+        const u = this.uploads.get(String(p.token));
+        if (!u || u.discarded) throw this.err('TRANSFER_DISCARDED');
+        if (Number(p.offset) !== u.received) throw this.err('INVALID_REQUEST', 'offset');
+        const n = atob(String(p.bytesBase64)).length;
+        if (n > 262144) this.violations.push('inbox chunk too large');
+        u.data.push(String(p.bytesBase64));
+        u.received += n;
+        return this.transfer(String(p.token));
+      }
+      case 'inbox.commit': {
+        const u = this.uploads.get(String(p.token));
+        if (!u || u.discarded) throw this.err('TRANSFER_DISCARDED');
+        if (u.received !== u.size) throw this.err('INVALID_REQUEST', 'incomplete');
+        u.complete = true;
+        return this.transfer(String(p.token));
+      }
+      case 'inbox.discard': {
+        const u = this.uploads.get(String(p.token));
+        if (u) u.discarded = true;
+        return { token: String(p.token), discarded: true };
+      }
+      case 'imports.inspect': {
+        const u = this.uploads.get(String(p.token));
+        if (!u?.complete || u.discarded) throw this.err('NOT_FOUND');
+        if (this.inspectError) throw this.err(this.inspectError, 'Unsupported archive: ZIP64 is not supported.');
+        return FIXTURE_IMPORT;
+      }
+      case 'imports.prepare': {
+        const u = this.uploads.get(String(p.token));
+        if (!u?.complete || u.discarded) throw this.err('NOT_FOUND');
+        const e = this.workspaces.get(String(p.physicalId));
+        if (!e) throw this.err('NOT_FOUND');
+        if (p.instanceRevision !== e.ws.instanceRevision) throw this.err('STALE_INSTANCE');
+        return this.idem(m, p, () => {
+          const o = this.newOp('modpack-change', ['resolving', 'downloading', 'prepared'], e.ws.physicalId);
+          o.plan = this.resolve(e.mods, [{ action: 'install', projectId: 'sodium', versionId: 'sodV1' }], o.op.operationId, e.ws.instanceRevision);
+          o.plan.files.push({ path: 'config/example.toml', action: 'install' });
+          return o;
+        });
+      }
       case 'workspaces.create':
         return this.idem(m, p, () => { const o = this.newOp('workspace-create', ['resolving', 'verifying', 'completed']); o.createWs = { name: p.name, minecraftVersion: p.minecraftVersion, loader: p.loader } as CoreWorkspace; return o; });
       case 'workspaces.list': {
@@ -206,7 +278,8 @@ export class FakeCore implements PipeTransport {
         const e = this.workspaces.get(String(p.physicalId))!;
         const updates = e.mods.filter((x) => x.projectId && CATALOG[x.projectId]).map((x) => {
           const newest = CATALOG[x.projectId!]!.versions[0]!;
-          return { projectId: x.projectId!, installedVersionId: x.versionId!, candidate: newest.versionId === x.versionId ? null : newest, excluded: false };
+          const pol = this.policies.get(x.inventoryId);
+          return { projectId: x.projectId!, installedVersionId: x.versionId!, candidate: newest.versionId === x.versionId || pol?.pinnedVersion ? null : newest, excluded: !!pol?.excluded };
         });
         return { updates, instanceRevision: e.ws.instanceRevision, total: updates.length, nextOffset: null };
       }
@@ -274,6 +347,11 @@ export class FakeCore implements PipeTransport {
     }
   }
 
+  private transfer(token: string) {
+    const u = this.uploads.get(token)!;
+    return { token, size: String(u.size), received: String(u.received), sha256: u.sha256, complete: u.complete };
+  }
+
   /** Fixture "resolver": requested installs plus missing required dependencies; optional ones are only reported. */
   private resolve(mods: CoreInstalled[], changes: Change[], opId: string, base: string) {
     const next = mods.map((x) => ({ ...x }));
@@ -292,6 +370,13 @@ export class FakeCore implements PipeTransport {
     };
     for (const ch of changes) {
       if (ch.action === 'install' || ch.action === 'replace') add(ch.projectId!, ch.versionId!);
+      else if (ch.action === 'policy') {
+        const i = next.findIndex((x) => x.inventoryId === ch.inventoryId);
+        if (i < 0) throw this.err('NOT_FOUND', 'Unknown inventory item.');
+        if (ch.pinnedVersion !== null && ch.pinnedVersion !== next[i]!.versionId) throw this.err('POLICY_CONFLICT');
+        this.policies.set(ch.inventoryId!, { pinnedVersion: ch.pinnedVersion ?? null, excluded: !!ch.excluded });
+        next[i] = { ...next[i]!, updateLocked: ch.pinnedVersion !== null };
+      }
       else {
         const i = next.findIndex((x) => x.inventoryId === ch.inventoryId);
         if (i < 0) throw this.err('NOT_FOUND', 'Unknown inventory item.');
@@ -306,7 +391,7 @@ export class FakeCore implements PipeTransport {
       }
     }
     // The real helper also lists its bookkeeping files.
-    if (files.length) files.push({ path: '.awake-integration/policies.json', action: 'replace' });
+    if (files.length || changes.some((c) => c.action === 'policy')) files.push({ path: '.awake-integration/policies.json', action: 'replace' });
     return { files, deps, next, digest: hex(`digest-${opId}`), base };
   }
 }

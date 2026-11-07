@@ -1,0 +1,11 @@
+{
+  "comment": "The only native helper package a release may ship. stage-helper.mjs and the desktop host refuse anything else. Re-pin when Codex hands off a new helper.",
+  "sourceRepository": "https://github.com/awakenginexe/Awake-Launcher",
+  "sourceBranch": "feat/native-core-manager-020",
+  "sourceCommit": "3b279ff06668b17590892514f12ccbfdbc0a68c3",
+  "implementationVersion": "0.2.0",
+  "extension": "manager.v0.2",
+  "exeSha256": "23a9cea1cad321b1b9216375c962aca072a895e95aaf7b9f1515601cbdc63c43",
+  "sumsSha256": "6894b4c90f5dcb54ccffe26932e682ae4fa0b6f117cde148e62e6a98eb60b525",
+  "archiveSha256": "48b0410646c4f0a25e27570551763499b46e57ecaec64b102efae1a2a918ca97"
+}

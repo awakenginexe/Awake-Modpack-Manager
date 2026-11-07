@@ -214,26 +214,33 @@ used only to identify where content comes from. The SVG files were taken from Aw
 (GPL-3.0): https://github.com/awakenginexe/Awake-Launcher
 
 == Awake Native Core helper (core-host/windows-x64/awake-core-host.exe) — GPL-3.0-only ==
-awake-core-host.exe (Awake Native Core 0.1.1) is built from the Awake Launcher repository,
-directory native-core/, at commit 299c140bd91656cf988efc4cff27887b54ae1efc. It is a separate
+awake-core-host.exe (Awake Native Core 0.2.0, protocol 2.0 with the manager.v0.2 extension) is
+built from the Awake Launcher repository, directory native-core/, at commit
+3b279ff06668b17590892514f12ccbfdbc0a68c3 (branch feat/native-core-manager-020). It is a separate
 program that the Manager starts and talks to over a local named pipe.
 Copyright (C) Awake Launcher contributors and the upstream projects listed in
 core-host/windows-x64/COPYING.md (shipped next to the executable).
 
-Complete corresponding source code (including the vendored libraries and build files):
-  Awake-Native-Core-299c140bd-Source.zip
-  https://github.com/awakenginexe/Awake-Launcher/releases/download/v3.0.0/Awake-Native-Core-299c140bd-Source.zip
-  SHA-256 bc63fe1e8702bf10894e5a156f40da58c55e2efaa24fb7d2477dde49e66059fc
-A copy of the same archive is attached to every Awake Modpack Manager release that ships this
-helper: https://github.com/awakenginexe/Awake-Modpack-Manager/releases
+Complete corresponding source code (including the vendored libraries and build files) is
+published with every Awake Modpack Manager release that ships this helper, as
+Awake-Native-Core-3b279ff06-Source.zip: https://github.com/awakenginexe/Awake-Modpack-Manager/releases
 Build: cmake -S native-core -B <build> -G Ninja -DCMAKE_BUILD_TYPE=Release
-  -DCMAKE_PREFIX_PATH=<Qt 6.11.2 msvc2022_64> -Dtomlplusplus_DIR=<toml++ CMake config>
-  -DBUILD_TESTING=OFF, then cmake --build <build>, then
-  native-core/deploy.ps1 -Executable <build>/awake-core-host.exe -QtBin <Qt>/bin -Destination <dir>.
-  Toolchain: MSVC 2022 x64 (runtime 14.44.35211). See docs/modpack-manager/handoff.md and
-  BUILDING.md in the archive.
-SHA-256 of every shipped helper file: core-host/windows-x64/HELPER-SOURCE.txt.
+  "-DCMAKE_PREFIX_PATH=<Qt 6.11.2 msvc2022_64>;<vcpkg x64 prefix>" -DBUILD_TESTING=OFF,
+  then cmake --build <build>, then native-core/deploy.ps1 -Executable <build>/awake-core-host.exe
+  -QtBin <Qt>/bin -DependencyPrefix <vcpkg x64 prefix> -Destination <dir>.
+  Toolchain: MSVC 2022 x64. See docs/modpack-manager/handoff.md in the source archive.
+SHA-256 of every shipped helper file: core-host/windows-x64/SHA256SUMS (the helper package's own
+manifest, also embedded in the Manager, which refuses to start a changed or extended helper folder)
+and core-host/windows-x64/HELPER-SOURCE.txt.
 Licence: GNU General Public License v3.0 only (LICENSE in this installation).
+
+The helper statically links these archive libraries (to read modpack ZIPs). Their full licence
+texts ship in core-host/windows-x64/licenses/:
+  libarchive (BSD-2-Clause and related permissive terms)  licenses/libarchive.txt
+  zlib (zlib licence)                                      licenses/zlib.txt
+  bzip2 / libbzip2 (bzip2 licence, BSD-style)               licenses/bzip2.txt
+  liblzma / XZ Utils (0BSD / public domain parts)           licenses/liblzma.txt
+  zstd (BSD-3-Clause; dual-licensed BSD or GPLv2, used under BSD) licenses/zstd.txt
 
 == Qt 6.11.2 (Qt6Core.dll, Qt6Network.dll, tls/*.dll, networkinformation/*.dll) — LGPL-3.0 ==
 Copyright (C) The Qt Company Ltd. and other contributors. https://www.qt.io/

@@ -115,7 +115,7 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
     <div v-if="!session.can('providers.search')" class="notice warn"><CircleAlert :size="18" />{{ t('capabilityMissing') }}</div>
     <div v-else-if="providerInfo && !providerInfo.available" class="notice warn" role="status">
       <ProviderLogo :provider="providerInfo.id" :size="22" />
-      <span>{{ providerInfo.unavailableReason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : t('providerUnavailable', { provider: providerInfo.id }) }}</span>
+      <span>{{ providerInfo.unavailableReason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : providerInfo.unavailableReason === 'curseforge-disabled' ? t('curseforgeDisabled') : t('providerUnavailable', { provider: providerInfo.id }) }}</span>
     </div>
     <div v-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ t('searchFailed') }} <code class="small">{{ error }}</code></div>
 

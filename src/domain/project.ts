@@ -146,8 +146,24 @@ function allowedHost(url: string): boolean {
   try { const u = new URL(url); return u.protocol === 'https:' && MRPACK_HOSTS.includes(u.hostname); } catch { return false; }
 }
 
+/** An override file to bundle, as it appears in its source archive (`overrides/...`, `client-overrides/...`). */
+export interface OverrideFile { root: 'overrides' | 'client-overrides' | 'server-overrides'; path: string; data: Uint8Array }
+
+/**
+ * Files that must never travel in a shared pack: accounts, tokens, keys, logs, saves, caches.
+ * Returns why, or null when the path is an ordinary pack file (configs, scripts, resource packs).
+ */
+export function privateOverrideReason(path: string): string | null {
+  const p = path.toLowerCase();
+  const name = p.split('/').pop() ?? p;
+  if (/^(saves|logs|crash-reports|screenshots|backups|\.cache|cache|journeymap\/data|xaero.*\/(world-map|minimap)-?data?)\//.test(p)) return 'world, log or cache data';
+  if (/^(launcher_accounts.*|accounts|usercache|usernamecache|launcher_profiles|realms_persistence)\.json$/.test(name)) return 'account data';
+  if (/(^|[._-])(token|secret|password|credentials?)([._-]|$)/.test(name) || /\.(pem|key|p12|pfx|jks|keystore)$/.test(name) || name === '.env') return 'credential';
+  return null;
+}
+
 /** Build the archive for a ready plan. Throws if the plan has blockers. */
-export function buildExport(p: ModpackProject, plan: ExportPlan): Uint8Array {
+export function buildExport(p: ModpackProject, plan: ExportPlan, overrides: OverrideFile[] = []): Uint8Array {
   if (!plan.ready) throw new Error('This export has unresolved blockers.');
   const mods = p.mods.filter((m) => plan.included.includes(m.key));
   const json = (v: unknown) => new TextEncoder().encode(JSON.stringify(v, null, 2));
@@ -164,7 +180,7 @@ export function buildExport(p: ModpackProject, plan: ExportPlan): Uint8Array {
       }),
       dependencies,
     };
-    return writeZip([{ path: 'modrinth.index.json', data: json(index) }]);
+    return writeZip([{ path: 'modrinth.index.json', data: json(index) }, ...overrideEntries(overrides, 'mrpack')]);
   }
   const manifest = {
     minecraft: { version: p.minecraftVersion, modLoaders: p.loader.kind === 'vanilla' ? [] : [{ id: `${p.loader.kind}-${p.loader.version}`, primary: true }] },
@@ -172,5 +188,17 @@ export function buildExport(p: ModpackProject, plan: ExportPlan): Uint8Array {
     files: mods.map((m) => ({ projectID: Number(m.projectId), fileID: Number(m.versionId), required: m.required })),
     overrides: 'overrides',
   };
-  return writeZip([{ path: 'manifest.json', data: json(manifest) }]);
+  return writeZip([{ path: 'manifest.json', data: json(manifest) }, ...overrideEntries(overrides, 'curseforge')]);
+}
+
+/** CurseForge has one overrides folder: client files win over common ones, server-only files stay out. */
+function overrideEntries(files: OverrideFile[], format: PackFormat): { path: string; data: Uint8Array }[] {
+  const out = new Map<string, { path: string; data: Uint8Array }>();
+  for (const f of [...files].sort((a, b) => (a.root === 'client-overrides' ? 1 : 0) - (b.root === 'client-overrides' ? 1 : 0))) {
+    if (unsafePathReason(f.path) || privateOverrideReason(f.path)) throw new Error(`Refusing to export ${f.path}`);
+    if (format === 'curseforge' && f.root === 'server-overrides') continue;
+    const path = format === 'mrpack' ? `${f.root}/${f.path}` : `overrides/${f.path}`;
+    out.set(path.toLowerCase(), { path, data: f.data });
+  }
+  return [...out.values()];
 }

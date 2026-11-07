@@ -1,6 +1,6 @@
 import { computed, ref, shallowRef } from 'vue';
 import { importPack, type ImportPreview } from '../domain/packFormats';
-import { buildExport, modKey, newProject, planExport, type ModpackProject, type PackFormat, type ProjectMod, type ProjectProvider } from '../domain/project';
+import { buildExport, modKey, newProject, planExport, type ModpackProject, type OverrideFile, type PackFormat, type ProjectMod, type ProjectProvider } from '../domain/project';
 import { load, save } from '../domain/storage';
 import { blobSource } from '../domain/zip';
 
@@ -159,6 +159,12 @@ export function createProjectStore(primary: ProjectPersistence, legacy: ProjectP
       select(preview.project.id);
     },
 
+    /** A project built elsewhere in the Manager (e.g. from a workspace snapshot). */
+    addProject(p: ModpackProject) {
+      commit([p, ...projects.value]);
+      select(p.id);
+    },
+
     /** A mod the user plans to add, typed by provider ID. It stays unverified until a provider confirms it. */
     addPlanned(id: string, mod: { provider: ProjectProvider; projectId: string; versionId?: string; name?: string }) {
       const projectId = mod.projectId.trim();
@@ -184,8 +190,8 @@ export function createProjectStore(primary: ProjectPersistence, legacy: ProjectP
     plan: (p: ModpackProject, format: PackFormat, exclude: ReadonlySet<string>) => planExport(p, format, exclude),
 
     /** Build the archive for a ready plan; the caller saves it where the user chooses. */
-    exportArchive(p: ModpackProject, format: PackFormat, exclude: ReadonlySet<string>): Blob {
-      return new Blob([buildExport(p, planExport(p, format, exclude)) as BlobPart], { type: format === 'mrpack' ? 'application/x-modrinth-modpack+zip' : 'application/zip' });
+    exportArchive(p: ModpackProject, format: PackFormat, exclude: ReadonlySet<string>, overrides: OverrideFile[] = []): Blob {
+      return new Blob([buildExport(p, planExport(p, format, exclude), overrides) as BlobPart], { type: format === 'mrpack' ? 'application/x-modrinth-modpack+zip' : 'application/zip' });
     },
   };
 }

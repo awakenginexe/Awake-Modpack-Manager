@@ -6,10 +6,11 @@ import { t, type MessageKey } from '../i18n';
 import { useSession } from '../state/session';
 import { opStateKey, opStateTone, planActionKey } from '../ui/labels';
 import {
-  ArrowRight, ArrowUpCircle, Check, CircleAlert, CircleCheck, Download, Info, ListChecks, Loader, Power, PowerOff,
+  ArrowRight, ArrowUpCircle, Check, CircleAlert, CircleCheck, Download, FileCog, FileArchive, Info, ListChecks, Loader, Pin, Power, PowerOff,
   Sparkles, Trash2, TriangleAlert, Undo2,
 } from '@lucide/vue';
 import Avatar from '../components/Avatar.vue';
+import VirtualList from '../components/VirtualList.vue';
 import type { ViewId } from '../App.vue';
 
 const emit = defineEmits<{ navigate: [ViewId] }>();
@@ -24,7 +25,7 @@ const modName = computed(() => new Map((inventory.value?.mods ?? []).map((m) => 
 const stale = computed(() => review.phase === 'stale' || (!!draft.value && !!inventory.value && changes.value.length > 0 && isStale(draft.value, inventory.value.revision)));
 const plan = computed(() => review.plan);
 const groups = computed(() => {
-  const order: PlanAction[] = ['install', 'update', 'remove', 'enable', 'disable'];
+  const order: PlanAction[] = ['install', 'update', 'remove', 'enable', 'disable', 'policy', 'override'];
   return order.map((action) => ({ action, items: (plan.value?.items ?? []).filter((i) => i.action === action) })).filter((g) => g.items.length);
 });
 const destructive = computed(() => (plan.value?.items ?? []).filter((i) => i.destructive || i.action === 'remove'));
@@ -37,13 +38,17 @@ const canApply = computed(() =>
 // A different plan needs a fresh acknowledgement.
 watch(() => plan.value?.planHash, () => { acknowledged.value = false; });
 
-const changeLabel: Record<DraftChange['kind'], MessageKey> = { install: 'pendingInstall', update: 'pendingUpdate', remove: 'pendingRemove', enable: 'pendingEnable', disable: 'pendingDisable' };
+const changeLabel: Record<DraftChange['kind'], MessageKey> = { install: 'pendingInstall', update: 'pendingUpdate', remove: 'pendingRemove', enable: 'pendingEnable', disable: 'pendingDisable', policy: 'pendingPolicy' };
+/** An import plan has no draft behind it; it is reviewed as it is. */
+const fromImport = computed(() => !!review.origin && !!plan.value);
+/** Big groups (imports, bulk plans) are windowed so 10,000 files stay responsive. */
+const BIG = 80;
 const nameOf = (c: DraftChange) => (c.kind === 'install' ? c.name : modName.value.get(c.modKey) ?? c.modKey);
 const severityKey = { error: 'issueError', warning: 'issueWarning', info: 'issueInfo' } as const;
 const severityTone = { error: 'error', warning: 'warn', info: 'info' } as const;
 const severityIcon = { error: CircleAlert, warning: TriangleAlert, info: Info } as const;
-const actionIcon: Record<PlanAction, Component> = { install: Download, update: ArrowUpCircle, remove: Trash2, enable: Power, disable: PowerOff, keep: Check };
-const changeIcon: Record<DraftChange['kind'], Component> = { install: Download, update: ArrowUpCircle, remove: Trash2, enable: Power, disable: PowerOff };
+const actionIcon: Record<PlanAction, Component> = { install: Download, update: ArrowUpCircle, remove: Trash2, enable: Power, disable: PowerOff, keep: Check, policy: Pin, override: FileCog };
+const changeIcon: Record<DraftChange['kind'], Component> = { install: Download, update: ArrowUpCircle, remove: Trash2, enable: Power, disable: PowerOff, policy: Pin };
 /** 0 = draft, 1 = plan checked, 2 = applying/applied. */
 const step = computed(() => (['applying', 'unconfirmed', 'done'].includes(review.phase) ? 2 : plan.value && !session.planOutdated.value ? 1 : 0));
 
@@ -92,7 +97,11 @@ function reasonText(i: PlanItem) {
       <button class="btn btn-small btn-primary" type="button" @click="session.resetReview(); emit('navigate', 'mods')">{{ t('navMods') }}<ArrowRight :size="15" /></button>
     </div>
 
-    <div v-if="!changes.length && review.phase !== 'done' && review.phase !== 'applying'" class="empty card">
+    <div v-if="fromImport && review.phase !== 'done'" class="notice" role="status">
+      <FileArchive :size="18" /><span class="grow">{{ t('importReviewNotice', { name: review.origin! }) }}</span>
+    </div>
+
+    <div v-if="!changes.length && !fromImport && review.phase !== 'done' && review.phase !== 'applying'" class="empty card">
       <span class="empty-icon"><ListChecks :size="28" /></span>
       <h2>{{ t('reviewEmpty') }}</h2>
       <p>{{ t('reviewEmptyHint') }}</p>
@@ -103,7 +112,7 @@ function reasonText(i: PlanItem) {
     </div>
 
     <div v-else class="columns">
-      <section class="panel card draft-panel" :aria-label="t('draftList')">
+      <section v-if="!fromImport" class="panel card draft-panel" :aria-label="t('draftList')">
         <h2 class="panel-title">{{ t('draftList') }} <span class="badge">{{ changes.length }}</span></h2>
         <div v-if="stale" class="notice warn small" role="alert">
           <TriangleAlert :size="18" />
@@ -144,16 +153,26 @@ function reasonText(i: PlanItem) {
 
           <div v-for="g in groups" :key="g.action" class="group">
             <h3 :class="g.action"><component :is="actionIcon[g.action]" :size="15" />{{ t(planActionKey[g.action]) }} <span class="badge">{{ g.items.length }}</span></h3>
-            <ul class="list">
+            <VirtualList v-if="g.items.length > BIG" class="big-list" :items="g.items" :row-height="46" :item-key="(x) => x.modKey" :label="t(planActionKey[g.action])">
+              <template #default="{ item }">
+                <div class="item">
+                  <span class="grow"><span class="item-name" :title="item.name">{{ item.name }}</span></span>
+                  <span class="versions"><span :class="item.action === 'install' ? 'to' : 'from'">{{ item.action === 'override' ? t(item.destructive ? 'overrideReplace' : 'overrideAdd') : item.to?.name ?? item.from?.name ?? '' }}</span></span>
+                  <span v-if="item.destructive" class="badge warn" :title="t('destructiveTitle')"><TriangleAlert :size="12" /></span>
+                </div>
+              </template>
+            </VirtualList>
+            <ul v-else class="list">
               <li v-for="(item, i) in g.items" :key="item.modKey" class="item rise" :style="{ '--i': i }">
-                <Avatar :name="item.name" :size="28" />
+                <Avatar v-if="item.action !== 'override'" :name="item.name" :size="28" />
                 <span class="grow">
                   <span class="item-name">{{ item.name }}</span>
                   <span v-if="item.reason !== 'requested'" class="muted small">{{ reasonText(item) }}</span>
                 </span>
                 <span class="versions">
                   <template v-if="item.action === 'update'"><span class="from">{{ item.from?.name ?? t('noVersion') }}</span><ArrowRight :size="13" /><span class="to">{{ item.to?.name }}</span></template>
-                  <span v-else-if="item.action === 'install'" class="to">{{ item.to?.name }}</span>
+                  <span v-else-if="item.action === 'install' || item.action === 'policy'" class="to">{{ item.to?.name }}</span>
+                  <span v-else-if="item.action === 'override'" :class="item.destructive ? 'from' : 'to'">{{ t(item.destructive ? 'overrideReplace' : 'overrideAdd') }}</span>
                   <span v-else class="from">{{ item.from?.name ?? t('noVersion') }}</span>
                 </span>
                 <span v-if="item.destructive" class="badge warn" :title="t('destructiveTitle')"><TriangleAlert :size="12" /></span>
@@ -244,6 +263,10 @@ function reasonText(i: PlanItem) {
 .remove { color: #fca5a5; }
 .enable { color: #6ee7b7; }
 .disable { color: #cbd5e1; }
+.big-list { height: 360px; flex: none; }
+.big-list .item { height: 42px; }
+.policy { color: #c4b5fd; }
+.override { color: #fcd34d; }
 .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; }
 .item { display: flex; align-items: center; gap: var(--space-3); padding: 6px 10px; border-radius: var(--radius-control); background: rgba(255, 255, 255, 0.03); }
 .item .grow { display: flex; flex-direction: column; min-width: 0; }

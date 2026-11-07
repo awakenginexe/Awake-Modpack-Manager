@@ -56,6 +56,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     planDraft: '',
     operation: null as OperationStatus | null,
     error: null as BackendError | null,
+    /** Set when the plan came from a modpack import rather than the mod draft (shown on Review). */
+    origin: null as string | null,
   });
   let pending = load<PendingApply | null>('pendingApply', null);
   const following = new Set<string>();
@@ -83,7 +85,11 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     if (!state.instanceId || !inventory.value) return null;
     return drafts.value[state.instanceId] ?? newDraft(state.instanceId, inventory.value.revision);
   });
-  const pinned = computed(() => new Set(state.instanceId ? pins.value[state.instanceId] ?? [] : []));
+  /** With helper policies the pin lives in the workspace (updateLocked); otherwise it is a Manager-side note. */
+  const policies = computed(() => can('mods.policies') && source.value === 'helper');
+  const pinned = computed(() => policies.value
+    ? new Set((inventory.value?.mods ?? []).filter((m) => m.updateLocked).map((m) => m.key))
+    : new Set(state.instanceId ? pins.value[state.instanceId] ?? [] : []));
   const planOutdated = computed(() => !!review.plan && review.planDraft !== JSON.stringify(draft.value?.changes ?? []));
 
   /* ----- connection ----- */
@@ -192,7 +198,30 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     resetReview();
   }
 
+  /** The policy a mod will have after the draft: its pending policy change, else what the helper reports. */
+  function policyOf(key: string) {
+    const c = draft.value?.changes.find((x) => x.kind === 'policy' && x.modKey === key);
+    const m = inventory.value?.mods.find((x) => x.key === key);
+    return c?.kind === 'policy' ? { pinned: c.pinned, excluded: c.excluded } : { pinned: !!m?.updateLocked, excluded: !!m?.updateExcluded };
+  }
+  /** Helper policies are reviewed changes like any other: they go into the draft. */
+  function draftPolicy(keys: Iterable<string>, field: 'pinned' | 'excluded', value: boolean) {
+    const d = draft.value;
+    if (!d) return;
+    const mods = new Map((inventory.value?.mods ?? []).map((m) => [m.key, m]));
+    const changes = [...keys].filter((k) => mods.get(k)?.installed && mods.get(k)?.source !== 'manual')
+      .map((k) => ({ kind: 'policy' as const, modKey: k, ...policyOf(k), [field]: value }));
+    // A change back to the current state is no change.
+    const kept = d.changes.filter((c) => !(c.kind === 'policy' && changes.some((n) => n.modKey === c.modKey)));
+    const real = changes.filter((c) => c.pinned !== !!mods.get(c.modKey)?.updateLocked || c.excluded !== !!mods.get(c.modKey)?.updateExcluded);
+    setDraft({ ...d, changes: [...kept, ...real] });
+  }
+  function setExcluded(keys: Iterable<string>, value: boolean) {
+    if (policies.value) draftPolicy(keys, 'excluded', value);
+  }
+
   function setPinned(keys: Iterable<string>, value: boolean) {
+    if (policies.value) return draftPolicy(keys, 'pinned', value);
     const id = state.instanceId;
     if (!id) return;
     const set = new Set(pins.value[id] ?? []);
@@ -203,7 +232,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   /* ----- review → prepare → apply → follow ----- */
 
   function resetReview() {
-    Object.assign(review, { phase: 'idle', plan: null, planDraft: '', operation: null, error: null });
+    Object.assign(review, { phase: 'idle', plan: null, planDraft: '', operation: null, error: null, origin: null });
   }
 
   async function validate() {
@@ -212,6 +241,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     Object.assign(review, { phase: 'resolving', error: null, operation: null });
     try {
       review.plan = await backend.validateDraft({ ...d, pinnedKeys: [...pinned.value] });
+      review.origin = null;
       review.planDraft = JSON.stringify(d.changes);
       review.phase = 'reviewed';
     } catch (e) {
@@ -389,6 +419,30 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     return final;
   }
 
+  /**
+   * Native import, after the archive was uploaded and the workspace exists: the helper resolves,
+   * downloads and stages it; the full plan becomes the reviewed plan for the Review screen. The
+   * upload is discarded once staged (the prepared plan does not need it).
+   */
+  async function prepareImport(instanceId: string, token: string, format: 'mrpack' | 'curseforge', includeOptional: boolean, label: string) {
+    if (!backend.prepareImport) throw new BackendError('unsupported', 'This backend cannot import modpacks.');
+    if (drafts.value[instanceId]?.changes.length) throw new BackendError('rejected', 'This project has unreviewed changes. Review or discard them before importing into it.');
+    await selectInstance(instanceId);
+    resetReview();
+    review.phase = 'resolving';
+    try {
+      const plan = await backend.prepareImport(instanceId, token, format, includeOptional);
+      Object.assign(review, { plan, planDraft: JSON.stringify(draft.value?.changes ?? []), phase: 'reviewed', origin: label });
+      return plan;
+    } catch (e) {
+      review.error = asError(e);
+      review.phase = 'failed';
+      throw review.error;
+    } finally {
+      await backend.discardImport?.(token).catch(() => undefined);
+    }
+  }
+
   async function startExport(req: Omit<ExportRequest, 'idempotencyKey'>) {
     const { operationId } = await backend.startExport({ ...req, idempotencyKey: crypto.randomUUID() });
     return track(operationId);
@@ -396,9 +450,9 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
 
   return {
     backend, source, state, inventory, selection, drafts, pins, exportIncludes, review,
-    can, instance, draft, pinned, planOutdated,
+    can, instance, draft, pinned, planOutdated, policies, policyOf,
     connect, refreshInstances, selectInstance, loadInventory,
-    setDraft, discardDraft, setPinned,
+    setDraft, discardDraft, setPinned, setExcluded, prepareImport,
     validate, apply, acceptChangedPlan, resetReview,
     refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher,
   };
