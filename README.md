@@ -1,83 +1,116 @@
 # Awake Modpack Manager
 
-A Windows desktop app for building and maintaining large Minecraft modpacks (200-300+ mods).
-It works on its own, and alongside Awake Launcher when that is installed.
+A Windows desktop app for building and maintaining Minecraft modpacks. It creates its own modpack
+projects and installs real mods from Modrinth, with every change reviewed before it is applied.
+Awake Launcher is not required.
 
-> **Status (Windows x64): local MVP.** Standalone Fabric/vanilla projects with real Modrinth mods.
->
-> * **Standalone (no Launcher):** the Manager bundles Awake's native helper
->   (`awake-core-host.exe` 0.1.1, protocol 2.0, built from Launcher commit `299c140bd`) and
->   starts it on demand. The helper owns:
->   * workspaces (new vanilla/Fabric projects with exact versions);
->   * Modrinth search, versions and verified downloads (size, SHA-512, SHA-1);
->   * required-dependency resolution;
->   * reviewed prepare/apply, updates, enable/disable/remove;
->   * durable operations and recovery.
->
->   Not available yet: CurseForge, import/export through the helper, adopting existing Launcher
->   instances, loader changes after creation, mod display titles.
-> * **Real-backend tests:** `tests/realHelper` (opt-in) drives the TypeScript client against the
->   packaged helper and live Modrinth; the Rust host has an opt-in real-helper identity test.
-> * **Projects:** drafts with `.mrpack`/CurseForge ZIP import preview and verified export.
->   * Exports use the native Save As dialog.
->   * Drafts are saved in a versioned file under `%LOCALAPPDATA%\AwakeModpackManager\projects`.
-> * **With Awake Launcher:** a read-only view of real Launcher instances (protocol 1.0).
+**Version 0.1.0 · Windows x64 · English, ไทย, 简体中文, 繁體中文 · GPL-3.0-only**
 
-## Run
+## Install
 
-Requires Node 22.19+ and, for the desktop app, Rust (MSVC toolchain) and WebView2.
+1. Download `Awake-Modpack-Manager-v0.1.0-Windows-x64-Setup.exe` from the
+   [latest release](https://github.com/awakenginexe/Awake-Modpack-Manager/releases/latest).
+2. Optional: check it against `SHA256SUMS.txt` from the same release
+   (`Get-FileHash .\Awake-Modpack-Manager-v0.1.0-Windows-x64-Setup.exe`).
+3. Run the installer. It installs for your Windows user only (no administrator rights) into
+   `%LOCALAPPDATA%\Awake Modpack Manager`.
+   The installer is **not code-signed** yet, so Windows SmartScreen may warn that it is from an
+   unknown publisher: choose **More info → Run anyway** if the checksum matches.
+4. Start **Awake Modpack Manager** from the Start menu. Requires Windows 10/11 x64 with Microsoft
+   Edge WebView2 (preinstalled on current Windows; the installer fetches it if missing).
+
+Your projects are stored in `%LOCALAPPDATA%\AwakeModpackManager`. Uninstalling or upgrading never
+deletes that folder.
+
+## What works in 0.1.0
+
+* **Standalone modpack projects:** create a project with an exact Minecraft version and mod loader
+  (vanilla or Fabric) and loader version, chosen from live version lists.
+* **Modrinth:** search compatible mods, pick an exact version, see release type, size and required
+  dependencies.
+* **Real installation:** the bundled native helper downloads every file, checks its size, SHA-512
+  and SHA-1 against Modrinth, and installs it into the project's `mods` folder.
+* **Required dependencies** are added automatically and shown in the review; optional ones are
+  listed, never downloaded silently. Changes that would break a declared dependency are refused.
+* **Maintain:** update to newer stable versions, disable, enable and remove mods, one at a time or
+  in bulk, each through **Review & apply**.
+* **Safety:** every change is prepared and verified before Apply; Apply is refused if the
+  project's files changed since the review; interrupted changes are rolled back or completed when
+  the helper restarts, and History shows each operation, its errors and any recovery needed.
+  Files the Manager does not know are never deleted.
+* **Projects page:** `.mrpack` and CurseForge ZIP import preview and verified export of Manager
+  drafts (Save As), as before.
+* **Awake Launcher (optional):** if Awake Launcher with its integration endpoint is running, its
+  instances can be viewed read-only.
+
+## Known limitations
+
+* **CurseForge is not available yet.** CurseForge search and downloads are disabled; only Modrinth
+  works. (Reading a CurseForge pack ZIP in Projects works offline.)
+* **Shared Awake Launcher instances are not supported.** The Manager manages only its own projects;
+  Launcher instances are read-only.
+* **The Manager does not launch Minecraft.** Use Awake Launcher or another launcher to play.
+* **Loaders:** vanilla and Fabric only; the loader can't be changed after a project is created.
+* **Modpack catalogs** (installing a whole pack from Modrinth/CurseForge/FTB/ATLauncher/Technic) and
+  import/export *through the helper* are not available yet; Projects import/export works only as
+  described above.
+* Mods are listed by file name (the helper does not read display titles from JARs yet).
+* Dependency checks use the metadata mod authors publish on Modrinth; they are not a guarantee that
+  every combination runs in game. Not every Minecraft version or loader is supported.
+* The installer is unsigned.
+
+## How it works
+
+The Manager (Tauri 2, Rust and Vue 3) owns the interface. All file changes are made by the bundled
+**Awake Native Core** helper (`core-host/windows-x64/awake-core-host.exe`, version 0.1.1), a
+separate program built from [Awake Launcher](https://github.com/awakenginexe/Awake-Launcher)
+`native-core` at commit `299c140bd91656cf988efc4cff27887b54ae1efc`. The Manager starts it on
+demand with a private profile, checks it is the bundled executable (pipe server PID, Windows user
+and image path), and talks to it over a local named pipe using the pinned protocol 2.0 schema. The
+helper exits by itself about a minute after it becomes idle; the installer waits for it instead of
+killing it.
+
+## Licence and source code
+
+Awake Modpack Manager is free software under the **GNU General Public License v3.0 only**
+([LICENSE](LICENSE)).
+
+* Manager source: this repository; each release is tagged (`v0.1.0`).
+* Native helper source (GPL-3.0-only): `Awake-Native-Core-299c140bd-Source.zip`, published with
+  [Awake Launcher v3.0.0](https://github.com/awakenginexe/Awake-Launcher/releases/tag/v3.0.0) and
+  attached to the Manager release (SHA-256
+  `bc63fe1e8702bf10894e5a156f40da58c55e2efaa24fb7d2477dde49e66059fc`).
+* Qt 6.11.2 (LGPL-3.0, dynamically linked, replaceable DLLs), the Microsoft Visual C++ runtime and
+  all other components: [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt),
+  [licenses/](licenses) and [docs/LICENSING.md](docs/LICENSING.md). These files are also
+  installed with the app.
+
+## Build from source
+
+Requires Node 22.19+, Rust (MSVC toolchain) and WebView2.
 
 ```bash
-npm install
-npm run desktop:dev     # desktop app (Tauri), real Launcher data
-npm run dev             # browser preview at http://127.0.0.1:5173, demo data only
-npm test                # Vitest: unit, component and fixture-IPC tests
+npm ci
+npm test                # Vitest: unit, component and protocol-fixture tests
 npm run test:host       # Rust host tests
-npm run build           # typecheck + web bundle in dist/
-node scripts/stage-helper.mjs --from <helper package folder> <source commit>   # stage the real helper (whole folder)
-npm run desktop:build   # Windows release build (NSIS installer); refuses a missing, stub or modified helper stage
-npm run helper:stub     # stage the test stub helper (tests only; desktop:build refuses it)
+npm run build           # typecheck + web bundle
+node scripts/stage-helper.mjs --from <helper package folder> <source commit>   # stage the native helper (whole folder)
+npm run desktop:build   # Windows installer; refuses a missing, stub or modified helper
 ```
 
-Real-backend tests (disposable profile, live Modrinth):
+The helper package is built from the Native Core source above (`native-core/deploy.ps1`).
+`HELPER-SOURCE.txt` in the staged folder records the SHA-256 of every helper file.
+
+Development: `npm run dev` (browser preview with demo data), `npm run desktop:dev` (desktop app).
+Set `AWAKE_MM_DATA_DIR` to a scratch folder to keep test projects separate. Opt-in real-backend
+test (disposable profile, live Modrinth):
 
 ```bash
 AWAKE_REAL_HELPER=src-tauri/helper-stage/awake-core-host.exe AWAKE_REAL_PROFILE=<new empty folder> npx vitest run tests/realHelper
 ```
 
-Testing with disposable data: set `AWAKE_MM_DATA_DIR` to a scratch folder before starting the
-app. Projects and helper data then go there instead of `%LOCALAPPDATA%\AwakeModpackManager`.
-Uninstalling never deletes that folder.
-
-Awake Launcher is optional. To see its instances, it must be running for the selected profile. If yours uses a portable or `--dir`
-folder, add it in Settings → Launcher connection.
-
-Dev scenarios: `?mock=drift`, `?mock=fail`, `?mock=cf` (see INTEGRATION.md).
-
-## Screens
-
-* **Instances**: Launcher instances with version, loader, mod count, status, location and
-  whether they can be managed now; create an instance; open it in Awake Launcher.
-* **Get modpack**: search Modrinth, CurseForge, FTB, ATLauncher and Technic, pick a version
-  and install it as a new instance in one step, then go straight to managing it. Provider calls
-  and the CurseForge API key stay in Awake Launcher; this app ships no keys.
-* **Mods**: a windowed table for hundreds of mods with search, status/source filters, sorting,
-  multi-select (shift-range, Ctrl+A), bulk update/enable/disable/remove/pin, and a details panel
-  with dependencies. Unknown/manual files stay visible.
-* **Browse**: provider search (Modrinth; CurseForge when authorized) filtered by version,
-  loader, release type and compatibility; multi-select into the draft.
-* **Review & apply**: draft → resolved plan (install/update/remove, required and optional
-  dependencies, conflicts, pins, unknown files, destructive changes) → prepare → apply →
-  live progress until a confirmed result.
-* **Files**: read-only view of configs, defaultconfigs, kubejs, scripts, resource packs and
-  shader packs, with a Manager-side "include in export" list.
-* **History**: operations with all proposed states, errors, rollback/recovery info, cancel.
-* **Export**: `.mrpack` / CurseForge ZIP with a distribution-permission review.
-
-Languages: English, ไทย, 简体中文, 繁體中文 (same codes as the Launcher).
-
 ## Docs
 
-* [Architecture and desktop-shell decision](docs/ARCHITECTURE.md)
-* [Integration assumptions and required Launcher capabilities](docs/INTEGRATION.md)
-* [Licensing notes](docs/LICENSING.md)
+* [Licensing](docs/LICENSING.md)
+* [Standalone architecture](docs/ARCHITECTURE-STANDALONE.md)
+* [Requests to Awake Launcher / Native Core](docs/LAUNCHER-REQUESTS.md)
