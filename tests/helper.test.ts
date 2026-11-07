@@ -379,6 +379,24 @@ describe('manager.v0.2 negotiation and features (fixture)', () => {
     expect(core.log.find((l) => l.method === 'transactions.apply')?.params).toMatchObject({ operationId: plan.planId, planDigest: plan.planHash });
   });
 
+  it('imports and snapshots through the composite backend the desktop app uses', async () => {
+    core = new FakeCore();
+    const backend = createCompositeBackend(helper(core), createLauncherClient({ transport: new FakeLauncher({ running: false }), clientVersion: 't', heartbeatMs: 0 }), { retryMs: 100000 });
+    const session = createSession(backend, { pollMs: 1 });
+    await session.connect();
+    expect(session.can('packs.import')).toBe(true);
+    expect(backend.canImport!()).toBe(true);
+    const token = await backend.uploadImport!(blob(1000));
+    const ins = await backend.inspectImport!(token, 'mrpack');
+    const made = await session.createInstance({ name: 'Composite import', minecraftVersion: ins.minecraftVersion, loader: ins.loader.kind, loaderVersion: ins.loader.version });
+    await session.refreshInstances();
+    await session.prepareImport(made!.result!.instanceId!, token, 'mrpack', false, 'c.mrpack');
+    await session.apply();
+    expect(session.review.phase).toBe('done');
+    const snap = await backend.snapshotWorkspace!(made!.result!.instanceId!);
+    expect(snap.mods.map((m) => m.projectId)).toEqual(['sodium', 'fabricapi']);
+  });
+
   it('reports an unsupported archive (ZIP64) as invalid-archive and discards the upload', async () => {
     core = new FakeCore();
     core.inspectError = 'INVALID_ARCHIVE';
@@ -416,8 +434,18 @@ describe('manager.v0.2 negotiation and features (fixture)', () => {
     const a = session.inventory.value!.mods.find((m) => m.key === 'a')!;
     expect(a.updateLocked).toBe(true);
     expect(a.updateExcluded).toBe(true);
+    // updateLocked also covers exclusion, so an excluded mod is shown as excluded, not pinned.
+    expect(session.pinned.value.has('a')).toBe(false);
+    session.setExcluded(['a'], false); // including again is reviewed with the pin cleared, visibly
+    expect(session.draft.value!.changes).toEqual([{ kind: 'policy', modKey: 'a', pinned: false, excluded: false }]);
+    session.discardDraft();
+    // A pin alone reads back as pinned; pinning it again is no change.
+    session.setPinned(['a'], true);
+    session.setExcluded(['a'], false);
+    await session.validate();
+    await session.apply();
+    await wait();
     expect(session.pinned.value.has('a')).toBe(true);
-    // Unpinning back to the stored state is a real change; re-pinning to it is none.
     session.setPinned(['a'], true);
     expect(session.draft.value!.changes).toEqual([]);
   });

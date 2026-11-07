@@ -375,7 +375,8 @@ export class FakeCore implements PipeTransport {
         if (i < 0) throw this.err('NOT_FOUND', 'Unknown inventory item.');
         if (ch.pinnedVersion !== null && ch.pinnedVersion !== next[i]!.versionId) throw this.err('POLICY_CONFLICT');
         this.policies.set(ch.inventoryId!, { pinnedVersion: ch.pinnedVersion ?? null, excluded: !!ch.excluded });
-        next[i] = { ...next[i]!, updateLocked: ch.pinnedVersion !== null };
+        // Like the real 0.2.0 helper: updateLocked is set by a pin AND by an exclusion.
+        next[i] = { ...next[i]!, updateLocked: ch.pinnedVersion !== null || !!ch.excluded };
       }
       else {
         const i = next.findIndex((x) => x.inventoryId === ch.inventoryId);

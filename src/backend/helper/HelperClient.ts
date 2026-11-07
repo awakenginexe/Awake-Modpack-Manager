@@ -297,7 +297,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     const meta = files.filter((f) => !isMod(f.path) && isMeta(f.path));
     // Imported configs and other overrides: every one is listed, and replacing or removing one is destructive.
     const overrides: PlanItem[] = files.filter((f) => !isMod(f.path) && !isMeta(f.path)).map((f) => ({
-      action: 'override', modKey: f.path, name: f.path, reason: 'requested', destructive: f.action !== 'install',
+      // Shown relative to the game folder, as pack authors write them.
+      action: 'override', modKey: f.path, name: f.path.replace(/^\.minecraft\//, ''), reason: 'requested', destructive: f.action !== 'install',
       to: { id: f.afterSha256 || f.action, name: f.action },
     }));
     const paths = new Set(mods.map((f) => `${f.action}:${f.path}`));

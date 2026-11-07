@@ -87,8 +87,11 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   });
   /** With helper policies the pin lives in the workspace (updateLocked); otherwise it is a Manager-side note. */
   const policies = computed(() => can('mods.policies') && source.value === 'helper');
+  // The helper reports updateLocked for a pin, a native lock AND an exclusion, so an excluded mod's
+  // pin cannot be read back; it is shown as excluded only (docs/INTEGRATION-020.md, issue 3).
+  const lockedPin = (m: { updateLocked?: boolean; updateExcluded?: boolean }) => !!m.updateLocked && !m.updateExcluded;
   const pinned = computed(() => policies.value
-    ? new Set((inventory.value?.mods ?? []).filter((m) => m.updateLocked).map((m) => m.key))
+    ? new Set((inventory.value?.mods ?? []).filter(lockedPin).map((m) => m.key))
     : new Set(state.instanceId ? pins.value[state.instanceId] ?? [] : []));
   const planOutdated = computed(() => !!review.plan && review.planDraft !== JSON.stringify(draft.value?.changes ?? []));
 
@@ -202,7 +205,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   function policyOf(key: string) {
     const c = draft.value?.changes.find((x) => x.kind === 'policy' && x.modKey === key);
     const m = inventory.value?.mods.find((x) => x.key === key);
-    return c?.kind === 'policy' ? { pinned: c.pinned, excluded: c.excluded } : { pinned: !!m?.updateLocked, excluded: !!m?.updateExcluded };
+    return c?.kind === 'policy' ? { pinned: c.pinned, excluded: c.excluded } : { pinned: !!m && lockedPin(m), excluded: !!m?.updateExcluded };
   }
   /** Helper policies are reviewed changes like any other: they go into the draft. */
   function draftPolicy(keys: Iterable<string>, field: 'pinned' | 'excluded', value: boolean) {
@@ -213,7 +216,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
       .map((k) => ({ kind: 'policy' as const, modKey: k, ...policyOf(k), [field]: value }));
     // A change back to the current state is no change.
     const kept = d.changes.filter((c) => !(c.kind === 'policy' && changes.some((n) => n.modKey === c.modKey)));
-    const real = changes.filter((c) => c.pinned !== !!mods.get(c.modKey)?.updateLocked || c.excluded !== !!mods.get(c.modKey)?.updateExcluded);
+    const real = changes.filter((c) => c.pinned !== lockedPin(mods.get(c.modKey)!) || c.excluded !== !!mods.get(c.modKey)?.updateExcluded);
     setDraft({ ...d, changes: [...kept, ...real] });
   }
   function setExcluded(keys: Iterable<string>, value: boolean) {
