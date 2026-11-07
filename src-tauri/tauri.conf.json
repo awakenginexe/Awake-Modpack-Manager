@@ -32,7 +32,10 @@
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
     "resources": {
       "helper-stage/": "core-host/windows-x64/",
-      "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+      "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",
+      "../LICENSE": "LICENSE",
+      "../licenses/LGPL-3.0.txt": "licenses/LGPL-3.0.txt",
+      "../licenses/rust-crates.txt": "licenses/rust-crates.txt"
     },
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },

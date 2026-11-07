@@ -2,6 +2,7 @@
   "name": "awake-modpack-manager",
   "private": true,
   "version": "0.1.0",
+  "license": "GPL-3.0-only",
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
@@ -12,7 +13,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "desktop:dev": "tauri dev",
-    "desktop:build": "node scripts/stage-helper.mjs --check && tauri build",
+    "desktop:build": "node scripts/desktop-build.mjs",
     "helper:stub": "node scripts/stage-helper.mjs --stub",
     "test:host": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
