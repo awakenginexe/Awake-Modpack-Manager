@@ -27,6 +27,7 @@
     "vite.config.ts"
   ],
   "exclude": [
-    "tests/live"
+    "tests/live",
+    "tests/realHelper"
   ]
 }
