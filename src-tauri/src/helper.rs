@@ -5,7 +5,7 @@
 //! never kills it: not on window close, pipe loss or a timeout, so accepted work always finishes
 //! or is recovered by the helper itself on its next start.
 //!
-//! Contract: Awake Launcher docs/modpack-manager/core-protocol.md 2.0 at 861cebc1a. The helper is
+//! Contract: Awake Launcher docs/modpack-manager/core-protocol.md 2.0 and handoff.md at 299c140bd / 68c55f2c7. The helper is
 //! started with `--profile <private absolute directory>`, publishes
 //! `<profile>\integration\core-v2\endpoint.json` and serves `\\.\pipe\awake-core-v2-<session UUID>`.
 
@@ -123,10 +123,15 @@ fn live_descriptor(data_root: &Path, exe: &Path) -> Result<Option<Map<String, Va
     })
 }
 
+/// helper.log sits next to the profile, not inside it: the profile belongs to the helper.
+fn log_path(data_root: &Path) -> PathBuf {
+    data_root.parent().unwrap_or(data_root).join("helper.log")
+}
+
 fn open_log(data_root: &Path) -> Option<fs::File> {
-    let path = data_root.join("helper.log");
+    let path = log_path(data_root);
     if fs::metadata(&path).is_ok_and(|m| m.len() > LOG_MAX) {
-        let _ = fs::rename(&path, data_root.join("helper.log.1"));
+        let _ = fs::rename(&path, path.with_extension("log.1"));
     }
     fs::OpenOptions::new().create(true).append(true).open(path).ok()
 }
@@ -149,8 +154,13 @@ fn spawn(exe: &Path, data_root: &Path) -> std::io::Result<u32> {
         cmd.spawn().map(|c| c.id())
     };
     // Leave the Manager's job (if any) so closing the window can't kill accepted work. A job that
-    // forbids breakaway refuses with ACCESS_DENIED; then start inside it.
-    run(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB).or_else(|e| if e.raw_os_error() == Some(5) { run(CREATE_NO_WINDOW) } else { Err(e) })
+    // forbids breakaway refuses with ACCESS_DENIED; starting inside it is acceptable only when that
+    // job does not kill its members on close.
+    run(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB).or_else(|e| match e.raw_os_error() {
+        Some(5) if pipe::in_kill_on_close_job() => Err(std::io::Error::other("Windows would stop the helper when the Manager closes (kill-on-close job without breakaway), which could interrupt accepted work. Start Awake Modpack Manager normally from the Start menu.")),
+        Some(5) => run(CREATE_NO_WINDOW),
+        _ => Err(e),
+    })
 }
 
 #[cfg(not(windows))]
@@ -166,8 +176,13 @@ pub fn ensure(resource_dir: &Path, data_root: &Path, spawned: &Spawned) -> Helpe
         Err(e) => return status("failed", None, false, Some(e)),
     };
     let stub = exe.with_file_name(STUB_MARKER).is_file();
-    if let Err(e) = fs::create_dir_all(data_root) {
-        return status("failed", None, stub, Some(format!("Cannot create the helper data folder: {e}")));
+    // A new profile gets a protected user/SYSTEM/Administrators ACL. An existing one is left as it
+    // is: the helper refuses a permissive profile rather than silently changing user data.
+    if !data_root.exists() {
+        let made = data_root.parent().map_or(Ok(()), fs::create_dir_all).and_then(|_| pipe::create_private_dir(data_root));
+        if let Err(e) = made {
+            return status("failed", None, stub, Some(format!("Cannot create the private helper data folder: {e}")));
+        }
     }
     match live_descriptor(data_root, &exe) {
         Ok(Some(d)) => return status("ready", Some(d), stub, None),
@@ -176,15 +191,14 @@ pub fn ensure(resource_dir: &Path, data_root: &Path, spawned: &Spawned) -> Helpe
     }
     let mut last = spawned.0.lock().unwrap();
     if let Some((pid, at)) = *last {
-        if at.elapsed() < START_GRACE {
-            if pipe::process_image(pid).is_some() {
-                return status("starting", None, stub, None);
-            }
-            *last = None;
-            return status("failed", None, stub, Some(format!("The Manager helper exited during startup. Details: {}", data_root.join("helper.log").display())));
-        }
+        // Still starting: startup recovery can take longer than any fixed timeout, and the helper
+        // is never killed for being slow.
         if pipe::process_image(pid).is_some() {
-            return status("failed", None, stub, Some("The Manager helper is running but did not publish its endpoint.".into()));
+            return status("starting", None, stub, None);
+        }
+        if at.elapsed() < START_GRACE {
+            *last = None;
+            return status("failed", None, stub, Some(format!("The Manager helper exited during startup. Details: {}", log_path(data_root).display())));
         }
     }
     match spawn(&exe, data_root) {
@@ -271,6 +285,42 @@ mod tests {
             fs::write(d.join("endpoint.json"), bad).unwrap();
             assert!(read_descriptor(&root).is_err());
         }
+    }
+
+    /// REAL helper, opt-in: AWAKE_REAL_HELPER_DIR=<packaged core-host folder>. Copies it into a fake
+    /// resource folder, then runs the host's own path: private profile, spawn, descriptor, pipe
+    /// PID/SID/image identity. The helper exits by itself after its idle timeout.
+    #[test]
+    fn real_helper_starts_in_a_private_profile_and_proves_its_identity() {
+        let Some(src) = std::env::var_os("AWAKE_REAL_HELPER_DIR") else { return };
+        let res = temp("real");
+        let dir = HELPER_DIR.iter().fold(res.clone(), |p, c| p.join(c));
+        fs::create_dir_all(&dir).unwrap();
+        fn copy(from: &Path, to: &Path) {
+            for e in fs::read_dir(from).unwrap().flatten() {
+                let t = to.join(e.file_name());
+                if e.file_type().unwrap().is_dir() { fs::create_dir_all(&t).unwrap(); copy(&e.path(), &t); } else { fs::copy(e.path(), t).unwrap(); }
+            }
+        }
+        copy(Path::new(&src), &dir);
+        let profile = res.join("data").join("core");
+        let spawned = Spawned::default();
+        let t0 = Instant::now();
+        let d = loop {
+            let s = ensure(&res, &profile, &spawned);
+            assert!(s.state == "starting" || s.state == "ready", "{:?}", s);
+            assert!(!s.stub);
+            if let Some(d) = s.descriptor { break d; }
+            assert!(t0.elapsed() < Duration::from_secs(60), "no endpoint");
+            std::thread::sleep(Duration::from_millis(200));
+        };
+        let name = d["serverName"].as_str().unwrap();
+        let pid: u32 = d["pid"].as_str().unwrap().parse().unwrap();
+        pipe::connect(name, pid).expect("pipe server PID and user SID");
+        let exe = bundled_helper(&res).unwrap().unwrap();
+        assert!(same_file(&pipe::process_image(pid).unwrap(), &exe), "image is the bundled helper");
+        assert!(pipe::connect(name, pid + 1).is_err(), "a wrong advertised PID is refused");
+        assert!(log_path(&profile).starts_with(res.join("data")));
     }
 
     #[test]

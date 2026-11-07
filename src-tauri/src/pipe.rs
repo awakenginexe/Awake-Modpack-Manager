@@ -171,6 +171,47 @@ mod win {
         Some(std::ffi::OsString::from_wide(&buf[..len as usize]).into())
     }
 
+    /// Create `dir` (its parent must exist) owned by the current user with a protected DACL that
+    /// grants only that user, SYSTEM and Administrators: what the native helper requires of its
+    /// profile (core handoff step 2). An inherited ACL from a shared parent is refused by the helper.
+    pub fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+        use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+        use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
+        let last = std::io::Error::last_os_error;
+        let me = token_user(unsafe { GetCurrentProcess() }).ok_or_else(|| std::io::Error::other("Cannot read the current Windows user."))?;
+        let sid = unsafe { (*(me.as_ptr() as *const TOKEN_USER)).User.Sid };
+        let mut text: *mut u16 = null_mut();
+        if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 {
+            return Err(last());
+        }
+        let len = (0..).take_while(|&i| unsafe { *text.add(i) } != 0).count();
+        let user = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) });
+        unsafe { LocalFree(text.cast()) };
+        let sddl: Vec<u16> = format!("O:{user}D:P(A;OICI;FA;;;{user})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)").encode_utf16().chain([0]).collect();
+        let mut sd = null_mut();
+        if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, null_mut()) } == 0 {
+            return Err(last());
+        }
+        let attrs = SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: sd, bInheritHandle: 0 };
+        let path: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+        let ok = unsafe { CreateDirectoryW(path.as_ptr(), &attrs) };
+        let err = last();
+        unsafe { LocalFree(sd) };
+        if ok == 0 { Err(err) } else { Ok(()) }
+    }
+
+    /// Whether this process is in a job that kills its members when the job closes (or we can't tell).
+    pub fn in_kill_on_close_job() -> bool {
+        use windows_sys::Win32::System::JobObjects::{JobObjectExtendedLimitInformation, QueryInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE};
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
+        let ok = unsafe { QueryInformationJobObject(null_mut(), JobObjectExtendedLimitInformation, (&mut info as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(), size, null_mut()) };
+        ok == 0 || info.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE != 0
+    }
+
     pub fn cancel_io(raw: usize) {
         unsafe { windows_sys::Win32::System::IO::CancelIoEx(raw as HANDLE, std::ptr::null()) };
     }
@@ -188,11 +229,13 @@ mod win {
         Err(IpcError::new("invalid", "Launcher IPC is supported on Windows only."))
     }
     pub fn cancel_io(_: usize) {}
+    pub fn create_private_dir(_: &std::path::Path) -> std::io::Result<()> { Err(std::io::Error::other("Windows only.")) }
+    pub fn in_kill_on_close_job() -> bool { true }
     pub fn process_image(_: u32) -> Option<std::path::PathBuf> { None }
     pub fn raw(_: &File) -> usize { 0 }
 }
 
-pub use win::process_image;
+pub use win::{create_private_dir, in_kill_on_close_job, process_image};
 
 pub fn open_pipe(server_name: &str, expected_pid: u32) -> Result<File, IpcError> {
     if !valid_server_name(server_name) {
