@@ -28,6 +28,8 @@ pub struct Profile {
     pub drive: String,
     pub endpoint: Option<Map<String, Value>>,
     pub endpoint_error: Option<String>,
+    /// Why the Launcher will refuse to share this folder (profile_access.rs); checked only when no endpoint is published.
+    pub share_blocked: Option<&'static str>,
 }
 
 fn default_data_root() -> Option<PathBuf> {
@@ -145,20 +147,23 @@ fn profile(source: &str, install: Option<PathBuf>, root: Result<(PathBuf, &str),
         Ok(r) => r,
         Err(e) => {
             let at = install.clone().unwrap_or_default();
-            return Some(Profile { source: source.into(), install_dir: install.map(|p| p.display().to_string()), data_root: at.display().to_string(), resolved_by: String::new(), exists: false, drive: drive_type(&at), endpoint: None, endpoint_error: Some(e) });
+            return Some(Profile { source: source.into(), install_dir: install.map(|p| p.display().to_string()), data_root: at.display().to_string(), resolved_by: String::new(), exists: false, drive: drive_type(&at), endpoint: None, endpoint_error: Some(e), share_blocked: None });
         }
     };
     let exists = data_root.is_dir();
     let (endpoint, endpoint_error) = if exists { match read_descriptor(&data_root) { Ok(e) => (e, None), Err(e) => (None, Some(e)) } } else { (None, None) };
+    let drive = drive_type(&data_root);
+    let share_blocked = if exists && endpoint.is_none() && drive == "fixed" { crate::profile_access::blocked(&data_root) } else { None };
     Some(Profile {
         source: source.into(),
         install_dir: install.map(|p| p.display().to_string()),
-        drive: drive_type(&data_root),
+        drive,
         data_root: data_root.display().to_string(),
         resolved_by: resolved_by.into(),
         exists,
         endpoint,
         endpoint_error,
+        share_blocked,
     })
 }
 
@@ -231,11 +236,21 @@ pub fn start_launcher(data_root: String, added: Vec<String>, workspace_id: Optio
         }
         let help = probe.output().map_err(|e| format!("Could not check Awake Launcher: {e}"))?;
         if !help.status.success() || !String::from_utf8_lossy(&help.stdout).contains("--link-manager-workspace") {
-            return Err("This Awake Launcher version cannot open Manager workspaces. Install the compatible Launcher beta (3.1.0-beta.1 or newer). Your workspace was not copied or changed.".into());
+            return Err("This Awake Launcher version cannot open Manager workspaces. Install Awake Launcher 3.1.0 or newer. Your workspace was not copied or changed.".into());
         }
         command.arg("--link-manager-workspace").arg(path);
     }
     command.spawn().map(drop).map_err(|e| format!("Could not start Awake Launcher: {e}"))
+}
+
+/// Give a discovered data folder the permissions a normal install has, on an explicit user action.
+/// Runs off the main thread: Windows walks every file in the folder.
+#[tauri::command(async)]
+pub fn make_profile_private(data_root: String, added: Vec<String>) -> Result<(), String> {
+    let key = |s: &str| s.to_lowercase().trim_end_matches(['\\', '/']).to_string();
+    let profiles = discover(&added);
+    let profile = profiles.iter().find(|p| key(&p.data_root) == key(&data_root)).ok_or("This Launcher profile was not found.")?;
+    crate::profile_access::make_private(Path::new(&profile.data_root))
 }
 
 fn workspace_path(data: &Path, id: &str) -> Result<PathBuf, String> {

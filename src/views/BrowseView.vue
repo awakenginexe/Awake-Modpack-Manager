@@ -6,8 +6,9 @@ import { addChanges } from '../domain/draft';
 import { formatDate, formatNumber, t } from '../i18n';
 import { asError, useSession } from '../state/session';
 import { loaderLabel } from '../ui/labels';
-import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, Gamepad2, Layers, ListChecks, Plus, Scale, Search, X } from '@lucide/vue';
+import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, Gamepad2, Layers, ListChecks, Loader, Plus, Scale, Search, X } from '@lucide/vue';
 import { copyText, openMenu, separator, type MenuItem } from '../ui/desktop';
+import { useInfiniteScroll } from '../ui/infiniteScroll';
 import { openExternal } from '../state/appUpdate';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
@@ -47,7 +48,7 @@ async function search(append = false) {
     });
     if (id !== requestId) return; // a newer query superseded this one
     hits.value = append ? [...hits.value, ...page.hits] : page.hits;
-    total.value = page.total;
+    total.value = append && !page.hits.length ? hits.value.length : page.total; // an empty page is the real end
   } catch (e) {
     if (id === requestId) error.value = asError(e).message;
   } finally {
@@ -59,6 +60,9 @@ let debounce: ReturnType<typeof setTimeout> | undefined;
 watch(text, () => { clearTimeout(debounce); debounce = setTimeout(() => void search(), 250); });
 watch([provider, releaseTypes, compatibleOnly], () => void search(), { deep: true });
 onMounted(() => void search());
+const sentinel = ref<HTMLElement | null>(null);
+const hasMore = computed(() => hits.value.length > 0 && hits.value.length < total.value);
+useInfiniteScroll(sentinel, () => hasMore.value && !loading.value && !error.value, () => search(true));
 
 function togglePick(hit: SearchHit) {
   const next = new Map(picked.value);
@@ -206,7 +210,8 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
     <div v-if="!loading && !hits.length && providerInfo?.available && !error" class="empty card">
       <span class="empty-icon"><Search :size="28" /></span><p>{{ t('noResults') }}</p>
     </div>
-    <button v-if="hits.length < total && !loading" class="btn load-more" type="button" @click="search(true)">{{ t('loadMore') }}</button>
+    <button v-if="hasMore && error && !loading" class="btn load-more" type="button" @click="search(true)">{{ t('loadMore') }}</button>
+    <div ref="sentinel" class="load-status" aria-hidden="true"><Loader v-if="hasMore && !error" :size="20" class="spin" /></div>
     </div>
 
     <Transition name="slide">
@@ -297,4 +302,7 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
 .hit-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .summary { font-size: 0.88rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .load-more { align-self: center; }
+.load-status { display: flex; justify-content: center; min-height: 24px; color: var(--text-secondary); }
+.spin { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

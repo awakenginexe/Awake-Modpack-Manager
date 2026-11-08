@@ -142,6 +142,26 @@ describe('LauncherClient (fixture IPC)', () => {
     await expect(client(fake).connect()).rejects.toMatchObject({ code: 'unsupported-profile' });
   });
 
+  it('explains a folder the Launcher will not share, fixes it on request, then connects after a restart', async () => {
+    fake = new FakeLauncher({ running: false, shareBlocked: 'public-write' });
+    const c = client(fake);
+    await expect(c.connect()).rejects.toMatchObject({ code: 'profile-not-private', detail: PROFILE_ROOT });
+    expect(fake.madePrivate).toEqual([]); // nothing changes until the user asks
+    await c.makeProfilePrivate!();
+    expect(fake.madePrivate).toEqual([PROFILE_ROOT]);
+    await expect(c.connect()).rejects.toMatchObject({ code: 'not-running' });
+    fake.start();
+    await expect(c.connect()).resolves.toBeTruthy();
+  });
+
+  it('does not offer the fix for a folder owned by another account, and keeps waiting', async () => {
+    fake = new FakeLauncher({ running: false, shareBlocked: 'foreign-owner' });
+    const session = createSession(client(fake));
+    await session.connect();
+    expect(session.state.connectError?.code).toBe('profile-not-owned');
+    expect(session.state.waitingForLauncher).toBe(true);
+  });
+
   it('fails closed on malformed replies and maps Launcher errors', async () => {
     fake = new FakeLauncher();
     const c = await ready(fake);

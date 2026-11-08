@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowRight, CircleAlert, CircleCheck, Copy, Download, ExternalLink, Gamepad2, Info, Layers, PackageSearch, Search, TriangleAlert, X } from '@lucide/vue';
+import { ArrowRight, CircleAlert, CircleCheck, Copy, Download, ExternalLink, Gamepad2, Info, Layers, Loader, PackageSearch, Search, TriangleAlert, X } from '@lucide/vue';
 import { copyText, openMenu, separator } from '../ui/desktop';
+import { useInfiniteScroll } from '../ui/infiniteScroll';
 import { openExternal } from '../state/appUpdate';
 import type { PackHit, PackProviderId, PackVersion } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
@@ -63,7 +64,7 @@ async function search(append = false) {
     const page = await session.backend.searchPacks({ provider: provider.value, text: text.value, offset: append ? hits.value.length : 0, limit: PAGE });
     if (id !== requestId) return;
     hits.value = append ? [...hits.value, ...page.hits] : page.hits;
-    total.value = page.total;
+    total.value = append && !page.hits.length ? hits.value.length : page.total; // an empty page is the real end
   } catch (e) {
     if (id === requestId) error.value = asError(e).message;
   } finally {
@@ -120,6 +121,9 @@ watch(handshake, () => {
   void search();
 });
 onMounted(() => void search());
+const sentinel = ref<HTMLElement | null>(null);
+const hasMore = computed(() => hits.value.length > 0 && hits.value.length < total.value);
+useInfiniteScroll(sentinel, () => hasMore.value && !loading.value && !error.value, () => search(true));
 </script>
 
 <template>
@@ -179,7 +183,8 @@ onMounted(() => void search());
           <span class="empty-icon"><PackageSearch :size="28" /></span>
           <p>{{ t('noResults') }}</p>
         </div>
-        <button v-if="hits.length < total && !loading" class="btn load-more" type="button" @click="search(true)">{{ t('loadMore') }}</button>
+        <button v-if="hasMore && error && !loading" class="btn load-more" type="button" @click="search(true)">{{ t('loadMore') }}</button>
+        <div ref="sentinel" class="load-status" aria-hidden="true"><Loader v-if="hasMore && !error" :size="20" class="spin" /></div>
       </div>
 
       <Transition name="slide">
@@ -281,5 +286,8 @@ onMounted(() => void search());
 .center { text-align: center; }
 .notes { margin: 4px 0 0; padding-left: 16px; max-height: 120px; overflow-y: auto; }
 .load-more { align-self: center; }
+.load-status { display: flex; justify-content: center; min-height: 24px; color: var(--text-secondary); }
+.spin { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) { .columns.open { grid-template-columns: 1fr; } .details { position: static; max-height: none; } }
 </style>

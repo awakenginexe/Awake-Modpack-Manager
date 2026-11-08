@@ -13,6 +13,7 @@ export interface FakeOptions {
   warnings?: WireWarning[];
   running?: boolean;
   drive?: LauncherProfile['drive'];
+  shareBlocked?: LauncherProfile['shareBlocked'];
   capabilities?: Record<string, boolean>;
 }
 
@@ -67,6 +68,8 @@ export class FakeLauncher implements PipeTransport {
   warnings: WireWarning[];
   running: boolean;
   drive: LauncherProfile['drive'];
+  shareBlocked: LauncherProfile['shareBlocked'];
+  madePrivate: string[] = [];
   capabilities: Record<string, boolean>;
   /** Revision per listing; bump to simulate a change between pages. */
   revision = 1;
@@ -101,11 +104,17 @@ export class FakeLauncher implements PipeTransport {
     this.warnings = o.warnings ?? [];
     this.running = o.running ?? true;
     this.drive = o.drive ?? 'fixed';
+    this.shareBlocked = o.shareBlocked ?? null;
     this.capabilities = o.capabilities ?? { hello: true, 'launcher.info': true, 'instances.list': true, 'mods.list': true, 'transactions.apply': false, 'plans.prepare': false, 'instances.create': false };
   }
 
   async discover(): Promise<LauncherProfile[]> {
-    return [{ source: this.installDir ? 'registry' : 'default', installDir: this.installDir, dataRoot: 'C:\\Temp\\fixture-profile', resolvedBy: 'Persistent data path', exists: true, drive: this.drive, endpoint: this.running ? this.descriptor : null, endpointError: null }];
+    return [{ source: this.installDir ? 'registry' : 'default', installDir: this.installDir, dataRoot: 'C:\\Temp\\fixture-profile', resolvedBy: 'Persistent data path', exists: true, drive: this.drive, endpoint: this.running ? this.descriptor : null, endpointError: null, shareBlocked: this.running ? null : this.shareBlocked }];
+  }
+
+  async makeProfilePrivate(dataRoot: string): Promise<void> {
+    this.madePrivate.push(dataRoot);
+    this.shareBlocked = null;
   }
 
   async open(serverName: string, pid: string): Promise<number> {

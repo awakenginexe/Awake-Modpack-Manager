@@ -75,6 +75,23 @@ async function startLauncher() {
   try { await session.startLauncher(); } catch (e) { notice.value = asError(e).message; }
 }
 
+/** Launcher is refusing this folder, so starting it again would not help until the folder changes. */
+const folderBlocked = computed(() => state.connectError?.code === 'profile-not-private' || state.connectError?.code === 'profile-not-owned');
+const makingPrivate = ref(false);
+async function makeFolderPrivate() {
+  const ok = await confirmDialog({
+    title: t('profilePrivateTitle'), body: t('profilePrivateBody'),
+    details: [state.connectError?.detail ?? '', t('profilePrivateDetailOthers'), t('profilePrivateDetailData')],
+    confirm: t('makeFolderPrivate'), cancel: t('cancel'),
+  });
+  if (!ok) return;
+  makingPrivate.value = true;
+  try {
+    await session.makeProfilePrivate();
+    notice.value = t('profilePrivateDone');
+  } catch (e) { notice.value = asError(e).message; } finally { makingPrivate.value = false; }
+}
+
 async function launch(inst: InstanceSummary) {
   try {
     notice.value = t('launchRequested', { name: inst.name });
@@ -228,15 +245,17 @@ async function create() {
       <button class="icon-btn" type="button" :aria-label="t('dismiss')" @click="notice = ''"><X :size="16" /></button>
     </div>
     <div v-if="state.connectError" class="notice" :class="state.waitingForLauncher ? 'warn' : 'error'" role="alert">
-      <Loader v-if="state.waitingForLauncher" :size="18" class="spin" />
+      <TriangleAlert v-if="folderBlocked" :size="18" />
+      <Loader v-else-if="state.waitingForLauncher" :size="18" class="spin" />
       <CircleAlert v-else :size="18" />
       <div class="grow">
         <strong>{{ t(connectErrorTitle(state.connectError.code)) }}</strong>
-        <p class="small">{{ state.launcherStartedAt ? t(launcherSlow ? 'launcherStartSlow' : 'launcherStarting') : t(connectErrorHint(state.connectError.code)) }}</p>
+        <p class="small">{{ state.launcherStartedAt && !folderBlocked ? t(launcherSlow ? 'launcherStartSlow' : 'launcherStarting') : t(connectErrorHint(state.connectError.code)) }}</p>
         <details><summary class="small">{{ t('technicalDetails') }}</summary><code class="small">{{ state.connectError.message }}<template v-if="state.connectError.detail"> ({{ state.connectError.detail }})</template></code></details>
       </div>
       <button v-if="!state.waitingForLauncher" class="btn btn-small" type="button" @click="session.connect()">{{ t('retry') }}</button>
-      <button v-else-if="!state.launcherStartedAt && session.backend.canStartLauncher?.()" class="btn btn-small btn-primary" type="button" @click="startLauncher">{{ t('startLauncher') }}</button>
+      <button v-else-if="state.connectError.code === 'profile-not-private'" class="btn btn-small btn-primary" type="button" :disabled="makingPrivate" @click="makeFolderPrivate">{{ t('makeFolderPrivate') }}</button>
+      <button v-else-if="!folderBlocked && !state.launcherStartedAt && session.backend.canStartLauncher?.()" class="btn btn-small btn-primary" type="button" @click="startLauncher">{{ t('startLauncher') }}</button>
     </div>
 
     <div v-if="session.source.value === 'helper' && state.handshake?.stub" class="notice warn" role="note">

@@ -4,13 +4,15 @@
 //! integration named pipe, starts and verifies the Manager's own native helper, and moves
 //! length-prefixed frames. All protocol semantics live in TypeScript (`src/backend`). It never reads
 //! or writes instance files: its only writes are a user-chosen export file and the Manager's
-//! project store (`files.rs`).
+//! project store (`files.rs`). The one change to a Launcher folder is its Windows permissions, when
+//! the user confirms it (`profile_access.rs`).
 
 mod desktop;
 mod discovery;
 mod files;
 mod helper;
 mod pipe;
+mod profile_access;
 mod providers;
 mod updater;
 
@@ -76,6 +78,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             discovery::discover_profiles,
             discovery::start_launcher,
+            discovery::make_profile_private,
             pipe::ipc_open,
             pipe::ipc_request,
             pipe::ipc_close,

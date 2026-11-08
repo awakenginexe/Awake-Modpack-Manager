@@ -40,12 +40,12 @@ export function instanceSubtitle(inst: InstanceSummary): string {
 
 /** Connection problem → headline and next step. */
 export function connectErrorTitle(code: string): MessageKey {
-  return ({ 'not-running': 'launcherNotRunning', 'unsupported-profile': 'profileUnsupported', identity: 'launcherIdentity', unsupported: 'connUnsupported', protocol: 'launcherProtocol', 'helper-unavailable': 'helperUnavailable' } as Record<string, MessageKey>)[code] ?? 'connFailed';
+  return ({ 'not-running': 'launcherNotRunning', 'unsupported-profile': 'profileUnsupported', 'profile-not-private': 'profileNotPrivate', 'profile-not-owned': 'profileNotOwned', identity: 'launcherIdentity', unsupported: 'connUnsupported', protocol: 'launcherProtocol', 'helper-unavailable': 'helperUnavailable' } as Record<string, MessageKey>)[code] ?? 'connFailed';
 }
 /** Plain-language next step for import/provider failures; the helper's own message is shown with it. */
 export function importErrorHint(code: string): MessageKey | null {
   return ({ 'invalid-archive': 'importInvalidArchiveHint', 'provider-restricted': 'importRestrictedHint', unsupported: 'importUnsupportedHint', 'stale-revision': 'importStaleHint' } as Record<string, MessageKey>)[code] ?? null;
 }
 export function connectErrorHint(code: string): MessageKey {
-  return ({ 'not-running': 'launcherNotRunningHint', 'unsupported-profile': 'profileUnsupportedHint', identity: 'launcherIdentityHint', unsupported: 'connUnsupportedHint', protocol: 'launcherProtocolHint', 'helper-unavailable': 'helperUnavailableHint' } as Record<string, MessageKey>)[code] ?? 'connFailedHint';
+  return ({ 'not-running': 'launcherNotRunningHint', 'unsupported-profile': 'profileUnsupportedHint', 'profile-not-private': 'profileNotPrivateHint', 'profile-not-owned': 'profileNotOwnedHint', identity: 'launcherIdentityHint', unsupported: 'connUnsupportedHint', protocol: 'launcherProtocolHint', 'helper-unavailable': 'helperUnavailableHint' } as Record<string, MessageKey>)[code] ?? 'connFailedHint';
 }

@@ -58,6 +58,15 @@ files over 16 KiB and missing fields, and retries briefly while the file is bein
 descriptor is only a hint: hello must return the same installation, profile and session IDs.
 Instances are keyed `profileId|physicalId` (never folder ID or UUID alone).
 
+The Launcher publishes the descriptor only from a data root the current user owns and no other
+account can write to (`ProfileAccess.cpp`). `%APPDATA%` passes. A compact or custom folder on another
+drive usually inherits that drive's `Authenticated Users: Modify` entry and fails, so the Launcher
+runs but never appears. When a profile has no descriptor, the host applies the same rule and
+reports `shareBlocked`. The Library then offers **Make folder private**: after a confirmation it
+gives a discovered folder the three entries a normal install has (the user, SYSTEM,
+Administrators). It refuses links, whole drives and folders the user doesn't own. The Launcher only
+tries to publish at startup, so it has to be restarted afterwards.
+
 ## What is connected to real data
 
 | Screen | Real data | Notes |
@@ -117,6 +126,8 @@ Capabilities the client doesn't implement stay off, even if a future Launcher ad
 | Launcher exits while connected | "Connection lost. Reconnecting…"; the Mods screen keeps the last inventory labelled "last snapshot from \<time\>, may be out of date" |
 | Launcher restarts (new session) | reconnects with hello automatically; data refreshed |
 | Profile on a removable/network drive | "This Launcher profile can't be shared" |
+| Other accounts can change the data folder | "Awake Launcher can't share this folder yet", with **Make folder private**; keeps checking |
+| Data folder owned by another account | "This Launcher folder belongs to another account"; keeps checking |
 | Pipe owner or hello IDs don't match | "Couldn't verify Awake Launcher" |
 | Malformed reply / version mismatch | "Awake Launcher sent an unexpected reply" |
 | Plain browser | "Live data needs the desktop app"; Automatic uses demo data |
