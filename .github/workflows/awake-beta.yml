@@ -10,6 +10,8 @@ on:
         default: v0.2.0-beta.2
   push:
     tags: ['v*.*.*-beta.*', 'v*.*.*-rc.*', 'v*.*.*-alpha.*']
+    branches: [feat/v0.2.0-native-core]
+    paths: ['.github/workflows/awake-beta.yml']
 
 permissions:
   contents: read
@@ -80,6 +82,7 @@ jobs:
         env:
           AWAKE_CORE_CURSEFORGE_API_KEY: ${{ secrets.AWAKE_CORE_CURSEFORGE_API_KEY }}
           AWAKE_CORE_CURSEFORGE_AUTHORIZED: ${{ vars.AWAKE_CORE_CURSEFORGE_AUTHORIZED }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           npm ci
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -87,6 +90,20 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo test --manifest-path src-tauri/Cargo.toml --lib
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $cache = Join-Path $env:LOCALAPPDATA 'tauri'
+          $nsis = Join-Path $cache 'NSIS'
+          if (!(Test-Path -LiteralPath $nsis)) {
+            gh release download nsis-3.13 --repo tauri-apps/binary-releases --pattern nsis-3.13.zip --dir "$env:RUNNER_TEMP/nsis-input"
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            if ((Get-FileHash "$env:RUNNER_TEMP/nsis-input/nsis-3.13.zip" -Algorithm SHA1).Hash -ne 'DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E') { throw 'NSIS archive differs from the Tauri CLI pin.' }
+            Expand-Archive "$env:RUNNER_TEMP/nsis-input/nsis-3.13.zip" "$env:RUNNER_TEMP/nsis-input/unpacked"
+            New-Item -ItemType Directory -Path $cache -Force | Out-Null
+            Copy-Item "$env:RUNNER_TEMP/nsis-input/unpacked/nsis-3.13" $nsis -Recurse
+          }
+          if ((Get-FileHash "$nsis/NSIS.exe" -Algorithm SHA1).Hash -ne '6D45D4E8CCF18FE1FDAC9164058F356102A2ECF2') { throw 'Cached NSIS differs from the Tauri CLI pin.' }
+          gh release download nsis_tauri_utils-v0.5.3 --repo tauri-apps/nsis-tauri-utils --pattern nsis_tauri_utils.dll --dir "$nsis/Plugins/x86-unicode/additional" --clobber
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ((Get-FileHash "$nsis/Plugins/x86-unicode/additional/nsis_tauri_utils.dll" -Algorithm SHA1).Hash -ne '75197FEE3C6A814FE035788D1C34EAD39349B860') { throw 'NSIS plugin differs from the Tauri CLI pin.' }
           npm run desktop:build -- --bundles nsis
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Check installer and package portable ZIP
