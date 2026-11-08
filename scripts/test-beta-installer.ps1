@@ -15,11 +15,19 @@ $sentinel = Join-Path $data 'installer-preservation.txt'
 'keep user projects' | Set-Content $sentinel
 $pin = Get-Content (Join-Path $source 'scripts/helper-pin.json') -Raw | ConvertFrom-Json
 $version = (Get-Content (Join-Path $source 'package.json') -Raw | ConvertFrom-Json).version
+# Tauri patches the bundle marker for NSIS, then restores the original executable after bundling.
+$expected = [IO.File]::ReadAllBytes((Join-Path $source 'src-tauri/target/release/awake-modpack-manager.exe'))
+$text = [Text.Encoding]::ASCII.GetString($expected)
+$marker = '__TAURI_BUNDLE_TYPE_VAR_UNK'
+$offset = $text.IndexOf($marker, [StringComparison]::Ordinal)
+if ($offset -lt 0 -or $offset -ne $text.LastIndexOf($marker, [StringComparison]::Ordinal)) { throw 'Expected exactly one Tauri bundle marker.' }
+[Text.Encoding]::ASCII.GetBytes('__TAURI_BUNDLE_TYPE_VAR_NSS').CopyTo($expected,$offset)
+$expectedHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($expected)).ToLowerInvariant()
 foreach ($pass in 1,2) {
     $process = Start-Process -FilePath $setup -ArgumentList "/S /D=$target" -PassThru -Wait -WindowStyle Hidden
     if ($process.ExitCode) { throw "Installer pass $pass failed: $($process.ExitCode)" }
     $exe = Join-Path $target 'awake-modpack-manager.exe'
-    if ((Get-FileHash $exe).Hash -ne (Get-FileHash (Join-Path $source 'src-tauri/target/release/awake-modpack-manager.exe')).Hash) { throw 'Installed application differs from the build.' }
+    if ((Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedHash) { throw 'Installed application differs from the expected NSIS build.' }
     if ((Get-Item $exe).VersionInfo.ProductVersion -ne $version) { throw 'Installed application has the wrong version.' }
     $helper = Join-Path $target 'core-host/windows-x64'
     if ((Get-FileHash (Join-Path $helper 'awake-core-host.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin.exeSha256) { throw 'Installed helper differs from pin.' }
@@ -42,4 +50,4 @@ $deadline = [DateTime]::UtcNow.AddSeconds(15)
 while ((Test-Path (Join-Path $target 'awake-modpack-manager.exe')) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
 if (Test-Path (Join-Path $target 'awake-modpack-manager.exe')) { throw 'Uninstall left the application executable.' }
 if ((Get-Content $sentinel -Raw).Trim() -ne 'keep user projects') { throw 'Uninstall changed user data.' }
-'Manager NSIS install, upgrade, helper hashes, version, notices and user-data preservation passed.'
+[pscustomobject]@{ installerExecutableSha256=$expectedHash; checks='Manager NSIS install, upgrade, helper hashes, version, notices and user-data preservation passed.' }

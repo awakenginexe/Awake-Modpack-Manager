@@ -83,7 +83,8 @@ jobs:
           New-Item -ItemType Directory release-assets | Out-Null
           $setup = "$pwd/release-assets/Awake-Modpack-Manager-$env:RELEASE_TAG-Windows-x64-Setup.exe"
           Copy-Item $setups[0].FullName $setup
-          ../release-tools/scripts/test-beta-installer.ps1 -Installer $setup -SourceDir $pwd -TestDir "$env:RUNNER_TEMP/Manager-beta-setup-test"
+          $validation = ../release-tools/scripts/test-beta-installer.ps1 -Installer $setup -SourceDir $pwd -TestDir "$env:RUNNER_TEMP/Manager-beta-setup-test"
+          $validation.checks
           gh release download v0.2.0-beta.1 --repo $env:GITHUB_REPOSITORY --pattern 'Awake-Modpack-Manager-v0.2.0-beta.1-Windows-x64.zip' --dir prior
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Expand-Archive prior/*.zip prior/unpacked
@@ -94,20 +95,22 @@ jobs:
           Copy-Item src-tauri/target/release/awake-modpack-manager.exe $package/
           Copy-Item src-tauri/helper-stage "$package/core-host/windows-x64" -Recurse
           foreach ($file in 'LICENSE','THIRD-PARTY-NOTICES.txt','licenses') { Copy-Item $file $package/ -Recurse }
-          foreach ($file in 'Run-Manager-Beta.cmd','START-HERE.txt','SOURCE.json') { Copy-Item "$($prior.FullName)/$file" $package/ }
+          foreach ($file in 'Run-Manager-Beta.cmd','SOURCE.json') { Copy-Item "$($prior.FullName)/$file" $package/ }
+          Copy-Item ../release-tools/scripts/beta-start-here.txt "$package/START-HERE.txt"
           $meta = Get-Content "$package/SOURCE.json" -Raw | ConvertFrom-Json
           $meta.commit = $env:SOURCE_COMMIT
           $meta.version = $env:RELEASE_TAG.Substring(1)
           $meta | ConvertTo-Json | Set-Content "$package/SOURCE.json" -Encoding utf8
           Compress-Archive "package/$name" "release-assets/$name.zip" -CompressionLevel Optimal
           $pin = Get-Content scripts/helper-pin.json -Raw | ConvertFrom-Json
-          @{ sourceCommit=$env:SOURCE_COMMIT; workflowCommit=$env:GITHUB_SHA; tag=$env:RELEASE_TAG; nativeCoreSource=$pin.sourceCommit; helperSha256=$pin.exeSha256; curseForge='disabled by default in the unchanged pinned helper'; installerSmoke='install, upgrade, helper manifest, metadata and user-data preservation passed'; executableSha256=(Get-FileHash "$package/awake-modpack-manager.exe" -Algorithm SHA256).Hash.ToLowerInvariant(); workflowRun="https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json | Set-Content release-assets/Awake-Modpack-Manager-BUILD-PROVENANCE.json -Encoding utf8
+          @{ sourceCommit=$env:SOURCE_COMMIT; workflowCommit=$env:GITHUB_SHA; tag=$env:RELEASE_TAG; nativeCoreSource=$pin.sourceCommit; helperSha256=$pin.exeSha256; curseForge='disabled by default in the unchanged pinned helper'; installerSmoke=$validation.checks; installerExecutableSha256=$validation.installerExecutableSha256; executableSha256=(Get-FileHash "$package/awake-modpack-manager.exe" -Algorithm SHA256).Hash.ToLowerInvariant(); workflowRun="https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json | Set-Content release-assets/Awake-Modpack-Manager-BUILD-PROVENANCE.json -Encoding utf8
           foreach ($file in Get-ChildItem release-assets -File | Where-Object Extension -In '.exe','.zip','.json') {
             "$((Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($file.Name)" | Set-Content "$($file.FullName).sha256" -Encoding ascii
           }
           git diff --exit-code
           if ($LASTEXITCODE) { throw 'Application source changed during packaging.' }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Awake-Modpack-Manager-${{ env.RELEASE_TAG }}-Windows-x64
           path: source/release-assets/*
