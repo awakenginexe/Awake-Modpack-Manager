@@ -1,0 +1,114 @@
+name: Manager Windows beta packages
+run-name: Beta installer and portable ZIP (${{ inputs.release_tag || github.ref_name }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable beta tag to build
+        required: true
+        default: v0.2.0-beta.1
+  push:
+    tags: ['v*.*.*-beta.*', 'v*.*.*-rc.*', 'v*.*.*-alpha.*']
+    branches: [feat/v0.2.0-native-core]
+    paths: ['.github/workflows/awake-beta.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manager-beta-${{ inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: source
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || 'v0.2.0-beta.1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: release-tools
+      - name: Validate beta tag
+        working-directory: release-tools
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+-(alpha|beta|rc)\.\d+$') { throw 'An existing prerelease tag is required.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: source/src-tauri
+      - name: Stage exact published Native Core
+        run: |
+          if ((Get-Content package.json -Raw | ConvertFrom-Json).version -ne $env:RELEASE_TAG.Substring(1)) { throw 'Tag and application version differ.' }
+          "SOURCE_COMMIT=$(git rev-parse HEAD)" >> $env:GITHUB_ENV
+          $pin = Get-Content scripts/helper-pin.json -Raw | ConvertFrom-Json
+          $name = "awake-core-manager-v$($pin.implementationVersion)-windows-x64.zip"
+          $directory = $pin.sourceCommit.Substring(0,12)
+          $url = "https://raw.githubusercontent.com/awakenginexe/Awake-Launcher/$($pin.deliveryCommit)/native-core/redistribution/$directory/$name"
+          Invoke-WebRequest $url -OutFile "$env:RUNNER_TEMP/helper.zip"
+          if ((Get-FileHash "$env:RUNNER_TEMP/helper.zip" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin.archiveSha256) { throw 'Helper package does not match pin.' }
+          Expand-Archive "$env:RUNNER_TEMP/helper.zip" "$env:RUNNER_TEMP/helper"
+          node scripts/stage-helper.mjs --from "$env:RUNNER_TEMP/helper/core-host/windows-x64" $pin.sourceCommit
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node scripts/stage-helper.mjs --check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build application and NSIS installer
+        run: |
+          npm ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run desktop:build -- --bundles nsis
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Check installer and package portable ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setups = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe)
+          if ($setups.Count -ne 1) { throw 'Expected exactly one NSIS installer.' }
+          New-Item -ItemType Directory release-assets | Out-Null
+          $setup = "$pwd/release-assets/Awake-Modpack-Manager-$env:RELEASE_TAG-Windows-x64-Setup.exe"
+          Copy-Item $setups[0].FullName $setup
+          ../release-tools/scripts/test-beta-installer.ps1 -Installer $setup -SourceDir $pwd -TestDir "$env:RUNNER_TEMP/Manager-beta-setup-test"
+          gh release download v0.2.0-beta.1 --repo $env:GITHUB_REPOSITORY --pattern 'Awake-Modpack-Manager-v0.2.0-beta.1-Windows-x64.zip' --dir prior
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Expand-Archive prior/*.zip prior/unpacked
+          $prior = Get-ChildItem prior/unpacked -Directory | Select-Object -First 1
+          $name = "Awake-Modpack-Manager-$env:RELEASE_TAG-Windows-x64"
+          $package = "$pwd/package/$name"
+          New-Item -ItemType Directory "$package/core-host" -Force | Out-Null
+          Copy-Item src-tauri/target/release/awake-modpack-manager.exe $package/
+          Copy-Item src-tauri/helper-stage "$package/core-host/windows-x64" -Recurse
+          foreach ($file in 'LICENSE','THIRD-PARTY-NOTICES.txt','licenses') { Copy-Item $file $package/ -Recurse }
+          foreach ($file in 'Run-Manager-Beta.cmd','START-HERE.txt','SOURCE.json') { Copy-Item "$($prior.FullName)/$file" $package/ }
+          $meta = Get-Content "$package/SOURCE.json" -Raw | ConvertFrom-Json
+          $meta.commit = $env:SOURCE_COMMIT
+          $meta.version = $env:RELEASE_TAG.Substring(1)
+          $meta | ConvertTo-Json | Set-Content "$package/SOURCE.json" -Encoding utf8
+          Compress-Archive "package/$name" "release-assets/$name.zip" -CompressionLevel Optimal
+          $pin = Get-Content scripts/helper-pin.json -Raw | ConvertFrom-Json
+          @{ sourceCommit=$env:SOURCE_COMMIT; workflowCommit=$env:GITHUB_SHA; tag=$env:RELEASE_TAG; nativeCoreSource=$pin.sourceCommit; helperSha256=$pin.exeSha256; curseForge='disabled by default in the unchanged pinned helper'; installerSmoke='install, upgrade, helper manifest, metadata and user-data preservation passed'; executableSha256=(Get-FileHash "$package/awake-modpack-manager.exe" -Algorithm SHA256).Hash.ToLowerInvariant(); workflowRun="https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" } | ConvertTo-Json | Set-Content release-assets/Awake-Modpack-Manager-BUILD-PROVENANCE.json -Encoding utf8
+          foreach ($file in Get-ChildItem release-assets -File | Where-Object Extension -In '.exe','.zip','.json') {
+            "$((Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($file.Name)" | Set-Content "$($file.FullName).sha256" -Encoding ascii
+          }
+          git diff --exit-code
+          if ($LASTEXITCODE) { throw 'Application source changed during packaging.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Awake-Modpack-Manager-${{ env.RELEASE_TAG }}-Windows-x64
+          path: source/release-assets/*
+          if-no-files-found: error
