@@ -8,7 +8,11 @@ import SettingsDialog from './components/SettingsDialog.vue';
 import { reducedMotion, systemReducedMotion } from './state/prefs';
 import { useSession } from './state/session';
 import { instanceSubtitle } from './ui/labels';
-import awakeLogo from './assets/brand/modpack-manager.png';
+import TitleBar from './components/TitleBar.vue';
+import ContextMenu from './components/ContextMenu.vue';
+import DialogHost from './components/DialogHost.vue';
+import UpdateDialog from './components/UpdateDialog.vue';
+import { appUpdate } from './state/appUpdate';
 import LibraryView from './views/LibraryView.vue';
 import ModsView from './views/ModsView.vue';
 import PacksView from './views/PacksView.vue';
@@ -70,7 +74,63 @@ const connectionTone = computed(() => {
   return state.connection === 'connecting' || state.reconnecting ? 'info' : 'error';
 });
 
-function open(id: ViewId) { view.value = id; }
+/* Back and forward through screens, by toolbar, Alt+arrows or the mouse's side buttons. */
+const back = ref<ViewId[]>([]);
+const forward = ref<ViewId[]>([]);
+function open(id: ViewId) {
+  if (id === view.value) return;
+  back.value = [...back.value.slice(-49), view.value];
+  forward.value = [];
+  view.value = id;
+}
+const usable = (id: ViewId) => ['library', 'packs', 'projects'].includes(id) || !!session.instance.value;
+function goBack() {
+  const list = [...back.value];
+  while (list.length) {
+    const id = list.pop()!;
+    if (usable(id)) { forward.value = [...forward.value, view.value]; back.value = list; view.value = id; return; }
+  }
+  back.value = [];
+}
+function goForward() {
+  const list = [...forward.value];
+  while (list.length) {
+    const id = list.pop()!;
+    if (usable(id)) { back.value = [...back.value, view.value]; forward.value = list; view.value = id; return; }
+  }
+  forward.value = [];
+}
+function onMouseButton(e: MouseEvent) {
+  if (e.button === 3) { e.preventDefault(); goBack(); }
+  if (e.button === 4) { e.preventDefault(); goForward(); }
+}
+
+/* A desktop app has no page to reload, print or inspect, and no browser menu. */
+const isField = (el: EventTarget | null) => el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+function refreshAll() {
+  void session.refreshInstances();
+  void session.loadInventory();
+}
+function onKey(e: KeyboardEvent) {
+  const ctrl = e.ctrlKey || e.metaKey;
+  const key = e.key.toLowerCase();
+  if (e.key === 'F5' || (ctrl && key === 'r')) { e.preventDefault(); refreshAll(); return; }
+  if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); goBack(); return; }
+  if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); goForward(); return; }
+  if (ctrl && key === 'f') {
+    const field = document.querySelector<HTMLInputElement>('.stage input[type=search]');
+    if (field) { e.preventDefault(); field.focus(); field.select(); }
+    return;
+  }
+  if (ctrl && e.key === ',') { e.preventDefault(); settingsOpen.value = true; return; }
+  if (ctrl && (['p', 'u', 'g', 'j', 's', 'o', 'n', 't', 'w'].includes(key) && !(isField(e.target) && key === 'a'))) e.preventDefault();
+  if (!import.meta.env.DEV && e.key === 'F12') e.preventDefault();
+  if (!import.meta.env.DEV && ctrl && e.shiftKey && ['i', 'j', 'c'].includes(key)) e.preventDefault();
+}
+function onNativeMenu(e: MouseEvent) { if (!isField(e.target)) e.preventDefault(); }
+function onDrop(e: DragEvent) { e.preventDefault(); }
+onMounted(() => { addEventListener('keydown', onKey); addEventListener('contextmenu', onNativeMenu); addEventListener('dragover', onDrop); addEventListener('drop', onDrop); });
+onBeforeUnmount(() => { removeEventListener('keydown', onKey); removeEventListener('contextmenu', onNativeMenu); removeEventListener('dragover', onDrop); removeEventListener('drop', onDrop); });
 
 const views: Record<ViewId, Component> = { library: LibraryView, packs: PacksView, projects: ProjectsView, mods: ModsView, browse: BrowseView, review: ReviewView, files: FilesView, history: HistoryView, export: ExportView };
 const needsInstance = computed(() => !['library', 'packs', 'projects'].includes(view.value));
@@ -99,18 +159,15 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
 </script>
 
 <template>
-  <div class="shell" :class="{ 'reduced-motion': reducedMotion }">
+  <div class="frame" :class="{ 'reduced-motion': reducedMotion }" @mouseup="onMouseButton">
+  <TitleBar :can-back="back.length > 0" :can-forward="forward.length > 0" :active-ops="activeOps" @back="goBack" @forward="goForward" @history="session.instance.value && open('history')" />
+  <div class="shell">
     <nav ref="sidebar" class="sidebar glass" :aria-label="t('appName')">
       <span
         class="nav-indicator" aria-hidden="true"
         :class="{ ready: indicator.ready, hidden: !indicator.visible }"
         :style="{ transform: `translate3d(${indicator.x}px, ${indicator.y}px, 0)`, width: `${indicator.w}px`, height: `${indicator.h}px` }"
       ></span>
-      <header class="brand">
-        <img :src="awakeLogo" alt="" class="brand-logo" width="38" height="38" />
-        <div><strong>Awake</strong><span>Modpack Manager</span></div>
-      </header>
-
       <div class="nav-group">
         <span class="nav-label">{{ t('navSectionLibrary') }}</span>
         <button
@@ -191,22 +248,22 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
       </Transition>
     </main>
   </div>
+  <Transition name="modal"><UpdateDialog v-if="appUpdate.dialogOpen && appUpdate.info?.latest" /></Transition>
+  <ContextMenu />
+  <DialogHost />
+  </div>
 </template>
 
 <style scoped>
+.frame { display: flex; flex-direction: column; height: 100vh; }
 .shell {
+  flex: 1; min-height: 0;
   display: grid;
   grid-template-columns: clamp(232px, 17vw, 268px) minmax(0, 1fr);
   gap: var(--space-4);
-  height: 100vh;
-  padding: var(--space-4);
+  padding: 0 var(--space-4) var(--space-4);
 }
 .sidebar { position: relative; display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-4) var(--space-3); min-height: 0; overflow-y: auto; }
-.brand { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-2); }
-.brand-logo { border-radius: 10px; filter: drop-shadow(0 4px 12px rgba(37, 99, 235, 0.35)); }
-.brand div { display: flex; flex-direction: column; line-height: 1.15; }
-.brand strong { font-size: 1.1rem; font-weight: 700; }
-.brand span { color: var(--text-secondary); font-size: 0.84rem; }
 .nav-group { display: flex; flex-direction: column; gap: 2px; }
 .nav-label { font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 0 var(--space-3) var(--space-2); }
 .current-instance {

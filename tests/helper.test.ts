@@ -26,7 +26,7 @@ async function standalone(c = new FakeCore()) {
 
 describe('core protocol 2.0 schema (pinned)', () => {
   it('is pinned to the committed contract and enforces it', () => {
-    expect(CORE_CONTRACT_COMMIT).toMatch(/^31d0611a/);
+    expect(CORE_CONTRACT_COMMIT).toMatch(/^4ec20f38/);
     expect(paramsError('workspaces.create', { idempotencyKey: 'k', name: 'x', minecraftVersion: '1.21.1', loader: { id: 'liteloader', version: '1' } })).toMatch(/loader\.id/);
     // 0.2 methods are in x-methods at this pin, including the new lookup and config outbox.
     expect(paramsError('providers.project', { provider: 'modrinth', projectId: 'AANobbMI' })).toBeNull();

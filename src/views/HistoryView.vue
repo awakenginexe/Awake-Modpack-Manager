@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue';
-import { Archive, Ban, CircleAlert, CircleCheck, Download, FolderOpen, History, LifeBuoy, Loader, PackagePlus, Play, RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, Upload, Wrench, X } from '@lucide/vue';
+import { Archive, Ban, CircleAlert, CircleCheck, Download, FolderOpen, History, LifeBuoy, Loader, PackagePlus, Play, RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, Upload, Wrench, X, Trash2 } from '@lucide/vue';
 import type { OperationKind, OperationStatus, RecoveryStatus } from '../backend/contract';
 import { isSettled } from '../domain/operation';
 import { formatDate, t } from '../i18n';
@@ -32,7 +32,7 @@ async function cancel(id: string) {
 }
 onMounted(refresh);
 
-const kindIcon: Record<OperationKind, Component> = { 'apply-plan': Wrench, 'create-instance': PackagePlus, 'install-pack': Download, export: Upload, launch: Play };
+const kindIcon: Record<OperationKind, Component> = { 'apply-plan': Wrench, 'create-instance': PackagePlus, 'delete-instance': Trash2, 'install-pack': Download, export: Upload, launch: Play };
 function stateIcon(op: OperationStatus): Component {
   if (!isSettled(op)) return Loader;
   return { completed: CircleCheck, cancelled: Ban, rolled_back: RotateCcw, failed: CircleAlert, recovery_required: CircleAlert }[op.state as 'completed'] ?? CircleCheck;

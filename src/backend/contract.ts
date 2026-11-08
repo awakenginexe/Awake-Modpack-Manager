@@ -31,14 +31,19 @@ export type Capability =
   /** Helper-owned pins and update exclusions (policies.v1). */
   | 'mods.policies'
   /** Native .mrpack / CurseForge ZIP import through bounded uploads (imports.* + inbox.*). */
-  | 'packs.import';
+  | 'packs.import'
+  /** Permanently delete or rename a project the Manager owns (never a Launcher-owned instance). */
+  | 'instances.delete'
+  | 'instances.rename'
+  /** Batched mod update lookups, independent of loading the inventory. */
+  | 'mods.updates';
 
 /** Every capability this Manager build knows how to use. */
 export const ALL_CAPABILITIES: Capability[] = [
   'installations.discover', 'instances.list', 'instances.create', 'mods.inventory', 'providers.search',
   'plan.validate', 'plan.prepare', 'plan.apply', 'operations.watch', 'operations.cancel', 'operations.reconnect',
   'recovery.status', 'files.read', 'export.mrpack', 'export.curseforge', 'launch.request', 'packs.search', 'packs.install',
-  'mods.policies', 'packs.import',
+  'mods.policies', 'packs.import', 'instances.delete', 'instances.rename', 'mods.updates',
 ];
 
 export type ProviderId = 'modrinth' | 'curseforge';
@@ -114,6 +119,13 @@ export interface PackLink {
   packName: string;
   versionId: string;
   versionName: string;
+  iconUrl?: string;
+}
+
+/** What Manager remembers about the pack a project came from, to offer and apply its updates. */
+export interface StoredPackLink extends PackLink {
+  /** Inventory IDs that came from the pack; a pack update never removes the user's own additions. */
+  managed: string[];
 }
 
 export interface InstallPackRequest {
@@ -121,6 +133,8 @@ export interface InstallPackRequest {
   packId: string;
   versionId: string;
   instanceName: string;
+  /** Shown as the project's icon. */
+  iconUrl?: string;
   idempotencyKey: string;
 }
 
@@ -349,7 +363,7 @@ export type OperationState =
 
 export const TERMINAL_STATES: readonly OperationState[] = ['completed', 'cancelled', 'failed', 'rolled_back'];
 
-export type OperationKind = 'apply-plan' | 'create-instance' | 'install-pack' | 'export' | 'launch';
+export type OperationKind = 'apply-plan' | 'create-instance' | 'delete-instance' | 'install-pack' | 'export' | 'launch';
 
 export interface OperationStatus {
   operationId: string;
@@ -367,6 +381,8 @@ export interface OperationStatus {
   recovery?: { backupId?: string; restored?: boolean; message: string };
   /** `instanceId` is set when the operation created an instance. */
   result?: { revision?: string; exportPath?: string; instanceId?: string };
+  /** Things the user should know after it finished, e.g. files a provider only allows by hand. */
+  notes?: string[];
 }
 
 export interface ApplyRequest {

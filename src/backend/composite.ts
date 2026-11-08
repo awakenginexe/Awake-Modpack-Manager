@@ -110,9 +110,25 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
 
     // Search and packs follow the selected installation; each side reports its own availability.
     search: (q) => current.backend.search(q),
-    searchPacks: (q) => current.backend.searchPacks(q),
-    packVersions: (prov, id) => current.backend.packVersions(prov, id),
-    installPack: async (r) => own(current, await current.backend.installPack(r)),
+    // Packs always become Manager projects, whichever list is on screen.
+    searchPacks: (q) => helper.searchPacks(q),
+    packVersions: (prov, id) => helper.packVersions(prov, id),
+    installPack: async (r) => own(parts.helper, await helper.installPack(r)),
+    deleteInstance: async (id, key) => { const p = byInstance(id); if (!p.backend.deleteInstance) throw new BackendError('unsupported', 'Delete this instance in Awake Launcher.'); return own(p, await p.backend.deleteInstance(id, key)); },
+    renameInstance: async (id, name) => { const b = byInstance(id).backend; if (!b.renameInstance) throw new BackendError('unsupported', 'Rename this instance in Awake Launcher.'); await b.renameInstance(id, name); },
+    checkUpdates: (id) => { const b = byInstance(id).backend; return b.checkUpdates ? b.checkUpdates(id) : Promise.resolve([]); },
+    preparePackUpdate: async (id, versionId, onStep) => {
+      const p = byInstance(id);
+      if (!p.backend.preparePackUpdate) throw new BackendError('unsupported', 'Only Manager projects can update their modpack here.');
+      const plan = await p.backend.preparePackUpdate(id, versionId, onStep);
+      owners.plan.set(plan.planId, p);
+      return plan;
+    },
+    finishPackUpdate: async (id) => { await byInstance(id).backend.finishPackUpdate?.(id); },
+    shutdownHelper: async () => { await helper.shutdownHelper?.(); },
+    projectDetail: (provider, projectId) => (helper.projectDetail ? helper.projectDetail(provider, projectId) : noHelper()),
+    recycleContent: async (id, area, paths) => { await byInstance(id).backend.recycleContent?.(id, area, paths); },
+    openFolder: async (id, area) => { await byInstance(id).backend.openFolder?.(id, area); },
 
     async validateDraft(d, resolutions) {
       const p = byInstance(d.instanceId);

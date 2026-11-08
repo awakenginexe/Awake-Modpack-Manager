@@ -1,16 +1,30 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowRight, CircleAlert, CircleCheck, Download, Gamepad2, Info, Layers, PackageSearch, Search, X } from '@lucide/vue';
+import { ArrowRight, CircleAlert, CircleCheck, Copy, Download, ExternalLink, Gamepad2, Info, Layers, PackageSearch, Search, TriangleAlert, X } from '@lucide/vue';
+import { copyText, openMenu, separator } from '../ui/desktop';
+import { openExternal } from '../state/appUpdate';
 import type { PackHit, PackProviderId, PackVersion } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
-import { formatDate, formatNumber, t } from '../i18n';
+import { formatDate, formatNumber, t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
 import { loaderLabel, opStateKey, opStateTone, packProviderNames } from '../ui/labels';
 
 const emit = defineEmits<{ manage: [] }>();
 const session = useSession();
-const providers = computed(() => session.state.handshake?.packProviders ?? []);
+const handshake = session.packHandshake;
+const providers = computed(() => handshake.value?.packProviders ?? []);
+const can = (c: 'packs.search' | 'packs.install') => !!handshake.value?.capabilities.includes(c);
+const stepKeys: Record<string, MessageKey> = { 'pack-download': 'packStepDownload', 'pack-upload': 'packStepUpload', 'pack-create': 'packStepCreate', 'pack-resolve': 'packStepResolve', 'pack-files': 'packStepFiles', 'pack-apply': 'packStepApply' };
+const providerUrl = (hit: PackHit) => ({ modrinth: `https://modrinth.com/modpack/${hit.packId}`, curseforge: `https://www.curseforge.com/projects/${hit.packId}`, ftb: `https://www.feed-the-beast.com/modpacks/${hit.packId}`, atlauncher: `https://atlauncher.com/pack/${hit.packId}`, technic: `https://www.technicpack.net/modpack/${hit.packId}` }[hit.provider]);
+function hitMenu(event: MouseEvent, hit: PackHit) {
+  openMenu(event, [
+    { label: t('packDetails'), icon: Info, action: () => pick(hit) },
+    separator,
+    { label: t('openProviderPage'), icon: ExternalLink, action: () => openExternal(providerUrl(hit)) },
+    { label: t('copyName'), icon: Copy, action: () => copyText(hit.name) },
+  ]);
+}
 
 const provider = ref<PackProviderId>('modrinth');
 const text = ref('');
@@ -28,16 +42,17 @@ const operationId = ref<string | null>(null);
 /** Live status of the install this screen started. */
 const operation = computed(() => session.state.operations.find((o) => o.operationId === operationId.value) ?? null);
 const installError = ref('');
+const manualUrl = ref('');
 const PAGE = 24;
 let requestId = 0;
 
 const info = computed(() => providers.value.find((p) => p.id === provider.value));
-const canSearch = computed(() => session.can('packs.search') && !!info.value?.available);
+const canSearch = computed(() => can('packs.search') && !!info.value?.available);
 const version = computed(() => versions.value.find((v) => v.id === versionId.value));
 const installed = computed(() => operation.value?.state === 'completed');
 const nameTaken = computed(() => !installed.value && session.state.instances.some((i) => i.name.trim().toLowerCase() === instanceName.value.trim().toLowerCase()));
 // Disabled after success so one click can't install the same pack twice; picking a pack again resets it.
-const canInstall = computed(() => session.can('packs.install') && !!picked.value && !!version.value && !!instanceName.value.trim() && !installing.value && !installed.value);
+const canInstall = computed(() => can('packs.install') && !!picked.value && !!version.value && !!instanceName.value.trim() && !installing.value && !installed.value);
 
 async function search(append = false) {
   if (!canSearch.value) { hits.value = []; total.value = 0; return; }
@@ -80,12 +95,16 @@ async function install() {
   if (!canInstall.value || !picked.value) return;
   installing.value = true;
   installError.value = '';
+  manualUrl.value = '';
   try {
     const final = await session.installPack(
-      { provider: picked.value.provider, packId: picked.value.packId, versionId: versionId.value, instanceName: instanceName.value.trim() },
+      { provider: picked.value.provider, packId: picked.value.packId, versionId: versionId.value, instanceName: instanceName.value.trim(), iconUrl: picked.value.iconUrl },
       (id) => { operationId.value = id; },
     );
-    if (final && final.state !== 'completed') installError.value = final.error?.message ?? t('applyFailed');
+    if (final && final.state !== 'completed' && final.state !== 'cancelled') {
+      if (final.error?.code === 'manual-download') { manualUrl.value = final.error.message; installError.value = t('packManualDownload'); }
+      else installError.value = final.error?.message ?? t('applyFailed');
+    }
   } catch (e) {
     installError.value = asError(e).message;
   } finally {
@@ -96,7 +115,10 @@ async function install() {
 let debounce: ReturnType<typeof setTimeout> | undefined;
 watch(text, () => { clearTimeout(debounce); debounce = setTimeout(() => void search(), 250); });
 watch(provider, () => { picked.value = null; void search(); });
-watch(() => session.state.handshake, () => void search());
+watch(handshake, () => {
+  if (!providers.value.find((p) => p.id === provider.value)?.available) provider.value = providers.value.find((p) => p.available)?.id ?? provider.value;
+  void search();
+});
 onMounted(() => void search());
 </script>
 
@@ -124,7 +146,7 @@ onMounted(() => void search());
       </label>
     </div>
 
-    <div v-if="!session.can('packs.search')" class="notice warn"><CircleAlert :size="18" />{{ t('capabilityMissing') }}</div>
+    <div v-if="!can('packs.search')" class="notice warn"><CircleAlert :size="18" />{{ t('capabilityMissing') }}</div>
     <div v-else-if="info && !info.available" class="notice warn" role="status">
       <ProviderLogo :provider="info.id" :size="22" />
       <span>{{ info.unavailableReason === 'curseforge-unauthorized' ? t('curseforgeUnauthorized') : t('providerUnavailable', { provider: packProviderNames[info.id] }) }}</span>
@@ -138,7 +160,7 @@ onMounted(() => void search());
             <li v-for="n in 6" :key="`s${n}`" class="card skel"><span class="skeleton" style="width: 64px; height: 64px; border-radius: 14px"></span><span class="skeleton-lines"><span class="skeleton" style="height: 14px; width: 55%"></span><span class="skeleton" style="height: 12px; width: 85%"></span></span></li>
           </template>
           <li v-for="(hit, i) in hits" :key="hit.packId" class="rise" :style="{ '--i': i % PAGE }">
-            <button type="button" class="card hit" :class="{ selected: picked?.packId === hit.packId }" :aria-pressed="picked?.packId === hit.packId" @click="pick(hit)">
+            <button type="button" class="card hit" :class="{ selected: picked?.packId === hit.packId }" :aria-pressed="picked?.packId === hit.packId" @click="pick(hit)" @contextmenu="hitMenu($event, hit)">
               <Avatar :name="hit.name" :src="hit.iconUrl" :size="64" />
               <span class="hit-copy">
                 <span class="hit-title"><strong>{{ hit.name }}</strong></span>
@@ -201,19 +223,24 @@ onMounted(() => void search());
           <p v-if="nameTaken" class="hint warn-text small"><Info :size="14" />{{ t('packNameTaken') }}</p>
 
           <div v-if="operation && !installed" class="operation" aria-live="polite">
-            <div class="op-row"><span class="badge" :class="opStateTone[operation.state]">{{ t(opStateKey[operation.state]) }}</span><span class="muted small">{{ Math.round((operation.progress ?? 0) * 100) }}%</span></div>
+            <div class="op-row"><span class="badge" :class="opStateTone[operation.state]">{{ operation.step && stepKeys[operation.step] ? t(stepKeys[operation.step]!) : t(opStateKey[operation.state]) }}</span><span class="muted small">{{ Math.round((operation.progress ?? 0) * 100) }}%</span></div>
             <div class="progress"><span :style="{ width: `${Math.round((operation.progress ?? 0) * 100)}%` }"></span></div>
+            <button v-if="installing && operation.cancellable" class="btn btn-small" type="button" @click="session.cancelOperation(operation.operationId)">{{ t('cancel') }}</button>
           </div>
           <div v-if="installed" class="notice success" role="status">
             <CircleCheck :size="18" /><span class="grow">{{ t('packInstalled', { name: instanceName }) }}</span>
           </div>
-          <p v-if="installError" class="notice error" role="alert"><CircleAlert :size="18" />{{ installError }}</p>
+          <div v-if="operation?.notes?.length" class="notice warn small" role="status">
+            <TriangleAlert :size="18" /><div><strong>{{ t('packNotes') }}</strong><ul class="notes"><li v-for="n in operation.notes" :key="n">{{ n }}</li></ul></div>
+          </div>
+          <p v-if="installError" class="notice error" role="alert"><CircleAlert :size="18" /><span class="grow">{{ installError }}</span></p>
+          <button v-if="manualUrl" class="btn btn-small" type="button" @click="openExternal(manualUrl)"><ExternalLink :size="15" />{{ t('openProviderPage') }}</button>
 
           <button v-if="installed" class="btn btn-primary btn-large btn-block" type="button" @click="emit('manage')">{{ t('packManageNow') }}<ArrowRight :size="18" /></button>
           <button v-else class="btn btn-primary btn-large btn-block" type="button" :disabled="!canInstall" @click="install">
             <Download :size="18" />{{ installing ? t('packInstalling') : t('packInstall') }}
           </button>
-          <p class="muted small center">{{ session.can('packs.install') ? t('packInstallHint') : t('capabilityMissing') }}</p>
+          <p class="muted small center">{{ can('packs.install') ? t('packInstallHint') : t('capabilityMissing') }}</p>
         </aside>
       </Transition>
     </div>
@@ -252,6 +279,7 @@ onMounted(() => void search());
 .operation { display: flex; flex-direction: column; gap: var(--space-2); }
 .op-row { display: flex; justify-content: space-between; align-items: center; }
 .center { text-align: center; }
+.notes { margin: 4px 0 0; padding-left: 16px; max-height: 120px; overflow-y: auto; }
 .load-more { align-self: center; }
 @media (max-width: 1100px) { .columns.open { grid-template-columns: 1fr; } .details { position: static; max-height: none; } }
 </style>

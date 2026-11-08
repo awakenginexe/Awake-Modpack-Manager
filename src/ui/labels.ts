@@ -11,7 +11,7 @@ export const opStateTone: Record<OperationState, string> = {
   acquiring: 'info', revalidating: 'info', backing_up: 'info', applying: 'info', verifying: 'info', rolling_back: 'warn',
   completed: 'ok', cancelled: '', failed: 'error', rolled_back: 'warn', recovery_required: 'error',
 };
-export const opKindKey: Record<OperationKind, MessageKey> = { 'apply-plan': 'kindApply', 'create-instance': 'kindCreate', 'install-pack': 'kindInstallPack', export: 'kindExport', launch: 'kindLaunch' };
+export const opKindKey: Record<OperationKind, MessageKey> = { 'apply-plan': 'kindApply', 'create-instance': 'kindCreate', 'delete-instance': 'kindDelete', 'install-pack': 'kindInstallPack', export: 'kindExport', launch: 'kindLaunch' };
 export const packProviderNames: Record<PackProviderId, string> = { modrinth: 'Modrinth', curseforge: 'CurseForge', ftb: 'FTB', atlauncher: 'ATLauncher', technic: 'Technic' };
 export const planActionKey: Record<PlanAction, MessageKey> = { install: 'planInstall', update: 'planUpdate', remove: 'planRemove', enable: 'planEnable', disable: 'planDisable', keep: 'planKeep', policy: 'planPolicy', override: 'planOverride' };
 

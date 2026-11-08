@@ -6,10 +6,13 @@
 //! or writes instance files: its only writes are a user-chosen export file and the Manager's
 //! project store (`files.rs`).
 
+mod desktop;
 mod discovery;
 mod files;
 mod helper;
 mod pipe;
+mod providers;
+mod updater;
 
 /// Live test against a running Awake Launcher. Skipped unless AWAKE_MM_LIVE_PROFILE names the
 /// Launcher data folder: `AWAKE_MM_LIVE_PROFILE=C:\path cargo test -- --ignored live_`.
@@ -53,9 +56,21 @@ mod live {
     }
 }
 
+use tauri::Manager;
+
 pub fn run() {
+    providers::sweep_pack_dir();
     tauri::Builder::default()
+        // One window per user: a second launch brings the running one forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
+        .manage(std::sync::Arc::new(providers::CatalogCache::default()))
         .manage(pipe::Connections::default())
         .manage(helper::Spawned::default())
         .invoke_handler(tauri::generate_handler![
@@ -69,6 +84,23 @@ pub fn run() {
             files::save_export,
             files::projects_read,
             files::projects_write,
+            providers::pack_providers,
+            providers::pack_search,
+            providers::pack_versions,
+            providers::pack_fetch,
+            providers::pack_cancel,
+            providers::pack_read,
+            providers::pack_discard,
+            providers::project_meta,
+            providers::project_detail,
+            providers::mod_updates,
+            updater::update_check,
+            updater::update_install,
+            desktop::workspace_list,
+            desktop::workspace_recycle,
+            desktop::workspace_open,
+            desktop::open_url,
+            desktop::app_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Awake Modpack Manager");

@@ -2,8 +2,10 @@
 import { computed, ref } from 'vue';
 import {
   ArrowDown, ArrowUp, ArrowUpCircle, Ban, Boxes, CircleAlert, CircleCheck, CircleHelp, FileQuestion, Info, ListChecks,
-  BellOff, BellRing, History, Lock, Pin, PinOff, Power, PowerOff, Search, Trash2, TriangleAlert, Undo2, X,
+  BellOff, BellRing, Copy, ExternalLink, History, Lock, Pin, PinOff, Power, PowerOff, RefreshCw, Search, Trash2, TriangleAlert, Undo2, X,
 } from '@lucide/vue';
+import { copyText, openMenu, separator, toast, type MenuItem } from '../ui/desktop';
+import { openExternal } from '../state/appUpdate';
 import type { DraftChange, InstalledMod, ProjectVersion } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
@@ -84,6 +86,49 @@ function onListKey(event: KeyboardEvent) {
     event.preventDefault();
     selection.value = selectAll(selection.value, shownKeys.value);
   } else if (event.key === 'Escape') selection.value = emptySelection();
+  else if (event.key === 'Delete' && selection.value.keys.size) { event.preventDefault(); bulk('remove'); }
+}
+
+/* Right-click: acts on the whole selection when the row is part of it, otherwise on that row. */
+const providerPage = (m: InstalledMod) => (!m.projectId ? null : m.source === 'modrinth' ? `https://modrinth.com/mod/${m.projectId}` : m.source === 'curseforge' ? `https://www.curseforge.com/projects/${m.projectId}` : null);
+function rowMenu(event: MouseEvent, m: InstalledMod) {
+  const inSelection = selection.value.keys.has(m.key) && selection.value.keys.size > 1;
+  let items: MenuItem[];
+  if (inSelection) {
+    const n = selection.value.keys.size;
+    items = [
+      { label: t('bulkUpdate'), icon: ArrowUpCircle, action: () => bulk('update') },
+      { label: t('bulkEnable'), icon: Power, action: () => bulk('enable') },
+      { label: t('bulkDisable'), icon: PowerOff, action: () => bulk('disable') },
+      separator,
+      { label: t('bulkPin'), icon: Pin, action: () => session.setPinned(selection.value.keys, true) },
+      { label: t('bulkUnpin'), icon: PinOff, action: () => session.setPinned(selection.value.keys, false) },
+      separator,
+      { label: `${t('bulkRemove')} (${n})`, icon: Trash2, danger: true, hint: 'Del', action: () => bulk('remove') },
+    ];
+  } else {
+    const page = providerPage(m);
+    items = [
+      ...(hasUpdate(m) && !pinned.value.has(m.key) ? [{ label: t('bulkUpdate'), icon: ArrowUpCircle, action: () => draftWith([{ kind: 'update', modKey: m.key, targetVersionId: m.available!.id }]) }] : []),
+      ...(canChoose.value && m.projectId ? [{ label: t('changeVersion'), icon: History, action: () => { choosingFor.value = m; } }] : []),
+      { label: m.enabled ? t('bulkDisable') : t('bulkEnable'), icon: m.enabled ? PowerOff : Power, action: () => draftWith([{ kind: m.enabled ? 'disable' : 'enable', modKey: m.key }]) },
+      { label: pinnedNow(m) ? t('bulkUnpin') : t('bulkPin'), icon: pinnedNow(m) ? PinOff : Pin, disabled: policies.value && (!m.installed || m.source === 'manual'), action: () => session.setPinned([m.key], !pinnedNow(m)) },
+      separator,
+      ...(page ? [{ label: t('openProviderPage'), icon: ExternalLink, action: () => openExternal(page) }] : []),
+      { label: t('copyFileName'), icon: Copy, action: () => copyText(m.fileName) },
+      separator,
+      { label: t('bulkRemove'), icon: Trash2, danger: true, hint: 'Del', action: () => draftWith([{ kind: 'remove', modKey: m.key }]) },
+    ];
+  }
+  openMenu(event, items);
+}
+async function checkNow() {
+  await session.checkUpdates(true);
+  if (state.updatesError) toast(state.updatesError, 'error');
+  else toast(counts.value.updates ? t('statUpdates', { count: counts.value.updates }) : t('updatesNone'), counts.value.updates ? 'info' : 'ok');
+}
+function updateAll() {
+  draftWith(mods.value.flatMap((m): DraftChange[] => (hasUpdate(m) && !pinned.value.has(m.key) && !m.updateExcluded && m.available ? [{ kind: 'update', modKey: m.key, targetVersionId: m.available.id }] : [])));
 }
 
 /** Pick an exact version (where the serving side can list them). Choosing one pins it. */
@@ -141,6 +186,8 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
         </div>
       </div>
       <div class="toolbar">
+        <button v-if="counts.updates" class="btn" type="button" @click="updateAll"><ArrowUpCircle :size="16" />{{ t('updateAll', { count: counts.updates }) }}</button>
+        <button v-if="session.can('mods.updates')" class="btn" type="button" :disabled="state.updatesChecking" :title="state.updatesCheckedAt ? t('updatesCheckedAt', { time: formatDate(new Date(state.updatesCheckedAt).toISOString()) }) : undefined" @click="checkNow"><RefreshCw :size="16" :class="{ spin: state.updatesChecking }" />{{ state.updatesChecking ? t('updatesChecking') : t('updatesCheck') }}</button>
         <button class="btn" type="button" @click="emit('navigate', 'browse')"><Search :size="16" />{{ t('browseMods') }}</button>
         <button class="btn btn-primary" type="button" :disabled="!session.draft.value?.changes.length" @click="emit('navigate', 'review')">
           <ListChecks :size="16" />{{ t('reviewChanges') }}<span v-if="session.draft.value?.changes.length" class="pill-count">{{ session.draft.value.changes.length }}</span>
@@ -227,6 +274,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
                 :style="compactRows ? { height: '42px' } : undefined"
                 :class="{ compact: compactRows, selected: selection.keys.has(m.key), focused: focusedKey === m.key, off: !m.enabled, removing: pendingByKey.get(m.key)?.some((c) => c.kind === 'remove') }"
                 @click="focusedKey = focusedKey === m.key ? null : m.key"
+                @contextmenu="rowMenu($event, m)"
               >
                 <span role="cell" @click.stop>
                   <input type="checkbox" :checked="selection.keys.has(m.key)" :aria-label="t('selectRow', { name: m.name })" @click="onCheck(m, $event)" />
@@ -360,6 +408,8 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
 </template>
 
 <style scoped>
+.spin { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .stats { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 .chip.link { cursor: pointer; font: inherit; font-size: 0.82rem; }
 .chip.link:hover { border-color: rgba(147, 197, 253, 0.35); color: var(--text); }

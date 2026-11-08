@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { ArrowRight, Boxes, CircleAlert, Loader, TriangleAlert, Download, FolderOpen, Gamepad2, Info, Layers, Play, Plus, Search, X } from '@lucide/vue';
-import type { InstanceSummary, LoaderKind, VersionCatalog } from '../backend/contract';
+import { ArrowRight, ArrowUpCircle, Boxes, CircleAlert, Copy, Ellipsis, Loader, Pencil, RefreshCw, Trash2, TriangleAlert, Download, FolderOpen, Gamepad2, Info, Layers, Play, Plus, Search, X } from '@lucide/vue';
+import type { InstanceSummary, LoaderKind, PackVersion, VersionCatalog } from '../backend/contract';
+import { confirmDialog, copyText, openMenu, promptDialog, separator, toast, type MenuItem } from '../ui/desktop';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
 import { formatNumber, t, type MessageKey } from '../i18n';
@@ -9,7 +10,7 @@ import { asError, useSession } from '../state/session';
 import { blockedText, connectErrorHint, connectErrorTitle, loaderLabel } from '../ui/labels';
 import { preferredProfile } from '../state/prefs';
 
-const emit = defineEmits<{ manage: []; getPack: [] }>();
+const emit = defineEmits<{ manage: []; getPack: []; navigate: ['review'] }>();
 const session = useSession();
 const { state } = session;
 const query = ref('');
@@ -90,6 +91,84 @@ async function openInLauncher(inst: InstanceSummary) {
     await session.backend.openInLauncher!(inst.id);
     notice.value = t('workspaceOpened');
   } catch (e) { notice.value = asError(e).message; }
+}
+
+/* Everything that can be done to a project, on its right-click menu and its "more" button. */
+const owned = (inst: InstanceSummary) => session.can('instances.delete') && helper.value && !!inst.path;
+function deleteDetails(inst: InstanceSummary) {
+  return [t('deleteDetailFiles'), ...(inst.modCount ? [t('instanceMods', { count: formatNumber(inst.modCount) })] : []), ...(inst.pack ? [t('deleteDetailPack', { pack: inst.pack.packName })] : []), t('deleteDetailLauncher')];
+}
+async function removeInstances(list: InstanceSummary[]) {
+  if (!list.length) return;
+  const one = list.length === 1 ? list[0]! : null;
+  const ok = await confirmDialog({
+    title: one ? t('deleteProjectTitle', { name: one.name }) : t('deleteProjectsTitle', { count: list.length }),
+    body: t('deleteProjectBody'), details: one ? deleteDetails(one) : list.map((i) => i.name),
+    confirm: t('deleteConfirm'), cancel: t('cancel'), danger: true, requireText: one ? one.name : String(list.length),
+  });
+  if (!ok) return;
+  for (const inst of list) {
+    try {
+      const final = await session.deleteInstance(inst.id);
+      if (final?.state === 'completed') toast(t('deletedProject', { name: inst.name }), 'ok');
+      else toast(final?.error?.message ?? t('deleteFailed', { name: inst.name }), 'error');
+    } catch (e) { toast(asError(e).message, 'error'); }
+  }
+  picked.value = new Set();
+}
+async function rename(inst: InstanceSummary) {
+  const name = await promptDialog({ title: t('renameProject'), input: { label: t('createName'), value: inst.name, maxLength: 80 }, confirm: t('renameConfirm'), cancel: t('cancel') });
+  if (!name || name === inst.name) return;
+  try { await session.renameInstance(inst.id, name); toast(t('renamedProject', { name }), 'ok'); } catch (e) { toast(asError(e).message, 'error'); }
+}
+function instanceMenu(inst: InstanceSummary): MenuItem[] {
+  const update = packUpdates.value[inst.id];
+  const canDelete = owned(inst);
+  return [
+    { label: t('manage'), icon: ArrowRight, disabled: !inst.manageable, action: () => manage(inst) },
+    helper.value ? { label: t('openInLauncher'), icon: Play, disabled: !inst.manageable, action: () => openInLauncher(inst) } : { label: t('play'), icon: Play, disabled: !session.can('launch.request'), action: () => launch(inst) },
+    ...(update ? [{ label: t('packUpdateTo', { version: update.name }), icon: ArrowUpCircle, action: () => updatePack(inst, update) }] : []),
+    separator,
+    { label: t('openFolder'), icon: FolderOpen, disabled: !helper.value, action: () => session.backend.openFolder?.(inst.id) },
+    ...(inst.path ? [{ label: t('copyPath'), icon: Copy, action: () => copyText(inst.path!) }] : []),
+    { label: t('renameProject'), icon: Pencil, disabled: !helper.value || !session.can('instances.rename'), hint: helper.value ? undefined : t('launcherOwnedHint'), action: () => rename(inst) },
+    separator,
+    { label: t('deleteProject'), icon: Trash2, danger: true, disabled: !canDelete, hint: canDelete ? undefined : t('launcherOwnedHint'), action: () => removeInstances([inst]) },
+  ];
+}
+/* Bulk selection of projects. */
+const picked = ref<Set<string>>(new Set());
+function togglePicked(id: string) {
+  const next = new Set(picked.value);
+  if (!next.delete(id)) next.add(id);
+  picked.value = next;
+}
+const pickedInstances = computed(() => shown.value.filter((i) => picked.value.has(i.id)));
+
+/* Newer versions of the pack a project came from. */
+const packUpdates = ref<Record<string, PackVersion>>({});
+const packChecked = new Set<string>();
+const packUpdating = ref<string | null>(null);
+watch(() => state.instances, async (list) => {
+  for (const inst of list) {
+    if (!inst.pack || !helper.value || packChecked.has(`${inst.id}:${inst.pack.versionId}`)) continue;
+    packChecked.add(`${inst.id}:${inst.pack.versionId}`);
+    try {
+      const versions = await session.backend.packVersions(inst.pack.provider, inst.pack.packId);
+      // Updates stay on the project's Minecraft version; moving to another one is a new project.
+      const same = versions.filter((v) => !inst.minecraftVersion || v.minecraftVersion === inst.minecraftVersion);
+      const newest = same.find((v) => v.releaseType !== 'beta' && v.releaseType !== 'alpha') ?? same[0];
+      if (newest && newest.id !== inst.pack.versionId && same.findIndex((v) => v.id === inst.pack!.versionId) !== 0) packUpdates.value = { ...packUpdates.value, [inst.id]: newest };
+      else { const { [inst.id]: _, ...rest } = packUpdates.value; packUpdates.value = rest; }
+    } catch { /* an unreachable provider just means no update badge */ }
+  }
+}, { immediate: true });
+async function updatePack(inst: InstanceSummary, version: PackVersion) {
+  packUpdating.value = inst.id;
+  try {
+    await session.preparePackUpdate(inst.id, version.id, t('packUpdateOrigin', { pack: inst.pack!.packName, version: version.name }));
+    emit('navigate', 'review');
+  } catch (e) { toast(asError(e).message, 'error'); } finally { packUpdating.value = null; }
 }
 
 async function create() {
@@ -186,7 +265,9 @@ async function create() {
     </div>
 
     <ul v-else class="grid">
-      <li v-for="(inst, i) in shown" :key="inst.id" class="card instance rise" :style="{ '--i': i }" :class="{ selected: inst.id === state.instanceId, interactive: inst.manageable }">
+      <li v-for="(inst, i) in shown" :key="inst.id" class="card instance rise" :style="{ '--i': i }" :class="{ selected: inst.id === state.instanceId, picked: picked.has(inst.id), interactive: inst.manageable }" @contextmenu="openMenu($event, instanceMenu(inst))" @dblclick="inst.manageable && manage(inst)">
+        <input v-if="owned(inst)" class="pick" type="checkbox" :checked="picked.has(inst.id)" :aria-label="t('selectRow', { name: inst.name })" @click.stop @change="togglePicked(inst.id)" @dblclick.stop />
+        <button class="icon-btn more" type="button" :aria-label="t('moreActions')" :title="t('moreActions')" @click.stop="openMenu($event, instanceMenu(inst))" @dblclick.stop><Ellipsis :size="18" /></button>
         <div class="card-top">
           <Avatar :name="inst.name" :src="inst.iconUrl" :size="52" />
           <div class="card-copy">
@@ -204,9 +285,14 @@ async function create() {
           <span v-if="!inst.minecraftVersion && !inst.loader" class="unknown" :title="t('versionUnknownHint')"><Gamepad2 :size="15" />{{ t('versionUnknown') }}</span>
           <span><Boxes :size="15" />{{ inst.modCount === undefined ? t('modsUnknown') : t('instanceMods', { count: formatNumber(inst.modCount) }) }}</span>
         </div>
-        <div v-if="inst.pack" class="pack-link chip" :title="t('packLinked', { pack: inst.pack.packName, version: inst.pack.versionName, provider: inst.pack.provider })">
-          <ProviderLogo :provider="inst.pack.provider" :size="15" />
-          <span class="ellipsis">{{ inst.pack.packName }} · {{ inst.pack.versionName }}</span>
+        <div v-if="inst.pack" class="pack-row">
+          <div class="pack-link chip" :title="t('packLinked', { pack: inst.pack.packName, version: inst.pack.versionName, provider: inst.pack.provider })">
+            <ProviderLogo :provider="inst.pack.provider" :size="15" />
+            <span class="ellipsis">{{ inst.pack.packName }} · {{ inst.pack.versionName }}</span>
+          </div>
+          <button v-if="packUpdates[inst.id]" class="btn btn-small" type="button" :disabled="packUpdating === inst.id" :title="t('packUpdateTo', { version: packUpdates[inst.id]!.name })" @click.stop="updatePack(inst, packUpdates[inst.id]!)" @dblclick.stop>
+            <RefreshCw v-if="packUpdating === inst.id" :size="14" class="spin" /><ArrowUpCircle v-else :size="14" />{{ t('packUpdate') }}
+          </button>
         </div>
         <p v-if="inst.path" class="path small" :title="inst.path"><FolderOpen :size="14" /><span class="ellipsis">{{ inst.path }}</span></p>
         <p v-if="!inst.manageable" class="blocked small"><CircleAlert :size="15" />{{ blockedText(inst) }}</p>
@@ -232,6 +318,15 @@ async function create() {
         </div>
       </li>
     </ul>
+
+    <Transition name="bar">
+      <div v-if="pickedInstances.length" class="floating-bar bulkbar" role="toolbar">
+        <strong>{{ t('selectedCount', { count: formatNumber(pickedInstances.length) }) }}</strong>
+        <span class="divider"></span>
+        <button class="btn btn-small btn-ghost btn-danger" type="button" @click="removeInstances(pickedInstances)"><Trash2 :size="15" />{{ t('deleteSelected') }}</button>
+        <button class="icon-btn end" type="button" :aria-label="t('clearSelection')" @click="picked = new Set()"><X :size="16" /></button>
+      </div>
+    </Transition>
 
     <Transition name="modal">
       <div v-if="showCreate" class="dialog-overlay" @click.self="showCreate = false" @keydown.esc="showCreate = false">
@@ -274,10 +369,19 @@ async function create() {
 .inline { flex-direction: row; align-items: center; gap: var(--space-2); }
 .count { margin-left: auto; }
 .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
-.instance { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.instance { position: relative; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.instance.picked { border-color: rgba(96, 165, 250, 0.6); }
+.more { position: absolute; top: 8px; right: 8px; opacity: 0.55; }
+.instance:hover .more, .more:focus-visible { opacity: 1; }
+.pick { position: absolute; top: 12px; left: 12px; z-index: 1; opacity: 0; }
+.instance:hover .pick, .pick:checked, .pick:focus-visible { opacity: 1; }
+.pack-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.bulkbar { position: sticky; bottom: 8px; align-self: center; display: flex; align-items: center; gap: var(--space-2); }
+.bulkbar .divider { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.15); }
 .skeleton-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); min-height: 200px; }
 .card-top { display: flex; align-items: center; gap: var(--space-3); }
 .card-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.card-copy { padding-right: 22px; }
 .card-copy h2 { font-size: 1.08rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pack-link { align-self: flex-start; max-width: 100%; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

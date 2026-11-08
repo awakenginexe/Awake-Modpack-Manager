@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Awake Modpack Manager",
-  "version": "0.2.0-beta.2",
+  "version": "0.3.0",
   "identifier": "io.github.awakenginexe.AwakeModpackManager",
   "build": {
     "frontendDist": "../dist",
@@ -17,7 +17,11 @@
         "height": 900,
         "minWidth": 980,
         "minHeight": 640,
-        "backgroundColor": "#07101e"
+        "backgroundColor": "#07101e",
+        "decorations": false,
+        "shadow": true,
+        "visible": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {

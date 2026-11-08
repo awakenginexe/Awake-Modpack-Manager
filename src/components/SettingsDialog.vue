@@ -4,7 +4,9 @@ import { Check, ChevronDown, CircleCheck, CircleMinus, Info, Plug, RefreshCw, Se
 import { ALL_CAPABILITIES } from '../backend/contract';
 import ProviderLogo from './ProviderLogo.vue';
 import { locale, localeNames, t, type Locale, type MessageKey } from '../i18n';
-import { addedFolders, compactRows, dataSource, preferredProfile, reducedMotion, systemReducedMotion, type DataSource } from '../state/prefs';
+import { addedFolders, compactRows, dataSource, includePrereleases, preferredProfile, reducedMotion, systemReducedMotion, type DataSource } from '../state/prefs';
+import { appUpdate, checkAppUpdate, updateAvailable } from '../state/appUpdate';
+import { isDesktopHost } from '../backend/launcher/transport';
 import type { LauncherProfile } from '../backend/launcher/transport';
 import { useSession } from '../state/session';
 import { connectErrorHint, connectErrorTitle, packProviderNames } from '../ui/labels';
@@ -14,6 +16,7 @@ import pkg from '../../package.json';
 const emit = defineEmits<{ close: [] }>();
 const session = useSession();
 const { state } = session;
+const desktop = isDesktopHost();
 
 type Tab = 'general' | 'connection' | 'about';
 const tabs: { id: Tab; label: MessageKey; icon: Component }[] = [
@@ -247,11 +250,26 @@ async function removeFolder(folder: string) {
               </div>
             </div>
             <p class="tagline">{{ t('aboutTagline') }}</p>
+            <template v-if="desktop">
+              <h4>{{ t('updatesHeading') }}</h4>
+              <div class="update-row">
+                <span class="hint">
+                  <template v-if="appUpdate.checking">{{ t('updatesChecking') }}</template>
+                  <template v-else-if="appUpdate.error">{{ appUpdate.error }}</template>
+                  <template v-else-if="updateAvailable">{{ t('titleUpdate', { version: appUpdate.info!.latest!.version }) }}</template>
+                  <template v-else-if="appUpdate.checkedAt">{{ t('appUpToDate') }}</template>
+                </span>
+                <button v-if="updateAvailable" class="btn btn-small btn-primary" type="button" @click="appUpdate.dialogOpen = true">{{ t('updateDetails') }}</button>
+                <button class="btn btn-small" type="button" :disabled="appUpdate.checking" @click="checkAppUpdate()">{{ t('updatesCheck') }}</button>
+              </div>
+              <label class="check update-pre"><input v-model="includePrereleases" type="checkbox" @change="checkAppUpdate()" />{{ t('updatesIncludePre') }}</label>
+            </template>
             <h4>{{ t('aboutOpenSource') }}</h4>
             <ul class="credits">
               <li><span>Vue</span><span class="hint">MIT</span></li>
               <li><span>Lucide icons</span><span class="hint">ISC</span></li>
               <li><span>K2D font</span><span class="hint">SIL OFL 1.1</span></li>
+              <li><span>Bayon font</span><span class="hint">SIL OFL 1.1</span></li>
               <li><span>Awake logo</span><span class="hint">CC BY-SA 4.0</span></li>
             </ul>
             <p class="hint">{{ t('aboutTrademarks') }}</p>
@@ -264,6 +282,9 @@ async function removeFolder(folder: string) {
 </template>
 
 <style scoped>
+.update-row { display: flex; align-items: center; gap: 10px; }
+.update-row .hint { flex: 1; }
+.update-pre { margin-top: 8px; }
 .settings { width: min(760px, calc(100vw - 32px)); height: min(540px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; background: var(--glass-menu); box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55), var(--glass-highlight); }
 .settings-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 14px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.025); }
 .title { display: flex; align-items: center; gap: 10px; color: #60a5fa; }

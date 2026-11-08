@@ -14,6 +14,7 @@ export type CoreExtensionCapability =
   | 'loaders.forge.v1' | 'loaders.neoforge.v1' | 'loaders.quilt.v1' | 'policies.v1' | 'providers.curseforge.v1'
   | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'inbox.discard.v1'
   | 'providers.project' | 'outbox.configs.v1' | 'outbox.list'
+  | 'workspaces.delete' | 'workspaces.rename' | 'imports.packAuthoritative.v1'
   /** manager.v0.2.1 only. */
   | 'dependencies.resolutions.v1' | 'loaders.connector.v1';
 
@@ -148,7 +149,7 @@ export interface CoreReviewedResolution {
 
 export interface CoreOperation {
   operationId: string;
-  kind: 'workspace-create' | 'modpack-change';
+  kind: 'workspace-create' | 'workspace-delete' | 'modpack-change';
   state: OperationState;
   terminal: boolean;
   createdAt: string;

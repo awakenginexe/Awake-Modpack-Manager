@@ -3,12 +3,15 @@ import App from './App.vue';
 import { createLauncherClient } from './backend/launcher/LauncherClient';
 import { createHelperClient } from './backend/helper/HelperClient';
 import { createCompositeBackend } from './backend/composite';
+import { createHostApi } from './backend/host';
 import { createHostTransport, isDesktopHost } from './backend/launcher/transport';
 import { MockBackend } from './backend/mock/MockBackend';
 import type { ManagerBackend } from './backend/ManagerBackend';
 import { addedFolders, dataSource, preferredProfile } from './state/prefs';
 import { createSession, SessionKey } from './state/session';
 import pkg from '../package.json';
+import { startUpdateChecks } from './state/appUpdate';
+import { initWindow } from './ui/window';
 import './styles/tokens.css';
 import './styles/base.css';
 
@@ -31,7 +34,7 @@ function pickBackend(): ManagerBackend {
     });
     return createCompositeBackend(
       // Startup recovery can take a while; the host never kills a slow helper, it only waits.
-      createHelperClient({ transport, clientVersion: pkg.version, heartbeatMs: 10_000, startTimeoutMs: 60_000,
+      createHelperClient({ transport, clientVersion: pkg.version, heartbeatMs: 10_000, startTimeoutMs: 60_000, host: isDesktopHost() ? createHostApi() : undefined,
         openInLauncher: (workspaceId) => launcher.openInLauncher!(workspaceId) }),
       launcher,
     );
@@ -57,5 +60,7 @@ const devCore = import.meta.env.DEV && new URLSearchParams(location.search).get(
 void (async () => {
   const session = createSession(devCore ? await devCoreBackend() : pickBackend());
   createApp(App).provide(SessionKey, session).mount('#app');
+  void initWindow();
   void session.connect();
+  startUpdateChecks();
 })();

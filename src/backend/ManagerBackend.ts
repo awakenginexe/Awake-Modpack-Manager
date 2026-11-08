@@ -1,9 +1,10 @@
 import type {
   Accepted, ImportInspection, LoaderKind, WorkspaceSnapshot, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
-  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution,
+  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution, VersionRef,
 } from './contract';
 import type { LauncherProfile } from './launcher/transport';
+import type { ProjectDetail } from './host';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected';
 
@@ -87,6 +88,23 @@ export interface ManagerBackend {
   discardImport?(token: string): Promise<void>;
   /** Provider identity of every verified file in a workspace, for a Manager-built export. */
   snapshotWorkspace?(instanceId: string, onProgress?: (done: number, total: number) => void): Promise<WorkspaceSnapshot>;
+
+  /** Permanently delete a project the Manager owns: its files and its catalog entry. Follow the operation. */
+  deleteInstance?(instanceId: string, idempotencyKey: string): Promise<Accepted>;
+  renameInstance?(instanceId: string, name: string): Promise<void>;
+  /** Newest compatible stable version per provider-identified mod, in batches. */
+  checkUpdates?(instanceId: string): Promise<{ modKey: string; available: VersionRef | null }[]>;
+  /** Fetch a pack version and resolve it against this project; the plan goes to Review. */
+  preparePackUpdate?(instanceId: string, versionId: string, onStep?: (step: string) => void): Promise<ResolvedPlan>;
+  /** Called once a reviewed pack update has been applied. */
+  finishPackUpdate?(instanceId: string): Promise<void>;
+  /** Author, statistics and links of a provider project, for its details panel. */
+  projectDetail?(provider: ProviderId, projectId: string): Promise<ProjectDetail>;
+  /** Tell the helper to exit so an installer can replace its files. */
+  shutdownHelper?(): Promise<void>;
+  /** Move non-mod project content to the Recycle Bin. */
+  recycleContent?(instanceId: string, area: ContentArea, paths: string[]): Promise<void>;
+  openFolder?(instanceId: string, area?: ContentArea): Promise<void>;
 
   /** Accepting is not "started": follow the operation until the Launcher reports process-started. */
   requestLaunch(instanceId: string, idempotencyKey: string): Promise<Accepted>;

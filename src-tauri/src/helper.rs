@@ -200,7 +200,7 @@ fn spawn(exe: &Path, data_root: &Path) -> std::io::Result<u32> {
         let log = open_log(data_root);
         let mut cmd = Command::new(exe);
         cmd.arg("--profile").arg(data_root).current_dir(exe.parent().unwrap_or(data_root)).creation_flags(flags).stdin(Stdio::null()).stdout(Stdio::null());
-        configure_curseforge(&mut cmd, option_env!("AWAKE_CORE_CURSEFORGE_AUTHORIZED"), option_env!("AWAKE_CORE_CURSEFORGE_API_KEY"));
+        configure_curseforge(&mut cmd, crate::providers::curseforge_key().is_some().then_some("1"), crate::providers::curseforge_key().as_deref());
         match log {
             Some(f) => cmd.stderr(f),
             None => cmd.stderr(Stdio::null()),
