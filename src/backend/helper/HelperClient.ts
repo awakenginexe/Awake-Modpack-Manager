@@ -502,6 +502,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     let fetched: FetchedPack | null = null;
     let token: string | null = null;
     let created: CoreWorkspace | null = null;
+    let installed = false;
     const span = (from: number, to: number, done: number, total: number) => from + (to - from) * (total ? Math.min(1, done / total) : 0);
     try {
       update({ state: 'downloading', step: 'pack-download' });
@@ -537,7 +538,13 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       const finished = await settle(applied.operationId, (op) => update({ progress: span(0.88, 0.99, Number(op.progress?.completed ?? 0), Number(op.progress?.total ?? 0)) }), false);
       if (finished.state !== 'completed') throw coreError(finished.error, 'The pack could not be installed.');
 
-      const { items } = await rpc.paged<{ nextOffset: number | null; instanceRevision: string; total: number }, CoreInstalled>('mods.list', { physicalId: created.physicalId }, 'items');
+      // From here the pack is installed: nothing below may undo it.
+      installed = true;
+      let items: CoreInstalled[] = [];
+      for (let attempt = 0; attempt < 5 && !items.length; attempt++) {
+        if (attempt) await sleep(2000);
+        items = await rpc.paged<{ nextOffset: number | null; instanceRevision: string; total: number }, CoreInstalled>('mods.list', { physicalId: created.physicalId }, 'items').then((r) => r.items).catch(() => []);
+      }
       const versions = await host.packVersions(r.provider, r.packId).catch(() => []);
       const hit = versions.find((v) => v.id === r.versionId);
       setPackLink(created.workspaceId, { provider: r.provider, packId: r.packId, packName: r.instanceName, versionId: r.versionId, versionName: hit?.name ?? r.versionId, iconUrl: r.iconUrl, managed: items.map((m) => m.inventoryId) });
@@ -546,7 +553,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     } catch (e) {
       const err = rpc.toBackendError(e);
       // An install that did not finish leaves no empty project behind.
-      if (created && ext('workspaces.delete', true)) {
+      if (created && !installed && ext('workspaces.delete', true)) {
         const removal = await submit('workspaces.delete', { idempotencyKey: crypto.randomUUID(), physicalId: created.physicalId }).catch(() => null);
         if (removal) await settle(removal.operationId).catch(() => undefined);
         workspaces.delete(key(created.physicalId));

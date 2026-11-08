@@ -496,6 +496,8 @@ fn hex(bytes: &[u8]) -> String {
 
 /// Download `url` to `to`, enforcing a size limit and cancellation.
 fn download(job: Option<&Job>, url: &str, headers: &[(&str, String)], to: &Path, limit: u64, mut progress: impl FnMut(u64)) -> HostResult<()> {
+    // Provider file URLs often contain raw spaces or brackets.
+    let url = &url.replace(' ', "%20").replace('[', "%5B").replace(']', "%5D");
     let mut last = None;
     for attempt in 0..3u64 {
         if attempt > 0 {
