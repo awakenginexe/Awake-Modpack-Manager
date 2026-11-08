@@ -127,3 +127,7 @@ If no compatible Launcher installation is found, add its installation folder und
 Launcher stores its preferences separately and uses the original `.minecraft` directory. Existing Native Core locks block concurrent operations and game-time mod writes; unknown/recovery states remain blocked. Detailed behavior: [Launcher shared-workspace guide](https://github.com/awakenginexe/Awake-Launcher/blob/feat/native-core-manager-020/docs/modpack-manager/shared-workspaces.md).
 
 Prior real-pack defects remain out of scope: export omitted Frights and Foliage; inventory took about seven minutes; preparation took 11–13 minutes; a normal inventory request returned BUSY after 30.24 seconds; BetterEnd prevented full original-pack acceptance. Preserve existing private diagnostic evidence; do not bundle it in beta artifacts.
+
+## Authorized CurseForge beta builds
+
+Manager 0.2.0-beta.2 can pass an approved application key from the native host to the unchanged pinned Native Core 0.2.1 helper. GitHub Actions reads secret `AWAKE_CORE_CURSEFORGE_API_KEY` and variable `AWAKE_CORE_CURSEFORGE_AUTHORIZED=1`; authorization without a key fails the build. The key is compiled into the native application, never written to source or a separate package file, and is recoverable from the distributed executable. Only use a key approved for public-client distribution. Default/unkeyed builds retain the disabled-provider behavior. The UI still follows the helper capability; no safety or download-policy checks are bypassed.

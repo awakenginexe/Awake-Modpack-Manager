@@ -184,6 +184,12 @@ fn open_log(data_root: &Path) -> Option<fs::File> {
     fs::OpenOptions::new().create(true).append(true).open(path).ok()
 }
 
+fn configure_curseforge(command: &mut std::process::Command, authorized: Option<&str>, api_key: Option<&str>) {
+    if let (Some("1"), Some(key)) = (authorized, api_key.filter(|key| !key.trim().is_empty())) {
+        command.env("AWAKE_CORE_CURSEFORGE_AUTHORIZED", "1").env("AWAKE_CORE_CURSEFORGE_API_KEY", key);
+    }
+}
+
 #[cfg(windows)]
 fn spawn(exe: &Path, data_root: &Path) -> std::io::Result<u32> {
     use std::os::windows::process::CommandExt;
@@ -194,6 +200,7 @@ fn spawn(exe: &Path, data_root: &Path) -> std::io::Result<u32> {
         let log = open_log(data_root);
         let mut cmd = Command::new(exe);
         cmd.arg("--profile").arg(data_root).current_dir(exe.parent().unwrap_or(data_root)).creation_flags(flags).stdin(Stdio::null()).stdout(Stdio::null());
+        configure_curseforge(&mut cmd, option_env!("AWAKE_CORE_CURSEFORGE_AUTHORIZED"), option_env!("AWAKE_CORE_CURSEFORGE_API_KEY"));
         match log {
             Some(f) => cmd.stderr(f),
             None => cmd.stderr(Stdio::null()),
@@ -291,6 +298,21 @@ pub fn helper_open(app: tauri::AppHandle, state: tauri::State<'_, pipe::Connecti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn curseforge_release_configuration_requires_authorization_and_a_key() {
+        use std::process::Command;
+        for (authorized,key) in [(None,None),(Some("0"),Some("fixture-api-key")),(Some("1"),None),(Some("1"),Some(" "))] {
+            let mut command=Command::new("helper.exe");
+            configure_curseforge(&mut command,authorized,key);
+            assert_eq!(command.get_envs().count(),0);
+        }
+        let mut command=Command::new("helper.exe");
+        configure_curseforge(&mut command,Some("1"),Some("fixture-api-key"));
+        let env: std::collections::BTreeMap<_,_>=command.get_envs().map(|(k,v)|(k.to_string_lossy().into_owned(),v.unwrap().to_string_lossy().into_owned())).collect();
+        assert_eq!(env.get("AWAKE_CORE_CURSEFORGE_AUTHORIZED").map(String::as_str),Some("1"));
+        assert_eq!(env.get("AWAKE_CORE_CURSEFORGE_API_KEY").map(String::as_str),Some("fixture-api-key"));
+    }
 
     fn temp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("awake-mm-helper-{name}-{}", std::process::id()));

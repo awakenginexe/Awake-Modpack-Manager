@@ -1,6 +1,6 @@
 [package]
 name = "awake-modpack-manager"
-version = "0.2.0-beta.1"
+version = "0.2.0-beta.2"
 description = "Awake Modpack Manager desktop host"
 license = "GPL-3.0-only"
 repository = "https://github.com/awakenginexe/Awake-Modpack-Manager"

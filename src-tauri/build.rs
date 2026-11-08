@@ -1,4 +1,11 @@
 fn main() {
+    for name in ["AWAKE_CORE_CURSEFORGE_AUTHORIZED", "AWAKE_CORE_CURSEFORGE_API_KEY"] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    if std::env::var("AWAKE_CORE_CURSEFORGE_AUTHORIZED").as_deref() == Ok("1")
+        && std::env::var("AWAKE_CORE_CURSEFORGE_API_KEY").map_or(true, |key| key.trim().is_empty()) {
+        panic!("Authorized CurseForge builds require AWAKE_CORE_CURSEFORGE_API_KEY.");
+    }
     // rc.exe mis-escapes apostrophes in paths ("Awake's Modpack Manager"), so give it a copy of the
     // window icon from a path without one. shortcut: path workaround, remove if the folder is renamed.
     let src = std::path::Path::new("icons").join("icon.ico");
