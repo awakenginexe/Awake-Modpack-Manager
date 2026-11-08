@@ -516,6 +516,10 @@ export type BackendErrorCode =
   | 'not-running'
   /** Profile location the Launcher cannot publish an endpoint for (removable, network...). */
   | 'unsupported-profile'
+  /** Other Windows accounts can change the data folder, so the Launcher will not publish an endpoint. */
+  | 'profile-not-private'
+  /** The data folder belongs to another account or has no Windows permissions; the Manager can't fix it. */
+  | 'profile-not-owned'
   /** The pipe or hello did not match the descriptor / current user. */
   | 'identity'
   /** The Launcher needs the user to act in its own window first (sign-in, a dialog). */
@@ -530,6 +534,9 @@ export type BackendErrorCode =
   | 'provider-restricted'
   /** DEPENDENCY_CONFLICT: `conflicts` carries the structured review data when the helper provides it. */
   | 'dependency-conflict';
+
+/** The Launcher can still appear without the Manager doing anything, so keep looking for its endpoint. */
+export const isLauncherWait = (code?: string) => code === 'not-running' || code === 'profile-not-private' || code === 'profile-not-owned';
 
 /** What loader metadata inside the verified JARs says about a provider dependency claim. */
 export interface DependencyEvidence {

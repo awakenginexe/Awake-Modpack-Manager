@@ -72,6 +72,9 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
         if (profile.drive === 'removable' || profile.drive === 'remote') {
           throw new BackendError('unsupported-profile', 'Awake Launcher can only share data from profiles on a local fixed drive. This profile is on a removable or network drive.', profile.dataRoot);
         }
+        // The Launcher refuses to publish from such a folder even while it is open, so "not running" would be wrong.
+        if (profile.shareBlocked === 'public-write') throw new BackendError('profile-not-private', 'Other Windows accounts can change this data folder, so Awake Launcher does not publish its endpoint here.', profile.dataRoot);
+        if (profile.shareBlocked === 'foreign-owner') throw new BackendError('profile-not-owned', 'This data folder is not owned by the current Windows account, so Awake Launcher does not publish its endpoint here.', profile.dataRoot);
         throw new BackendError('not-running', profile.endpointError ?? 'Awake Launcher is not running for this profile.', profile.dataRoot);
       }
       const conn = await transport().open(endpoint.serverName, endpoint.pid);
@@ -193,13 +196,18 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     async openInLauncher(workspaceId) {
       const target = profile?.installDir ? profile : profiles.find((p) => p.installDir && (!preferred || p.dataRoot === preferred));
       const t = transport();
-      if (!target || !t.startLauncher) throw new BackendError('unsupported', 'Install the compatible Awake Launcher beta and add its installation folder in Settings → Launcher connection. You can also use Link Existing Manager Workspace in Launcher.');
+      if (!target || !t.startLauncher) throw new BackendError('unsupported', 'Install Awake Launcher 3.1.0 or newer and add its installation folder in Settings → Launcher connection. You can also use Link Existing Manager Workspace in Launcher.');
       try { await t.startLauncher(target.dataRoot, added, workspaceId); } catch (e) { throw toBackendError(e); }
     },
     async startLauncher() {
       const t = transport();
       if (!profile?.installDir || !t.startLauncher) throw new BackendError('unsupported', 'No Awake Launcher installation is known for this profile. Add the installation folder in Settings.');
       try { await t.startLauncher(profile.dataRoot, added); } catch (e) { throw toBackendError(e); }
+    },
+    async makeProfilePrivate() {
+      const t = transport();
+      if (!profile || !t.makeProfilePrivate) throw new BackendError('unsupported', 'Folder permissions can only be changed from the desktop app.');
+      try { await t.makeProfilePrivate(profile.dataRoot, added); } catch (e) { throw toBackendError(e); }
     },
     setAddedFolders(folders) { added = folders; },
     setPreferredProfile(dataRoot) { preferred = dataRoot; },

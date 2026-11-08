@@ -597,7 +597,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     kind: 'helper',
     async openInLauncher(instanceId) {
       const workspace = workspaceOf(instanceId);
-      if (!options.openInLauncher) throw new BackendError('unsupported', 'Install the compatible Awake Launcher beta, then link this workspace in Launcher.');
+      if (!options.openInLauncher) throw new BackendError('unsupported', 'Install Awake Launcher 3.1.0 or newer, then link this workspace in Launcher.');
       await options.openInLauncher(workspace.workspaceId);
     },
 

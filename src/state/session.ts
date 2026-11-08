@@ -1,6 +1,6 @@
 import { computed, inject, reactive, ref, shallowRef, watch, type InjectionKey } from 'vue';
 import {
-  BackendError, type Capability, type CreateInstanceRequest, type DependencyResolution, type Draft, type ExportRequest, type Handshake,
+  BackendError, isLauncherWait, type Capability, type CreateInstanceRequest, type DependencyResolution, type Draft, type ExportRequest, type Handshake,
   type InstallPackRequest, type InstanceSummary, type InstanceWarning, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan, type VersionRef,
 } from '../backend/contract';
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
@@ -83,7 +83,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     source.value = p === backend.parts.helper ? 'helper' : 'launcher';
     state.handshake = p.handshake;
     state.connectError = p.error;
-    state.waitingForLauncher = p === backend.parts.launcher && p.error?.code === 'not-running';
+    state.waitingForLauncher = p === backend.parts.launcher && isLauncherWait(p.error?.code);
   }
   if (isComposite(backend)) backend.onChanged(() => { syncPart(); void refreshInstallations().catch(() => undefined); });
   const instance = computed(() => state.instances.find((i) => i.id === state.instanceId) ?? null);
@@ -135,7 +135,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     } catch (e) {
       state.connectError = asError(e);
       // Launcher not started yet (or restarting): keep looking for its endpoint without user action.
-      state.waitingForLauncher = state.connectError.code === 'not-running';
+      state.waitingForLauncher = isLauncherWait(state.connectError.code);
       if (state.waitingForLauncher) { clearTimeout(reconnectTimer); reconnectTimer = setTimeout(() => void connect(), 5000); return; }
       // Retry transport failures; an unsupported build will not start working by retrying.
       if (state.reconnecting && state.connectError.code !== 'unsupported') scheduleReconnect();
@@ -491,6 +491,12 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     state.launcherStartedAt = Date.now();
   }
 
+  /** The user confirmed it. An open Launcher still has to be restarted: it only tries to publish at startup. */
+  async function makeProfilePrivate() {
+    await backend.makeProfilePrivate?.();
+    state.launcherStartedAt = null;
+  }
+
   /** Ask the Launcher to start the instance with its own account, Java and GPU settings. */
   async function launch(instanceId: string) {
     const { operationId } = await backend.requestLaunch(instanceId, crypto.randomUUID());
@@ -546,7 +552,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     connect, refreshInstances, selectInstance, loadInventory, checkUpdates, deleteInstance, renameInstance, preparePackUpdate,
     setDraft, discardDraft, setPinned, setExcluded, prepareImport,
     validate, apply, acceptChangedPlan, resetReview,
-    refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher,
+    refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher, makeProfilePrivate,
   };
 }
 

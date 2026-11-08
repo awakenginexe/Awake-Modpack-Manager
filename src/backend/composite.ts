@@ -1,4 +1,4 @@
-import { BackendError, type Handshake, type Installation, type OperationStatus } from './contract';
+import { BackendError, isLauncherWait, type Handshake, type Installation, type OperationStatus } from './contract';
 import type { ConnectionState, ManagerBackend } from './ManagerBackend';
 
 export interface Part { backend: ManagerBackend; handshake: Handshake | null; error: BackendError | null }
@@ -38,7 +38,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
   /** The Launcher is optional and may start later: keep looking for it while it is merely not running. */
   function scheduleLauncherRetry() {
     clearTimeout(retry);
-    if (parts.launcher.error?.code !== 'not-running' && parts.launcher.error?.code !== 'disconnected' && parts.launcher.error?.code !== 'timeout') return;
+    if (!isLauncherWait(parts.launcher.error?.code) && parts.launcher.error?.code !== 'disconnected' && parts.launcher.error?.code !== 'timeout') return;
     if (!launcher.launcherProfiles?.().length) return; // no Launcher installed: nothing to wait for
     retry = setTimeout(async () => { await connectPart(parts.launcher); emit(); scheduleLauncherRetry(); }, retryMs);
   }
@@ -94,6 +94,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     setAddedFolders: (f) => launcher.setAddedFolders?.(f),
     canStartLauncher: () => launcher.canStartLauncher?.() ?? false,
     startLauncher: async () => { await launcher.startLauncher?.(); scheduleLauncherRetry(); },
+    makeProfilePrivate: async () => { await launcher.makeProfilePrivate?.(); clearTimeout(retry); await connectPart(parts.launcher); emit(); scheduleLauncherRetry(); },
     setPreferredProfile: (d) => launcher.setPreferredProfile?.(d),
     instanceWarnings: () => current.backend.instanceWarnings?.() ?? [],
 

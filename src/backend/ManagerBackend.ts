@@ -27,6 +27,8 @@ export interface ManagerBackend {
   canStartLauncher?(): boolean;
   /** Start the Launcher normally for the selected profile, on an explicit user action only. */
   startLauncher?(): Promise<void>;
+  /** Give the selected Launcher data folder a normal install's permissions, on an explicit user action only. */
+  makeProfilePrivate?(): Promise<void>;
   /** Link and select this workspace in Launcher. Minecraft still starts from Launcher. */
   openInLauncher?(instanceId: string): Promise<void>;
   /** Prefer this Launcher data profile on the next connect. */

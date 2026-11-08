@@ -11,6 +11,8 @@ export interface LauncherProfile {
   drive: 'fixed' | 'removable' | 'remote' | 'other' | 'unknown';
   endpoint: EndpointDescriptor | null;
   endpointError: string | null;
+  /** Why the Launcher will refuse to share this folder (src-tauri/src/profile_access.rs). */
+  shareBlocked?: 'public-write' | 'foreign-owner' | null;
 }
 
 /** Transport failure from the host (pipe.rs IpcError codes). */
@@ -36,6 +38,8 @@ export interface PipeTransport {
   openHelper?(serverName: string, pid: string): Promise<number>;
   /** Start awakelauncher.exe of the installation discovery resolved to this data root. */
   startLauncher?(dataRoot: string, added: string[], workspaceId?: string): Promise<void>;
+  /** Give a discovered data folder the Windows permissions a normal install has. */
+  makeProfilePrivate?(dataRoot: string, added: string[]): Promise<void>;
 }
 
 /** src-tauri/src/helper.rs HelperStatus. */
@@ -70,6 +74,7 @@ export function createHostTransport(): PipeTransport {
     request: (connection, body, timeoutMs) => invoke('ipc_request', { id: connection, body, timeoutMs }),
     close: (connection) => invoke('ipc_close', { id: connection }),
     startLauncher: (dataRoot, added, workspaceId) => invoke('start_launcher', { dataRoot, added, workspaceId }),
+    makeProfilePrivate: (dataRoot, added) => invoke('make_profile_private', { dataRoot, added }),
     ensureHelper: () => invoke('helper_ensure', {}),
     openHelper: (serverName, pid) => invoke('helper_open', { serverName, pid }),
   };
