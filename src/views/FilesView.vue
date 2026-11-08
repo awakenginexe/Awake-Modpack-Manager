@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type Component } from 'vue';
-import { CircleAlert, Code, FileCode, FileCog, FileText, Folder, FolderOpen, Image, Lock, PackageCheck, Settings2, Sun, TriangleAlert } from '@lucide/vue';
+import { CircleAlert, Code, Copy, FileCode, FileCog, FileText, Folder, FolderOpen, Image, Lock, PackageCheck, Settings2, Sun, Trash2, TriangleAlert } from '@lucide/vue';
+import { confirmDialog, copyText, openMenu, separator, toast } from '../ui/desktop';
 import type { ContentArea, ContentEntry } from '../backend/contract';
 import { t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
@@ -35,6 +36,21 @@ function setIncluded(path: string, on: boolean) {
   session.exportIncludes.value = { ...session.exportIncludes.value, [id]: [...set] };
 }
 watch(area, load, { immediate: true });
+/** Manager projects: their files can be opened and recycled. Launcher instances stay read-only here. */
+const owned = computed(() => session.source.value === 'helper' && !!session.backend.recycleContent);
+async function recycle(e: ContentEntry) {
+  const id = session.state.instanceId;
+  if (!id || !await confirmDialog({ title: t('recycleTitle', { name: e.path }), body: t('recycleBody'), confirm: t('recycleConfirm'), cancel: t('cancel'), danger: true })) return;
+  try { await session.backend.recycleContent!(id, area.value, [e.path]); toast(t('recycled', { name: e.path }), 'ok'); await load(); } catch (err) { toast(asError(err).message, 'error'); }
+}
+function entryMenu(event: MouseEvent, e: ContentEntry) {
+  openMenu(event, [
+    { label: t('openFolder'), icon: FolderOpen, disabled: !owned.value, action: () => session.backend.openFolder?.(session.state.instanceId!, area.value) },
+    { label: t('copyPath'), icon: Copy, action: () => copyText(e.path) },
+    separator,
+    { label: t('recycleAction'), icon: Trash2, danger: true, disabled: !owned.value, action: () => recycle(e) },
+  ]);
+}
 </script>
 
 <template>
@@ -46,7 +62,7 @@ watch(area, load, { immediate: true });
       </div>
       <span class="chip"><PackageCheck :size="15" />{{ t('filesIncluded', { count: included.size }) }}</span>
     </header>
-    <p class="notice small"><Lock :size="18" />{{ t('filesReadOnly') }}</p>
+    <p v-if="!owned" class="notice small"><Lock :size="18" />{{ t('filesReadOnly') }}</p>
     <div v-if="!session.can('files.read')" class="notice warn"><TriangleAlert :size="18" />{{ t('capabilityMissing') }}</div>
 
     <div class="columns">
@@ -59,12 +75,13 @@ watch(area, load, { immediate: true });
         <div class="panel-head">
           <h2 class="panel-title"><component :is="areaIcon[area]" :size="18" />{{ t(areas.find((a) => a.id === area)!.label) }}</h2>
           <span class="muted small">{{ t('fileCount', { count: entries.length }) }}</span>
+          <button v-if="owned" class="btn btn-small" type="button" @click="session.backend.openFolder?.(session.state.instanceId!, area)"><FolderOpen :size="15" />{{ t('openFolder') }}</button>
         </div>
         <div v-if="loading" class="rows" aria-busy="true"><span v-for="n in 6" :key="n" class="skeleton" style="height: 36px"></span></div>
         <p v-else-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ error }}</p>
         <div v-else-if="!entries.length" class="empty"><span class="empty-icon"><FolderOpen :size="26" /></span><p>{{ t('filesEmpty') }}</p></div>
         <ul v-else class="entries">
-          <li v-for="(e, i) in entries" :key="e.path" class="rise" :class="{ on: included.has(e.path) }" :style="{ '--i': i }">
+          <li v-for="(e, i) in entries" :key="e.path" class="rise" :class="{ on: included.has(e.path) }" :style="{ '--i': i % 30 }" @contextmenu="entryMenu($event, e)">
             <component :is="e.kind === 'directory' ? Folder : FileText" :size="16" class="muted" />
             <span class="path" :title="e.path">{{ e.path }}</span>
             <span class="muted small size">{{ formatBytes(e.sizeBytes) }}</span>

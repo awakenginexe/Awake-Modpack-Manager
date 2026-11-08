@@ -10,6 +10,8 @@ function pref<T>(key: string, fallback: T) {
 
 export const reducedMotion = pref('reducedMotion', false);
 export const compactRows = pref('compactRows', false);
+/** Offer beta and release-candidate builds of the Manager too. */
+export const includePrereleases = pref('includePrereleases', false);
 export const systemReducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /** Where data comes from. `auto` = real Launcher in the desktop app, demo data in a plain browser. */

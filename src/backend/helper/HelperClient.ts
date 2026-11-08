@@ -1,8 +1,9 @@
 import {
   BackendError, TERMINAL_STATES,
-  type Accepted, type Capability, type DependencyResolution, type DraftChange, type Handshake, type ImportInspection, type InstalledMod, type InstanceSummary, type Installation,
-  type LoaderKind, type ModInventory, type OperationStatus, type PlanIssue, type PlanItem, type ProjectVersion, type ProviderId, type ResolvedPlan, type VersionRef, type WorkspaceSnapshot,
+  type Accepted, type Capability, type ContentArea, type DependencyResolution, type DraftChange, type Handshake, type ImportInspection, type InstalledMod, type InstanceSummary, type Installation, type InstallPackRequest,
+  type LoaderKind, type ModInventory, type OperationStatus, type PackProviderInfo, type PlanIssue, type PlanItem, type ProjectVersion, type ProviderId, type ResolvedPlan, type StoredPackLink, type VersionRef, type WorkspaceSnapshot,
 } from '../contract';
+import type { FetchedPack, HostApi } from '../host';
 import { load, save } from '../../domain/storage';
 import { createRpc } from '../coordinator/rpc';
 import { CORE_VERSION, descriptorError, EVIDENCE_EXTENSION, MANAGER_EXTENSION, paramsError, resultError, type CoreMethod } from '../core/schema';
@@ -32,6 +33,8 @@ export interface HelperClientOptions {
   pollMs?: number;
   /** Liveness check while connected; a failed check reconnects once, restarting a crashed helper. 0 disables. */
   heartbeatMs?: number;
+  /** Provider catalogs and file access of the desktop host. Absent in browser builds and most tests. */
+  host?: HostApi;
 }
 
 /**
@@ -158,17 +161,30 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     let changed = false;
     for (const h of list) {
       const k = `${h.provider}:${h.projectId}`;
-      if (titles[k]?.name !== h.name || titles[k]?.iconUrl !== h.iconUrl) { titles = { ...titles, [k]: { name: h.name, iconUrl: h.iconUrl } }; changed = true; }
+      if (titles[k]?.name !== h.name || (h.iconUrl && titles[k]?.iconUrl !== h.iconUrl)) { titles = { ...titles, [k]: { name: h.name, iconUrl: h.iconUrl ?? titles[k]?.iconUrl } }; changed = true; }
     }
     // shortcut: grows with the projects the user browses; prune if it ever reaches a few MB.
     if (changed) save(TITLES, titles);
   }
+  /** Projects whose icon a provider has no record of: asked once per run. */
+  const iconAsked = new Set<string>();
   /**
-   * Friendly names for provider-identified files the user never met in search (imports): one
-   * providers.project read each, remembered. shortcut: serial and time-boxed per inventory load, so a
-   * large first import names the rest on later refreshes; batch it if the helper gains a bulk read.
+   * Friendly names and icons for provider-identified files, including entries remembered before
+   * they had an icon. The desktop host reads hundreds in one request; otherwise one read each, time-boxed.
    */
   async function lookupTitles(items: CoreInstalled[], budgetMs = 4000) {
+    if (options.host) {
+      const refs = new Map<string, { provider: ProviderId; projectId: string }>();
+      for (const it of items) {
+        const provider = it.provider ?? 'modrinth';
+        const k = `${provider}:${it.projectId}`;
+        if (it.projectId && (!titles[k] || (!titles[k].iconUrl && !iconAsked.has(k))) && providerOk(provider)) refs.set(k, { provider, projectId: it.projectId });
+      }
+      if (!refs.size) return;
+      for (const k of refs.keys()) iconAsked.add(k);
+      try { rememberTitles(await options.host.projectMeta([...refs.values()])); } catch { /* names are cosmetic: keep the file name */ }
+      return;
+    }
     if (!ext('providers.project')) return;
     const until = Date.now() + budgetMs;
     const seen = new Set<string>();
@@ -187,6 +203,14 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
   const time = (ms: string) => { const n = Number(ms); return new Date(n < 1e12 ? n * 1000 : n).toISOString(); };
   const fileStem = (f: string) => f.replace(/\.disabled$/i, '').replace(/\.(jar|zip)$/i, '');
 
+  /* Which pack each project came from, by workspace ID. */
+  const PACK_LINKS = 'core-pack-links';
+  const packLinks = () => load<Record<string, StoredPackLink>>(PACK_LINKS, {});
+  function setPackLink(workspaceId: string, link: StoredPackLink | null) {
+    const { [workspaceId]: _, ...rest } = packLinks();
+    save(PACK_LINKS, link ? { ...rest, [workspaceId]: link } : rest);
+  }
+
   function toInstance(w: CoreWorkspace): InstanceSummary {
     const id = key(w.physicalId);
     workspaces.set(id, w);
@@ -197,6 +221,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       status: w.recoveryRequired ? 'broken' : 'ready',
       manageable: !w.recoveryRequired, blockedReason: w.recoveryRequired ? 'recovery' : undefined,
       revision: w.instanceRevision,
+      ...(inventories.has(id) ? { modCount: inventories.get(id)!.size } : packLinks()[w.workspaceId] ? { modCount: packLinks()[w.workspaceId]!.managed.length } : {}),
+      ...(packLinks()[w.workspaceId] ? { pack: packLinks()[w.workspaceId], iconUrl: packLinks()[w.workspaceId]!.iconUrl } : {}),
     };
   }
 
@@ -231,7 +257,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     const total = op.progress?.total ? Number(op.progress.total) : 0;
     return {
       operationId: op.operationId,
-      kind: op.kind === 'workspace-create' ? 'create-instance' : 'apply-plan',
+      kind: op.kind === 'workspace-create' ? 'create-instance' : op.kind === 'workspace-delete' ? 'delete-instance' : 'apply-plan',
       instanceId: op.physicalId ? key(op.physicalId) : ws ? key(ws.physicalId) : undefined,
       planHash: digest,
       state: op.state,
@@ -405,6 +431,24 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
   /* Uploads not yet discarded, per helper profile, so an abandoned import is cleaned up on the next start. */
   const uploadsKey = () => `core-inbox:${hello()?.profileId ?? 'none'}`;
   const uploads = () => load<string[]>(uploadsKey(), []);
+  async function readUpload(size: number, sha256: string, read: (offset: number, length: number) => Promise<Uint8Array>, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<string> {
+    let t = await call<CoreTransfer>('inbox.begin', { idempotencyKey: crypto.randomUUID(), purpose: 'import', size: String(size), sha256 });
+    save(uploadsKey(), [...uploads().filter((x) => x !== t.token), t.token]);
+    try {
+      for (let offset = Number(t.received); offset < size; offset = Number(t.received)) {
+        if (signal?.aborted) throw new BackendError('rejected', 'Upload cancelled.', 'CANCELLED');
+        t = await call<CoreTransfer>('inbox.write', { token: t.token, offset: String(offset), bytesBase64: toBase64(await read(offset, CHUNK)) });
+        if (Number(t.received) <= offset) throw new BackendError('protocol', 'The helper did not accept the upload chunk.');
+        onProgress?.(Number(t.received), size);
+      }
+      t = await call<CoreTransfer>('inbox.commit', { token: t.token });
+      if (!t.complete || t.sha256 !== sha256) throw new BackendError('protocol', 'The helper did not confirm the uploaded archive.');
+      return t.token;
+    } catch (e) {
+      await discard(t.token).catch(() => undefined);
+      throw rpc.toBackendError(e);
+    }
+  }
   const canImport = () => ['imports.inspect', 'imports.prepare', 'inbox.begin', 'inbox.write', 'inbox.commit', 'inbox.discard'].every((m) => ext(m as keyof CoreCapabilities, true));
   async function discard(token: string) {
     await call('inbox.discard', { token });
@@ -436,6 +480,84 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
   }
   const toBase64 = (b: Uint8Array) => { let bin = ''; for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(bin); };
 
+  /* ----- installing a catalog pack: one local operation over several helper operations ----- */
+
+  interface PackJob { status: OperationStatus; cancelled: boolean; helperOp?: string }
+  const packJobs = new Map<string, PackJob>();
+  const pendingPackUpdate = new Map<string, { versionId: string; versionName: string; before: string[] }>();
+
+  const settle = async (operationId: string, onUpdate?: (op: CoreOperation) => void, untilPrepared = true) => {
+    for (;;) {
+      const op = await readOp(operationId);
+      onUpdate?.(op);
+      if (op.terminal || (untilPrepared && op.state === 'prepared') || op.state === 'recovery_required') return op;
+      await sleep(poll);
+    }
+  };
+
+  async function runPackInstall(job: PackJob, r: InstallPackRequest) {
+    const host = options.host!;
+    const update = (patch: Partial<OperationStatus>) => { job.status = { ...job.status, ...patch, updatedAt: new Date().toISOString() }; };
+    const checkCancelled = () => { if (job.cancelled) throw new BackendError('rejected', 'Cancelled.', 'CANCELLED'); };
+    let fetched: FetchedPack | null = null;
+    let token: string | null = null;
+    let created: CoreWorkspace | null = null;
+    const span = (from: number, to: number, done: number, total: number) => from + (to - from) * (total ? Math.min(1, done / total) : 0);
+    try {
+      update({ state: 'downloading', step: 'pack-download' });
+      fetched = await host.packFetch(r.provider, r.packId, r.versionId, job.status.operationId, (d, t) => update({ progress: span(0, 0.2, d, t) }));
+      checkCancelled();
+      update({ step: 'pack-upload', progress: 0.2 });
+      const ticket = fetched;
+      token = await readUpload(ticket.size, ticket.sha256, (o, l) => host.packRead(ticket.token, o, l), (d, t) => update({ progress: span(0.2, 0.28, d, t) }));
+      const inspected = await call<CoreImportInspection>('imports.inspect', { token, format: ticket.format });
+      checkCancelled();
+
+      update({ state: 'resolving', step: 'pack-create', progress: 0.28, cancellable: false });
+      const createdOp = await submit('workspaces.create', { idempotencyKey: crypto.randomUUID(), name: r.instanceName.slice(0, 80), minecraftVersion: inspected.minecraftVersion, loader: { id: coreLoader(inspected.loader.id as LoaderKind), version: inspected.loader.version } });
+      const done = await settle(createdOp.operationId);
+      if (done.state !== 'completed' || !done.result?.workspace) throw coreError(done.error, 'The project could not be created for this pack.');
+      created = done.result.workspace;
+      const id = toInstance(created).id;
+
+      update({ step: 'pack-resolve', progress: 0.32, instanceId: id, cancellable: true });
+      const prep = await submit('imports.prepare', { idempotencyKey: crypto.randomUUID(), physicalId: created.physicalId, instanceRevision: created.instanceRevision, token, format: ticket.format, includeOptional: false, packAuthoritative: true });
+      job.helperOp = prep.operationId;
+      const ready = await settle(prep.operationId, (op) => {
+        const total = Number(op.progress?.total ?? 0);
+        update({ state: op.state === 'downloading' ? 'downloading' : 'resolving', step: op.state === 'downloading' ? 'pack-files' : 'pack-resolve', progress: span(0.32, 0.86, Number(op.progress?.completed ?? 0), total) });
+      });
+      if (ready.state !== 'prepared') throw coreError(ready.error, 'The pack could not be prepared.');
+      checkCancelled();
+      const head = await call<CorePlanPage>('plans.get', { operationId: prep.operationId, limit: 1 });
+
+      update({ state: 'applying', step: 'pack-apply', progress: 0.88, cancellable: false });
+      const applied = await submit('transactions.apply', { idempotencyKey: crypto.randomUUID(), operationId: prep.operationId, planDigest: head.planDigest, instanceRevision: head.instanceRevision });
+      job.helperOp = applied.operationId;
+      const finished = await settle(applied.operationId, (op) => update({ progress: span(0.88, 0.99, Number(op.progress?.completed ?? 0), Number(op.progress?.total ?? 0)) }), false);
+      if (finished.state !== 'completed') throw coreError(finished.error, 'The pack could not be installed.');
+
+      const { items } = await rpc.paged<{ nextOffset: number | null; instanceRevision: string; total: number }, CoreInstalled>('mods.list', { physicalId: created.physicalId }, 'items');
+      const versions = await host.packVersions(r.provider, r.packId).catch(() => []);
+      const hit = versions.find((v) => v.id === r.versionId);
+      setPackLink(created.workspaceId, { provider: r.provider, packId: r.packId, packName: r.instanceName, versionId: r.versionId, versionName: hit?.name ?? r.versionId, iconUrl: r.iconUrl, managed: items.map((m) => m.inventoryId) });
+      toInstance(created);
+      update({ state: 'completed', progress: 1, step: undefined, cancellable: false, result: { instanceId: id }, notes: [...ticket.notes, ...head.warnings.filter((w) => /^Manual download required/.test(w))] });
+    } catch (e) {
+      const err = rpc.toBackendError(e);
+      // An install that did not finish leaves no empty project behind.
+      if (created && ext('workspaces.delete', true)) {
+        const removal = await submit('workspaces.delete', { idempotencyKey: crypto.randomUUID(), physicalId: created.physicalId }).catch(() => null);
+        if (removal) await settle(removal.operationId).catch(() => undefined);
+        workspaces.delete(key(created.physicalId));
+      }
+      update({ state: job.cancelled ? 'cancelled' : 'failed', step: undefined, cancellable: false, instanceId: undefined, error: { code: err.detail ?? err.code, message: err.message } });
+    } finally {
+      if (token) await discard(token).catch(() => undefined);
+      if (fetched) await host.packDiscard(fetched.token).catch(() => undefined);
+    }
+  }
+
   function capabilities(): Capability[] {
     const caps: Capability[] = ['installations.discover'];
     if (has('workspaces.list')) caps.push('instances.list');
@@ -454,6 +576,13 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     if (has('recovery.list')) caps.push('recovery.status');
     if (caps.includes('plan.apply') && ext('policies.v1', true)) caps.push('mods.policies');
     if (caps.includes('plan.apply') && canImport()) caps.push('packs.import');
+    if (options.host) {
+      caps.push('files.read', 'mods.updates');
+      if (has('providers.search')) caps.push('packs.search');
+      if (caps.includes('packs.import') && ext('imports.packAuthoritative.v1', true) && caps.includes('instances.create')) caps.push('packs.install');
+    }
+    if (ext('workspaces.delete', true) && has('operations.get')) caps.push('instances.delete');
+    if (ext('workspaces.rename', true)) caps.push('instances.rename');
     return caps;
   }
 
@@ -495,7 +624,9 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
           { id: 'modrinth', available: search, unavailableReason: search ? undefined : reason },
           { id: 'curseforge', available: search && providerOk('curseforge'), unavailableReason: search && providerOk('curseforge') ? undefined : 'curseforge-disabled' },
         ],
-        packProviders: (['modrinth', 'curseforge', 'ftb', 'atlauncher', 'technic'] as const).map((id) => ({ id, available: false, unavailableReason: 'helper-packs-pending' })),
+        packProviders: options.host && capabilities().includes('packs.search')
+          ? await options.host.packProviders().catch((): PackProviderInfo[] => [])
+          : (['modrinth', 'curseforge', 'ftb', 'atlauncher', 'technic'] as const).map((id) => ({ id, available: false, unavailableReason: 'helper-packs-pending' })),
       };
     },
     onConnectionChange(listener) { listeners.add(listener); return () => listeners.delete(listener); },
@@ -518,7 +649,9 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       inventories.set(instanceId, new Map(items.map((m) => [m.inventoryId, m])));
       await lookupTitles(items);
       const mods = items.map(toMod);
-      if (has('updates.check')) {
+      // Excluded mods are known from their policy; availability arrives separately (checkUpdates), so the list shows at once.
+      for (const m of mods) if (m.updateExcluded === undefined) m.updateExcluded = false;
+      if (!options.host && has('updates.check')) {
         try {
           const { items: updates } = await all<{ projectId: string; installedVersionId: string; candidate: CoreVersion | null; excluded: boolean; provider?: ProviderId }, { updates: never[]; nextOffset: number | null }>(
             'updates.check', { physicalId: w.physicalId }, (p) => p.updates,
@@ -597,14 +730,16 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       return { operationId: acc.operationId };
     },
 
-    getOperation: async (id) => toStatus(await readOp(id)),
+    getOperation: async (id) => packJobs.get(id)?.status ?? toStatus(await readOp(id)),
     async listOperations(instanceId) {
       if (!has('operations.list')) return [];
       const { items } = await all<CoreOperation, { operations: CoreOperation[]; nextOffset: number | null }>('operations.list', {}, (p) => p.operations);
-      return items.map(toStatus).filter((o) => !instanceId || o.instanceId === instanceId);
+      return [...[...packJobs.values()].map((j) => j.status), ...items.map(toStatus)].filter((o) => !instanceId || o.instanceId === instanceId);
     },
     watchOperation: () => () => {},
     async cancelOperation(operationId) {
+      const job = packJobs.get(operationId);
+      if (job) { job.cancelled = true; await options.host?.packCancel(operationId).catch(() => undefined); if (job.helperOp) await call('operations.cancel', { operationId: job.helperOp }).catch(() => undefined); return; }
       if (!has('operations.cancel', true)) return notYet('cancelling');
       await call('operations.cancel', { operationId });
     },
@@ -627,22 +762,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       // shortcut: the archive is read into memory once (contract limit 1 GiB); stream it if large packs become common.
       const bytes = new Uint8Array(await file.arrayBuffer());
       const sha256 = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
-      let t = await call<CoreTransfer>('inbox.begin', { idempotencyKey: crypto.randomUUID(), purpose: 'import', size: String(bytes.length), sha256 });
-      save(uploadsKey(), [...uploads().filter((x) => x !== t.token), t.token]);
-      try {
-        for (let offset = Number(t.received); offset < bytes.length; offset = Number(t.received)) {
-          if (signal?.aborted) throw new BackendError('rejected', 'Upload cancelled.', 'CANCELLED');
-          t = await call<CoreTransfer>('inbox.write', { token: t.token, offset: String(offset), bytesBase64: toBase64(bytes.subarray(offset, offset + CHUNK)) });
-          if (Number(t.received) <= offset) throw new BackendError('protocol', 'The helper did not accept the upload chunk.');
-          onProgress?.(Number(t.received), bytes.length);
-        }
-        t = await call<CoreTransfer>('inbox.commit', { token: t.token });
-        if (!t.complete || t.sha256 !== sha256) throw new BackendError('protocol', 'The helper did not confirm the uploaded archive.');
-        return t.token;
-      } catch (e) {
-        await discard(t.token).catch(() => undefined);
-        throw rpc.toBackendError(e);
-      }
+      return readUpload(bytes.length, sha256, async (offset, length) => bytes.subarray(offset, offset + length), onProgress, signal);
     },
     async inspectImport(token, format): Promise<ImportInspection> {
       if (!canImport()) return notYet('modpack import');
@@ -700,9 +820,109 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       return snap;
     },
 
-    // Not in this helper slice (core-protocol.md): modpack catalogs, content listing, export (outbox.read).
-    searchPacks: () => notYet('modpack search'), packVersions: () => notYet('modpack search'), installPack: () => notYet('modpack installs'),
-    listContent: () => notYet('file listing'), checkExport: () => notYet('export'), startExport: () => notYet('export'),
+    async searchPacks(q) {
+      if (!options.host) return notYet('modpack search');
+      return options.host.packSearch(q.provider, q.text, q.offset, q.limit);
+    },
+    async packVersions(provider, packId) {
+      if (!options.host) return notYet('modpack search');
+      return options.host.packVersions(provider, packId);
+    },
+    async installPack(r) {
+      if (!options.host || !capabilities().includes('packs.install')) return notYet('modpack installs');
+      const operationId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const job: PackJob = { cancelled: false, status: { operationId, kind: 'install-pack', state: 'queued', progress: 0, startedAt: now, updatedAt: now, cancellable: true } };
+      packJobs.set(operationId, job);
+      void runPackInstall(job, r);
+      return { operationId };
+    },
+    async deleteInstance(instanceId, idempotencyKey) {
+      if (!ext('workspaces.delete', true)) return notYet('deleting projects');
+      const w = workspaceOf(instanceId);
+      const acc = await submit('workspaces.delete', { idempotencyKey: idempotencyKey.replace(/[^A-Za-z0-9_-]/g, ''), physicalId: w.physicalId });
+      setPackLink(w.workspaceId, null);
+      return { operationId: acc.operationId };
+    },
+    async projectDetail(provider, projectId) {
+      if (!options.host) return notYet('project details');
+      return options.host.projectDetail(provider, projectId);
+    },
+    async renameInstance(instanceId, name) {
+      if (!ext('workspaces.rename', true)) return notYet('renaming projects');
+      const { workspace } = await call<{ workspace: CoreWorkspace }>('workspaces.rename', { physicalId: workspaceOf(instanceId).physicalId, name });
+      toInstance(workspace);
+    },
+    async checkUpdates(instanceId) {
+      if (!options.host) return [];
+      const w = workspaceOf(instanceId);
+      const inv = [...(inventories.get(instanceId)?.values() ?? [])];
+      const eligible = inv.filter((m) => m.projectId && m.versionId && m.metadataState === 'verified' && !m.updateLocked && providerOk(m.provider ?? 'modrinth'));
+      const results = await options.host.modUpdates(eligible.map((m) => ({ provider: m.provider ?? 'modrinth', projectId: m.projectId!, versionId: m.versionId! })), w.minecraftVersion, w.loader.id);
+      const byVersion = new Map(results.map((r) => [`${r.provider}:${r.projectId}:${r.installedVersionId}`, r]));
+      return eligible.flatMap((m) => {
+        const r = byVersion.get(`${m.provider ?? 'modrinth'}:${m.projectId}:${m.versionId}`);
+        return r ? [{ modKey: m.inventoryId, available: r.candidate ?? { id: m.versionId!, name: m.versionNumber ?? m.versionId! } }] : [];
+      });
+    },
+    async preparePackUpdate(instanceId, versionId, onStep) {
+      if (!options.host) return notYet('modpack updates');
+      const w = workspaceOf(instanceId);
+      const link = packLinks()[w.workspaceId];
+      if (!link) throw new BackendError('rejected', 'This project does not remember which modpack it came from.');
+      onStep?.('download');
+      const fetched = await options.host.packFetch(link.provider, link.packId, versionId, crypto.randomUUID());
+      let token: string | null = null;
+      try {
+        onStep?.('upload');
+        token = await readUpload(fetched.size, fetched.sha256, (o, l) => options.host!.packRead(fetched.token, o, l));
+        const inspected = await call<CoreImportInspection>('imports.inspect', { token, format: fetched.format });
+        // A newer build of the same loader is part of a normal pack update; a different game or loader is a different project.
+        if (inspected.minecraftVersion !== w.minecraftVersion || inspected.loader.id !== w.loader.id) {
+          throw new BackendError('rejected', `This version needs Minecraft ${inspected.minecraftVersion} with ${inspected.loader.id} ${inspected.loader.version}, but this project uses ${w.minecraftVersion} with ${w.loader.id} ${w.loader.version}. Install it as a new project instead.`, 'LOADER_CHANGED');
+        }
+        onStep?.('prepare');
+        const { instanceRevision } = await call<{ instanceRevision: string }>('mods.list', { physicalId: w.physicalId, limit: 1 });
+        await replacePrepared(instanceId);
+        const acc = await submit('imports.prepare', { idempotencyKey: crypto.randomUUID(), physicalId: w.physicalId, instanceRevision, token, format: fetched.format, includeOptional: false, packAuthoritative: true, allowLoaderUpdate: true, removeInventoryIds: link.managed });
+        const op = await awaitPrepared(acc.operationId);
+        prepared.set(instanceId, op.operationId);
+        const name = (await options.host.packVersions(link.provider, link.packId)).find((v) => v.id === versionId)?.name ?? versionId;
+        pendingPackUpdate.set(instanceId, { versionId, versionName: name, before: [...(inventories.get(instanceId)?.keys() ?? [])] });
+        return await readPlan(instanceId, op.operationId);
+      } finally {
+        if (token) await discard(token).catch(() => undefined);
+        await options.host.packDiscard(fetched.token).catch(() => undefined);
+      }
+    },
+    async finishPackUpdate(instanceId) {
+      const update = pendingPackUpdate.get(instanceId);
+      const w = workspaceOf(instanceId);
+      const link = packLinks()[w.workspaceId];
+      if (!update || !link) return;
+      pendingPackUpdate.delete(instanceId);
+      // What the user added themselves stays theirs: it was there before and did not come from the pack.
+      const own = new Set(update.before.filter((k) => !link.managed.includes(k)));
+      const { items } = await rpc.paged<{ nextOffset: number | null; instanceRevision: string; total: number }, CoreInstalled>('mods.list', { physicalId: w.physicalId }, 'items');
+      setPackLink(w.workspaceId, { ...link, versionId: update.versionId, versionName: update.versionName, managed: items.map((m) => m.inventoryId).filter((k) => !own.has(k)) });
+    },
+    async shutdownHelper() {
+      if (has('core.shutdown')) await call('core.shutdown', {}).catch(() => undefined);
+    },
+    async recycleContent(instanceId, area, paths) {
+      if (!options.host) return notYet('removing files');
+      await options.host.workspaceRecycle(workspaceOf(instanceId).workspaceId, area, paths);
+    },
+    async openFolder(instanceId, area) {
+      await options.host?.workspaceOpen(workspaceOf(instanceId).workspaceId, area);
+    },
+
+    async listContent(instanceId, area: ContentArea) {
+      if (!options.host) return notYet('file listing');
+      return (await options.host.workspaceList(workspaceOf(instanceId).workspaceId, area)).map(({ modifiedMs, ...e }) => ({ ...e, ...(modifiedMs ? { modifiedAt: new Date(modifiedMs).toISOString() } : {}) }));
+    },
+    // Export is built in the Manager from snapshotWorkspace; these are the Launcher's own export path.
+    checkExport: () => notYet('export'), startExport: () => notYet('export'),
     // The helper never launches Minecraft or signs in; playing goes through Awake Launcher.
     requestLaunch: () => Promise.reject(new BackendError('unsupported', 'Playing needs Awake Launcher.')),
   };

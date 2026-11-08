@@ -1,6 +1,6 @@
 [package]
 name = "awake-modpack-manager"
-version = "0.2.0-beta.2"
+version = "0.3.0"
 description = "Awake Modpack Manager desktop host"
 license = "GPL-3.0-only"
 repository = "https://github.com/awakenginexe/Awake-Modpack-Manager"
@@ -20,6 +20,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "=1.0.154"
 sha2 = "=0.10.9"
 tauri-plugin-dialog = "=2.8.4"
+tauri-plugin-single-instance = "2"
+ureq = { version = "3", default-features = false, features = ["native-tls", "gzip", "json"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha1 = "0.10"
+md-5 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = [
@@ -32,6 +37,8 @@ windows-sys = { version = "=0.61.2", features = [
   "Win32_System_Pipes",
   "Win32_System_Registry",
   "Win32_System_Threading",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [profile.release]

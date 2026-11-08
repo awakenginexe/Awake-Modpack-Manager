@@ -29,7 +29,7 @@ export type CoreMethod =
   | 'providers.search' | 'providers.versions' | 'plans.prepare' | 'plans.get' | 'transactions.apply'
   | 'mods.list' | 'updates.check' | 'operations.get' | 'operations.list' | 'operations.cancel' | 'events.poll'
   | 'recovery.list' | 'recovery.run' | 'inbox.begin' | 'inbox.write' | 'inbox.commit' | 'inbox.status' | 'outbox.read'
-  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'providers.project' | 'outbox.list';
+  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'providers.project' | 'outbox.list' | 'workspaces.delete' | 'workspaces.rename';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

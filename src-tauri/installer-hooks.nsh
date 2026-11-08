@@ -11,6 +11,7 @@
 ; Only this installation's helper matters: a running executable can't be opened for writing, so a
 ; successful open (no bytes written) means it is not running. Helpers of other installs are ignored.
 !macro AWAKE_WAIT_FOR_HELPER
+  StrCpy $1 0
   ${Do}
     ${IfNot} ${FileExists} "$INSTDIR\core-host\windows-x64\awake-core-host.exe"
       ${Break}
@@ -20,6 +21,12 @@
     ${IfNot} ${Errors}
       FileClose $0
       ${Break}
+    ${EndIf}
+    ; It exits by itself once idle: give it a minute and a half before asking anything.
+    ${If} $1 < 90
+      IntOp $1 $1 + 1
+      Sleep 1000
+      ${Continue}
     ${EndIf}
     ; Retry checks again; Cancel (and the silent default) stops without touching any file.
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "The Awake Modpack Manager helper is still finishing work in the background.$\r$\n$\r$\nClose Awake Modpack Manager, wait a minute for the helper to exit by itself, then choose Retry.$\r$\n$\r$\nIf it keeps running, open Awake Modpack Manager once (it cancels changes you reviewed but never applied), close it, and wait a minute." /SD IDCANCEL IDRETRY +2

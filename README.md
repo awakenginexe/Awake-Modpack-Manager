@@ -4,17 +4,16 @@ A Windows desktop app for building and maintaining Minecraft modpacks. It create
 projects and installs real mods from Modrinth, with every change reviewed before it is applied.
 Awake Launcher is not required.
 
-> **Branch `feat/v0.2.0-native-core`:** v0.2.0 in development (unreleased). See
-> [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md) and [docs/INTEGRATION-020.md](docs/INTEGRATION-020.md).
+> **What's new in 0.3.0:** see [docs/releases/v0.3.0.md](docs/releases/v0.3.0.md).
 
 **Version 0.1.0 · Windows x64 · English, ไทย, 简体中文, 繁體中文 · GPL-3.0-only**
 
 ## Install
 
-1. Download `Awake-Modpack-Manager-v0.1.0-Windows-x64-Setup.exe` from the
+1. Download `Awake-Modpack-Manager-v0.3.0-Windows-x64-Setup.exe` from the
    [latest release](https://github.com/awakenginexe/Awake-Modpack-Manager/releases/latest).
 2. Optional: check it against `SHA256SUMS.txt` from the same release
-   (`Get-FileHash .\Awake-Modpack-Manager-v0.1.0-Windows-x64-Setup.exe`).
+   (`Get-FileHash .\Awake-Modpack-Manager-v0.3.0-Windows-x64-Setup.exe`).
 3. Run the installer. It installs for your Windows user only (no administrator rights) into
    `%LOCALAPPDATA%\Awake Modpack Manager`.
    The installer is **not code-signed** yet, so Windows SmartScreen may warn that it is from an
@@ -27,6 +26,7 @@ deletes that folder.
 
 ## What works in 0.1.0
 
+* **Install whole modpacks** from Modrinth, CurseForge, FTB, ATLauncher and Technic, and update them later.
 * **Standalone modpack projects:** create a project with an exact Minecraft version and mod loader
   (vanilla or Fabric) and loader version, chosen from live version lists.
 * **Modrinth:** search compatible mods, pick an exact version, see release type, size and required
@@ -48,16 +48,11 @@ deletes that folder.
 
 ## Known limitations
 
-* **CurseForge is not available yet.** CurseForge search and downloads are disabled; only Modrinth
-  works. (Reading a CurseForge pack ZIP in Projects works offline.)
-* **Shared Awake Launcher instances are not supported.** The Manager manages only its own projects;
-  Launcher instances are read-only.
+* **CurseForge files whose authors disallow third-party downloads** are listed for you to download by hand.
+* **Awake Launcher's own instances are read-only here.** Manager projects can be opened and played in Awake Launcher.
 * **The Manager does not launch Minecraft.** Use Awake Launcher or another launcher to play.
-* **Loaders:** vanilla and Fabric only; the loader can't be changed after a project is created.
-* **Modpack catalogs** (installing a whole pack from Modrinth/CurseForge/FTB/ATLauncher/Technic) and
-  import/export *through the helper* are not available yet; Projects import/export works only as
-  described above.
-* Mods are listed by file name (the helper does not read display titles from JARs yet).
+* **Loaders:** Fabric, Quilt, Forge, NeoForge and vanilla. A project keeps its loader; a pack update may move to a newer build of it.
+* **ATLauncher and Technic packs** install as local files; packs that patch the Minecraft JAR are refused with that reason.
 * Dependency checks use the metadata mod authors publish on Modrinth; they are not a guarantee that
   every combination runs in game. Not every Minecraft version or loader is supported.
 * The installer is unsigned.
@@ -65,7 +60,7 @@ deletes that folder.
 ## How it works
 
 The Manager (Tauri 2, Rust and Vue 3) owns the interface. All file changes are made by the bundled
-**Awake Native Core** helper (`core-host/windows-x64/awake-core-host.exe`, version 0.2.1 on this branch), a
+**Awake Native Core** helper (`core-host/windows-x64/awake-core-host.exe`, version 0.3.0), a
 separate program built from [Awake Launcher](https://github.com/awakenginexe/Awake-Launcher)
 `native-core` at commit `b06c9a804503545207bacfa3bfdf8bfe23604e07` (v0.1.0 shipped 0.1.1 from `299c140bd`). The Manager starts it on
 demand with a private profile, checks it is the bundled executable (pipe server PID, Windows user

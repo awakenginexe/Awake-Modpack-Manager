@@ -1,7 +1,7 @@
 import { computed, inject, reactive, ref, shallowRef, watch, type InjectionKey } from 'vue';
 import {
   BackendError, type Capability, type CreateInstanceRequest, type DependencyResolution, type Draft, type ExportRequest, type Handshake,
-  type InstallPackRequest, type InstanceSummary, type InstanceWarning, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan,
+  type InstallPackRequest, type InstanceSummary, type InstanceWarning, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan, type VersionRef,
 } from '../backend/contract';
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
 import { isComposite } from '../backend/composite';
@@ -42,6 +42,9 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     operations: [] as OperationStatus[],
     /** Set when the user started the Launcher from the Manager and it has not connected yet. */
     launcherStartedAt: null as number | null,
+    updatesChecking: false,
+    updatesCheckedAt: null as number | null,
+    updatesError: null as string | null,
   });
   /** Hundreds of mods: kept shallow so Vue does not make every field reactive. */
   const inventory = shallowRef<ModInventory | null>(null);
@@ -62,6 +65,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     source: null as 'draft' | 'import' | null,
   });
   let pending = load<PendingApply | null>('pendingApply', null);
+  let packUpdateFor: string | null = null;
   const following = new Set<string>();
 
   watch(drafts, (v) => save('drafts', v), { deep: true });
@@ -95,6 +99,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   const pinned = computed(() => policies.value
     ? new Set((inventory.value?.mods ?? []).filter(lockedPin).map((m) => m.key))
     : new Set(state.instanceId ? pins.value[state.instanceId] ?? [] : []));
+  /** Modpack catalogs live with the helper, whichever list is on screen. */
+  const packHandshake = computed(() => (isComposite(backend) && state.connection !== 'disconnected' ? backend.parts.helper.handshake : state.handshake));
   const planOutdated = computed(() => !!review.plan && review.planDraft !== JSON.stringify(draft.value?.changes ?? []));
 
   /* ----- connection ----- */
@@ -180,13 +186,84 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
         if (state.instanceId === id) state.inventoryProgress = { loaded, total };
       });
       if (state.instanceId !== id) return;
-      inventory.value = inv;
+      inventory.value = applyKnownUpdates(inv);
       state.inventoryObservedAt = Date.now();
       selection.value = prune(selection.value, new Set(inv.mods.map((m) => m.key)));
+      void checkUpdates();
     } catch (e) {
       state.inventoryError = asError(e);
     } finally {
       state.inventoryLoading = false;
+    }
+  }
+
+  /* ----- mod updates: looked up after the list is on screen, so a large pack never waits for them ----- */
+
+  const UPDATE_CHECK_MS = 30 * 60_000;
+  const knownUpdates = new Map<string, { at: number; byKey: Map<string, VersionRef | null> }>();
+  function applyKnownUpdates(inv: ModInventory): ModInventory {
+    const known = knownUpdates.get(inv.instanceId);
+    if (!known) return inv;
+    return { ...inv, mods: inv.mods.map((m) => (known.byKey.get(m.key) ? { ...m, available: known.byKey.get(m.key)! } : m)) };
+  }
+  /** `force`: the user asked; otherwise a recent answer for this project is reused. */
+  async function checkUpdates(force = false) {
+    const id = state.instanceId;
+    if (!id || !backend.checkUpdates || !can('mods.updates') || state.updatesChecking) return;
+    if (!force && Date.now() - (knownUpdates.get(id)?.at ?? 0) < UPDATE_CHECK_MS) return;
+    state.updatesChecking = true;
+    state.updatesError = null;
+    try {
+      const found = await backend.checkUpdates(id);
+      knownUpdates.set(id, { at: Date.now(), byKey: new Map(found.map((u) => [u.modKey, u.available])) });
+      state.updatesCheckedAt = Date.now();
+      if (state.instanceId === id && inventory.value) inventory.value = applyKnownUpdates(inventory.value);
+    } catch (e) {
+      state.updatesError = asError(e).message;
+    } finally {
+      state.updatesChecking = false;
+    }
+  }
+
+  /* ----- project management ----- */
+
+  /** Permanently delete a project the Manager owns, and forget everything Manager kept about it. */
+  async function deleteInstance(id: string) {
+    if (!backend.deleteInstance) throw new BackendError('unsupported', 'This cannot be deleted from here.');
+    const { operationId } = await backend.deleteInstance(id, crypto.randomUUID());
+    const final = await track(operationId);
+    if (final?.state === 'completed') {
+      const { [id]: _d, ...restDrafts } = drafts.value; drafts.value = restDrafts;
+      const { [id]: _p, ...restPins } = pins.value; pins.value = restPins;
+      const { [id]: _e, ...restIncludes } = exportIncludes.value; exportIncludes.value = restIncludes;
+      knownUpdates.delete(id);
+      if (state.instanceId === id) { state.instanceId = null; inventory.value = null; selection.value = emptySelection(); resetReview(); }
+      await refreshInstances();
+    }
+    return final;
+  }
+  async function renameInstance(id: string, name: string) {
+    if (!backend.renameInstance) throw new BackendError('unsupported', 'This cannot be renamed from here.');
+    await backend.renameInstance(id, name);
+    await refreshInstances();
+  }
+  /** Fetch a newer pack version and put its full change list on Review. Nothing changes until it is applied. */
+  async function preparePackUpdate(instanceId: string, versionId: string, label: string) {
+    if (!backend.preparePackUpdate) throw new BackendError('unsupported', 'Only Manager projects can update their modpack here.');
+    if (drafts.value[instanceId]?.changes.length) throw new BackendError('rejected', 'This project has unreviewed changes. Review or discard them first.');
+    await selectInstance(instanceId);
+    resetReview();
+    review.phase = 'resolving';
+    review.source = 'import';
+    try {
+      const plan = await backend.preparePackUpdate(instanceId, versionId);
+      Object.assign(review, { plan, planDraft: JSON.stringify(draft.value?.changes ?? []), phase: 'reviewed', origin: label });
+      packUpdateFor = instanceId;
+      return plan;
+    } catch (e) {
+      review.error = asError(e);
+      review.phase = 'failed';
+      throw review.error;
     }
   }
 
@@ -360,6 +437,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     if (ours) {
       review.operation = s;
       review.phase = s.state === 'completed' ? 'done' : 'failed';
+      if (s.state === 'completed' && packUpdateFor === s.instanceId && s.instanceId) void backend.finishPackUpdate?.(s.instanceId).then(() => refreshInstances()).catch(() => undefined);
+      packUpdateFor = null;
       if (s.state === 'completed' && s.instanceId) {
         const { [s.instanceId]: _, ...rest } = drafts.value;
         drafts.value = rest;
@@ -398,6 +477,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     onAccepted?.(operationId);
     const final = await track(operationId);
     if (final?.state === 'completed' && final.result?.instanceId) {
+      // Packs always become Manager projects: show that list even if a Launcher profile was selected.
+      if (isComposite(backend) && state.installationId !== 'manager') state.installationId = 'manager';
       await refreshInstances();
       await selectInstance(final.result.instanceId);
     }
@@ -461,8 +542,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
 
   return {
     backend, source, state, inventory, selection, drafts, pins, exportIncludes, review,
-    can, instance, draft, pinned, planOutdated, policies, policyOf,
-    connect, refreshInstances, selectInstance, loadInventory,
+    can, instance, draft, pinned, planOutdated, policies, policyOf, packHandshake,
+    connect, refreshInstances, selectInstance, loadInventory, checkUpdates, deleteInstance, renameInstance, preparePackUpdate,
     setDraft, discardDraft, setPinned, setExcluded, prepareImport,
     validate, apply, acceptChangedPlan, resetReview,
     refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher,

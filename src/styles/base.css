@@ -1,6 +1,11 @@
 *, *::before, *::after { box-sizing: border-box; }
 * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.16) transparent; }
 html, body, #app { height: 100%; margin: 0; }
+/* Interface text behaves like an application's: it is not page content to drag or select. */
+body { user-select: none; cursor: default; }
+input, textarea, code, pre, .selectable, .mono-text, .path { user-select: text; }
+img { -webkit-user-drag: none; }
+a, button, select, label, summary, [role='button'] { cursor: default; }
 body { background: var(--background-atmosphere), var(--background); color: var(--text); overflow: hidden; }
 button, input, select, textarea { font: inherit; color: inherit; }
 h1, h2, h3, h4 { margin: 0; font-weight: 600; line-height: 1.25; }

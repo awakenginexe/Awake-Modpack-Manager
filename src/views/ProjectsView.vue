@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { confirmDialog, openMenu, promptDialog, separator, toast } from '../ui/desktop';
+import { Pencil } from '@lucide/vue';
+import type { ModpackProject } from '../domain/project';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { CircleAlert, FileArchive, FolderKanban, Info, Lock, LockOpen, PackagePlus, Plus, Search, Trash2, TriangleAlert, Upload, X } from '@lucide/vue';
 import type { LoaderKind } from '../backend/contract';
@@ -214,8 +217,23 @@ async function download() {
   showExport.value = false;
 }
 
-function removeProject() {
-  if (project.value && confirm(t('projDeleteConfirm', { name: project.value.name }))) store.remove(project.value.id);
+function projectMenu(event: MouseEvent, p: ModpackProject) {
+  openMenu(event, [
+    { label: t('renameProject'), icon: Pencil, action: async () => {
+      const name = await promptDialog({ title: t('renameProject'), input: { label: t('createName'), value: p.name, maxLength: 80 }, confirm: t('renameConfirm'), cancel: t('cancel') });
+      if (name && name !== p.name) store.rename(p.id, { name });
+    } },
+    separator,
+    { label: t('deleteProject'), icon: Trash2, danger: true, action: () => removeProject(p) },
+  ]);
+}
+async function removeProject(target?: ModpackProject) {
+  const p = target ?? project.value;
+  if (!p) return;
+  if (await confirmDialog({ title: t('projDeleteTitle', { name: p.name }), body: t('projDeleteBody'), confirm: t('deleteConfirm'), cancel: t('cancel'), danger: true })) {
+    store.remove(p.id);
+    toast(t('deletedProject', { name: p.name }), 'ok');
+  }
 }
 </script>
 
@@ -251,7 +269,7 @@ function removeProject() {
     <div v-else class="layout">
       <ul class="project-list" :aria-label="t('projectsTitle')">
         <li v-for="p in store.projects.value" :key="p.id">
-          <button type="button" class="project card" :class="{ selected: p.id === project?.id }" @click="store.select(p.id)">
+          <button type="button" class="project card" :class="{ selected: p.id === project?.id }" @click="store.select(p.id)" @contextmenu="projectMenu($event, p)">
             <strong>{{ p.name }}</strong>
             <span class="muted small">{{ p.minecraftVersion }} · {{ loaderLabel(p.loader.kind) || t('vanilla') }}{{ p.loader.version ? ` ${p.loader.version}` : '' }}</span>
             <span class="row-badges"><span class="badge warn">{{ t('projDraft') }}</span><span class="badge">{{ t('projModCount', { count: formatNumber(p.mods.length) }) }}</span></span>
@@ -271,7 +289,7 @@ function removeProject() {
           <div class="toolbar">
             <button class="btn" type="button" @click="showAdd = true"><PackagePlus :size="16" />{{ t('projPlanMod') }}</button>
             <button class="btn" type="button" @click="showExport = true"><Upload :size="16" />{{ t('projExport') }}</button>
-            <button class="icon-btn" type="button" :title="t('projDelete')" :aria-label="t('projDelete')" @click="removeProject"><Trash2 :size="18" /></button>
+            <button class="icon-btn" type="button" :title="t('projDelete')" :aria-label="t('projDelete')" @click="removeProject()"><Trash2 :size="18" /></button>
           </div>
         </div>
 

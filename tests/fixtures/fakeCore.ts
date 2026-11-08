@@ -36,6 +36,7 @@ export const EXT_CAPS = {
   'loaders.forge.v1': true, 'loaders.neoforge.v1': true, 'loaders.quilt.v1': true, 'policies.v1': true, 'providers.curseforge.v1': false,
   'imports.inspect': true, 'imports.prepare': true, 'inbox.discard': true, 'inbox.discard.v1': true,
   'providers.project': true, 'outbox.configs.v1': true, 'outbox.list': true, 'outbox.read': true,
+  'workspaces.delete': true, 'workspaces.rename': true, 'imports.packAuthoritative.v1': true,
 } as Record<string, boolean>;
 /** What imports.inspect reports for the fixture archive (any uploaded bytes). */
 export const FIXTURE_IMPORT = {
@@ -109,6 +110,10 @@ export class FakeCore implements PipeTransport {
   policies = new Map<string, { pinnedVersion: string | null; excluded: boolean }>();
   uploads = new Map<string, { size: number; sha256: string; data: string[]; received: number; complete: boolean; discarded: boolean }>();
   inspectError: string | null = null;
+  failImportPrepare = false;
+  prepareRequests: Record<string, unknown>[] = [];
+  /** Every method called, in order. */
+  calls: string[] = [];
   private conns = new Map<number, { hello: boolean; ext: boolean; evidence?: boolean }>();
   private seq = 0;
 
@@ -169,6 +174,7 @@ export class FakeCore implements PipeTransport {
       const inbox = req.method.startsWith('inbox.') || req.method.startsWith('imports.');
       const caps: Record<string, boolean | undefined> = c.ext ? { ...this.capabilities, ...this.extCaps } : this.capabilities;
       if (req.method !== 'hello' && ((inbox && !c.ext) || !caps[req.method])) throw this.err('UNSUPPORTED_CAPABILITY');
+      this.calls.push(req.method);
       const result = this.handle(req.method, req.params, c);
       const wrong = resultError(req.method, result);
       if (wrong) this.violations.push(`fixture reply ${wrong}`);
@@ -304,6 +310,8 @@ export class FakeCore implements PipeTransport {
         const e = this.workspaces.get(String(p.physicalId));
         if (!e) throw this.err('NOT_FOUND');
         if (p.instanceRevision !== e.ws.instanceRevision) throw this.err('STALE_INSTANCE');
+        this.prepareRequests.push(p);
+        if (this.failImportPrepare) throw this.err('DEPENDENCY_CONFLICT', 'Fixture failure.');
         return this.idem(m, p, () => {
           const o = this.newOp('modpack-change', ['resolving', 'downloading', 'prepared'], e.ws.physicalId);
           o.plan = this.resolve(e.mods, [{ action: 'install', projectId: 'sodium', versionId: 'sodV1' }], o.op.operationId, e.ws.instanceRevision);
@@ -314,6 +322,17 @@ export class FakeCore implements PipeTransport {
       }
       case 'workspaces.create':
         return this.idem(m, p, () => { const o = this.newOp('workspace-create', ['resolving', 'verifying', 'completed']); o.createWs = { name: p.name, minecraftVersion: p.minecraftVersion, loader: p.loader } as CoreWorkspace; return o; });
+      case 'workspaces.delete': {
+        const e = this.workspaces.get(String(p.physicalId));
+        if (!e) throw this.err('NOT_FOUND');
+        return this.idem(m, p, () => { const o = this.newOp('workspace-delete', ['acquiring', 'applying', 'verifying', 'completed'], e.ws.physicalId); this.workspaces.delete(e.ws.physicalId); return o; });
+      }
+      case 'workspaces.rename': {
+        const e = this.workspaces.get(String(p.physicalId));
+        if (!e) throw this.err('NOT_FOUND');
+        e.ws.name = String(p.name);
+        return { workspace: e.ws };
+      }
       case 'workspaces.list': {
         const { slice, total, nextOffset } = this.page([...this.workspaces.values()].map((e) => e.ws), p);
         return { workspaces: slice, total, nextOffset };
