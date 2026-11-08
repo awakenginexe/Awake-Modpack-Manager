@@ -177,6 +177,15 @@ mod tests {
     use std::fs;
     use std::process::Command;
 
+    /// Hosted runners are administrators, so new folders belong to the Administrators group there.
+    fn own_recursively(path: &Path) {
+        let output = Command::new("whoami").args(["/user", "/fo", "csv", "/nh"]).output().unwrap();
+        let text = String::from_utf8(output.stdout).unwrap();
+        let sid = text.trim().rsplit(',').next().unwrap().trim_matches('"');
+        let status = Command::new("icacls").arg(path).args(["/setowner", &format!("*{sid}"), "/T"]).output().unwrap().status;
+        assert!(status.success());
+    }
+
     fn open_to_authenticated_users(path: &Path) {
         let status = Command::new("icacls").arg(path).args(["/grant", "*S-1-5-11:(OI)(CI)M"]).output().unwrap().status;
         assert!(status.success());
@@ -188,6 +197,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("instances")).unwrap();
         fs::write(root.join("instances/keep.txt"), b"keep").unwrap();
+        own_recursively(&root);
         assert_eq!(blocked(&root), None, "a private temp folder is shareable");
 
         open_to_authenticated_users(&root);
