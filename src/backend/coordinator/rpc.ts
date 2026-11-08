@@ -20,6 +20,12 @@ export interface RpcOptions {
   versions?: readonly ProtocolVersion[];
   /** Contract checks: return a violation message, or null. Results that fail are a protocol violation. */
   validate?: { params(method: string, p: unknown): string | null; result(method: string, r: unknown): string | null };
+  /**
+   * Opt-in hello extensions in preference order; each is offered alone. A peer that rejects one (an
+   * older build) is asked again with the next, finally with none; `extensions()` reports what was
+   * echoed, so callers never send extension-only requests the peer did not accept.
+   */
+  extensions?: readonly string[];
   /** Extra hello checks (e.g. role); throw BackendError to refuse. */
   checkHello?: (hello: HelloResult & Record<string, unknown>) => void;
   clientVersion: string;
@@ -41,6 +47,7 @@ export function createRpc(o: RpcOptions) {
   const versions = o.versions ?? SUPPORTED_VERSIONS;
   let version: ProtocolVersion = versions[0]!;
   let hello: (HelloResult & Record<string, unknown>) | null = null;
+  let accepted: readonly string[] = [];
   let seq = 0;
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -58,6 +65,7 @@ export function createRpc(o: RpcOptions) {
         UNSUPPORTED_CAPABILITY: 'unsupported', UNSUPPORTED_PROTOCOL: 'protocol', STALE_INSTANCE: 'stale-revision',
         BUSY: 'instance-busy', IDENTITY_UNVERIFIABLE: 'identity', IDENTITY_CONFLICT: 'identity',
         STALE_PLAN: 'plan-expired', INTERACTION_REQUIRED: 'interaction-required', RECOVERY_REQUIRED: 'recovery-required',
+        INVALID_ARCHIVE: 'invalid-archive', PROVIDER_RESTRICTED: 'provider-restricted', PROVIDER_UNAVAILABLE: 'provider-restricted',
       };
       return new BackendError(map[e.code] ?? 'rejected', e.message, e.code);
     }
@@ -90,9 +98,26 @@ export function createRpc(o: RpcOptions) {
   /** Locate, open the pipe, hello, verify identity. */
   async function open(): Promise<void> {
     if (conn !== null) { await o.transport().close(conn).catch(() => undefined); conn = null; }
-    const { conn: c, expect } = await o.locate();
+    let { conn: c, expect } = await o.locate();
     conn = c;
-    const result = await exchange('hello', { versions: [...versions], client: { name: 'Awake Modpack Manager', version: o.clientVersion } }, versions[0]) as HelloResult & Record<string, unknown>;
+    const base = { versions: [...versions], client: { name: 'Awake Modpack Manager', version: o.clientVersion } };
+    let result: HelloResult & Record<string, unknown>;
+    // Offer one extension at a time, most capable first. An older peer refuses an unknown offer (or the
+    // field itself): start over on a fresh connection with the next offer, finally with none.
+    const offers = [...(o.extensions ?? []).map((x) => [x]), []];
+    let ext: string[] = [];
+    for (let i = 0; ; i++) {
+      ext = offers[i]!;
+      try {
+        result = await exchange('hello', ext.length ? { ...base, extensions: ext } : base, versions[0]) as HelloResult & Record<string, unknown>;
+        break;
+      } catch (e) {
+        if (!ext.length || !(e instanceof ProtocolError) || !['INVALID_REQUEST', 'UNSUPPORTED_PROTOCOL'].includes(e.code)) throw e;
+        if (conn !== null) { await o.transport().close(conn).catch(() => undefined); conn = null; }
+        ({ conn: c, expect } = await o.locate());
+        conn = c;
+      }
+    }
     try {
       version = o.versions ? pick(result.protocol) : negotiated(result.protocol);
       // The descriptor is only a hint: hello must name the same installation, profile and session.
@@ -106,6 +131,8 @@ export function createRpc(o: RpcOptions) {
       throw e;
     }
     hello = result;
+    // Only what the peer explicitly echoed is accepted; a helper that does not echo gets legacy requests.
+    accepted = Array.isArray(result.extensions) ? ext.filter((x) => (result.extensions as unknown[]).includes(x)) : [];
   }
 
   /**
@@ -253,6 +280,8 @@ export function createRpc(o: RpcOptions) {
   return {
     serial, open, call, paged, toBackendError, exchange,
     hello: () => hello,
+    /** Hello extensions the connected peer accepted. */
+    extensions: () => accepted,
     version: () => version,
     connected: () => conn !== null,
     enabled, unsupported, submit, readOperation, listOperations, cancelOperation, capabilities,

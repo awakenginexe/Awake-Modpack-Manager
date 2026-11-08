@@ -4,10 +4,52 @@ import { Ban, CircleAlert, CircleCheck, FolderOpen, Link2, PackageCheck, ShieldA
 import type { Capability, DistributionStatus, ExportFormat, ExportReport, PackProviderId } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
-import { t, type MessageKey } from '../i18n';
+import { formatNumber, t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
+import { useProjects } from '../state/projects';
+import { modKey, newProject } from '../domain/project';
+import type { WorkspaceSnapshot } from '../backend/contract';
+import type { ViewId } from '../App.vue';
 
+const emit = defineEmits<{ navigate: [ViewId] }>();
 const session = useSession();
+
+/* ----- Manager workspaces: the helper has no export, so the Manager builds it from a verified snapshot. ----- */
+const helperExport = computed(() => session.source.value === 'helper' && !!session.backend.snapshotWorkspace);
+const snapProgress = ref<{ done: number; total: number } | null>(null);
+const skipped = ref<WorkspaceSnapshot['skipped']>([]);
+async function snapshot() {
+  const id = session.state.instanceId;
+  if (!id || !session.backend.snapshotWorkspace) return;
+  error.value = '';
+  skipped.value = [];
+  snapProgress.value = { done: 0, total: 0 };
+  try {
+    const s = await session.backend.snapshotWorkspace(id, (done, total) => { snapProgress.value = { done, total }; });
+    const project = newProject({
+      name: name.value.trim() || s.name, version: version.value.trim() || '1.0.0', minecraftVersion: s.minecraftVersion, loader: s.loader,
+      summary: t('exportFromWorkspace', { name: s.name }),
+      overrides: (s.configs ?? []).map((c) => ({ path: c.path, size: c.data.length })),
+      mods: s.mods.map((m) => ({
+        key: modKey(m.provider, m.projectId), name: m.name, provider: m.provider, projectId: m.projectId, versionId: m.versionId, versionName: m.versionName,
+        file: { path: `mods/${m.fileName}`, size: m.size, sha1: m.sha1, sha512: m.sha512, downloads: [m.url] },
+        // A disabled mod stays in the pack as optional, so players can turn it on.
+        ...(m.enabled ? {} : { env: { client: 'optional' as const, server: 'optional' as const } }),
+        required: m.enabled, pinned: false, verified: true, origin: 'import' as const,
+      })),
+    });
+    skipped.value = s.skipped;
+    const store = useProjects();
+    store.addProject(project);
+    if (s.configs?.length) store.attachOverrides(project.id, s.name, s.configs.map((c) => ({ root: 'overrides' as const, path: c.path, data: c.data })));
+    if (!s.skipped.length) emit('navigate', 'projects');
+  } catch (e) {
+    error.value = asError(e).message;
+  } finally {
+    snapProgress.value = null;
+  }
+}
+const skipKey: Record<WorkspaceSnapshot['skipped'][number]['reason'], MessageKey> = { manual: 'skipManual', modified: 'skipModified', provider: 'skipProvider', 'not-found': 'skipNotFound' };
 const format = ref<ExportFormat>('mrpack');
 const name = ref(session.instance.value?.name ?? '');
 const version = ref('1.0.0');
@@ -79,7 +121,26 @@ async function run() {
       </div>
     </header>
 
-    <section class="card panel">
+    <section v-if="helperExport" class="card panel">
+      <h2 class="panel-title">{{ t('exportWorkspaceTitle') }}</h2>
+      <p class="muted small">{{ t('exportWorkspaceHint') }}</p>
+      <div class="form-row">
+        <label class="field"><span>{{ t('packName') }}</span><input v-model="name" class="input" /></label>
+        <label class="field narrow"><span>{{ t('packVersion') }}</span><input v-model="version" class="input" /></label>
+        <button class="btn btn-primary" type="button" :disabled="!!snapProgress" @click="snapshot"><PackageCheck :size="16" />{{ snapProgress ? t('exportSnapshotting', { done: formatNumber(snapProgress.done), total: formatNumber(snapProgress.total) }) : t('exportWorkspaceAction') }}</button>
+      </div>
+      <div v-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ error }}</div>
+      <div v-if="skipped.length" class="notice warn" role="status">
+        <TriangleAlert :size="18" />
+        <div class="grow">
+          <strong>{{ t('exportSkipped', { count: skipped.length }) }}</strong>
+          <ul class="small"><li v-for="s in skipped" :key="s.fileName"><code>{{ s.fileName }}</code> — {{ t(skipKey[s.reason]) }}</li></ul>
+          <button class="btn btn-small" type="button" @click="emit('navigate', 'projects')">{{ t('exportOpenProject') }}</button>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="!helperExport" class="card panel">
       <h2 class="panel-title">{{ t('exportFormat') }}</h2>
       <div class="formats" role="radiogroup" :aria-label="t('exportFormat')">
         <label v-for="f in formats" :key="f.id" class="format" :class="{ active: format === f.id }">
@@ -96,6 +157,7 @@ async function run() {
       </div>
     </section>
 
+    <template v-if="!helperExport">
     <div v-if="!session.can(cap)" class="notice warn"><TriangleAlert :size="18" />{{ t('capabilityMissing') }}</div>
     <div v-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ error }}</div>
     <div v-if="result" class="notice success" role="status"><CircleCheck :size="18" />{{ t('exportDone', { path: result }) }}</div>
@@ -136,6 +198,7 @@ async function run() {
       <div class="export-row">
         <button class="btn btn-primary btn-large" type="button" :disabled="!canExport || exporting" @click="run"><Upload :size="18" />{{ exporting ? t('exporting') : t('startExport') }}</button>
       </div>
+    </template>
     </template>
   </section>
 </template>

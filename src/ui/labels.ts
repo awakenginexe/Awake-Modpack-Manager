@@ -13,7 +13,7 @@ export const opStateTone: Record<OperationState, string> = {
 };
 export const opKindKey: Record<OperationKind, MessageKey> = { 'apply-plan': 'kindApply', 'create-instance': 'kindCreate', 'install-pack': 'kindInstallPack', export: 'kindExport', launch: 'kindLaunch' };
 export const packProviderNames: Record<PackProviderId, string> = { modrinth: 'Modrinth', curseforge: 'CurseForge', ftb: 'FTB', atlauncher: 'ATLauncher', technic: 'Technic' };
-export const planActionKey: Record<PlanAction, MessageKey> = { install: 'planInstall', update: 'planUpdate', remove: 'planRemove', enable: 'planEnable', disable: 'planDisable', keep: 'planKeep' };
+export const planActionKey: Record<PlanAction, MessageKey> = { install: 'planInstall', update: 'planUpdate', remove: 'planRemove', enable: 'planEnable', disable: 'planDisable', keep: 'planKeep', policy: 'planPolicy', override: 'planOverride' };
 
 const loaderNames: Record<LoaderKind, string> = { fabric: 'Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge', vanilla: '' };
 export const loaderLabel = (k: LoaderKind) => (k === 'vanilla' ? t('vanilla') : loaderNames[k]);
@@ -41,6 +41,10 @@ export function instanceSubtitle(inst: InstanceSummary): string {
 /** Connection problem → headline and next step. */
 export function connectErrorTitle(code: string): MessageKey {
   return ({ 'not-running': 'launcherNotRunning', 'unsupported-profile': 'profileUnsupported', identity: 'launcherIdentity', unsupported: 'connUnsupported', protocol: 'launcherProtocol', 'helper-unavailable': 'helperUnavailable' } as Record<string, MessageKey>)[code] ?? 'connFailed';
+}
+/** Plain-language next step for import/provider failures; the helper's own message is shown with it. */
+export function importErrorHint(code: string): MessageKey | null {
+  return ({ 'invalid-archive': 'importInvalidArchiveHint', 'provider-restricted': 'importRestrictedHint', unsupported: 'importUnsupportedHint', 'stale-revision': 'importStaleHint' } as Record<string, MessageKey>)[code] ?? null;
 }
 export function connectErrorHint(code: string): MessageKey {
   return ({ 'not-running': 'launcherNotRunningHint', 'unsupported-profile': 'profileUnsupportedHint', identity: 'launcherIdentityHint', unsupported: 'connUnsupportedHint', protocol: 'launcherProtocolHint', 'helper-unavailable': 'helperUnavailableHint' } as Record<string, MessageKey>)[code] ?? 'connFailedHint';

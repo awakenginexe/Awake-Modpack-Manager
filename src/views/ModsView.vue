@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import {
   ArrowDown, ArrowUp, ArrowUpCircle, Ban, Boxes, CircleAlert, CircleCheck, CircleHelp, FileQuestion, Info, ListChecks,
-  History, Lock, Pin, PinOff, Power, PowerOff, Search, Trash2, TriangleAlert, Undo2, X,
+  BellOff, BellRing, History, Lock, Pin, PinOff, Power, PowerOff, Search, Trash2, TriangleAlert, Undo2, X,
 } from '@lucide/vue';
 import type { DraftChange, InstalledMod, ProjectVersion } from '../backend/contract';
 import Avatar from '../components/Avatar.vue';
@@ -48,7 +48,11 @@ const pendingByKey = computed(() => {
   }
   return map;
 });
-const pendingLabel: Record<DraftChange['kind'], MessageKey> = { install: 'pendingInstall', update: 'pendingUpdate', remove: 'pendingRemove', enable: 'pendingEnable', disable: 'pendingDisable' };
+const pendingLabel: Record<DraftChange['kind'], MessageKey> = { install: 'pendingInstall', update: 'pendingUpdate', remove: 'pendingRemove', enable: 'pendingEnable', disable: 'pendingDisable', policy: 'pendingPolicy' };
+/** Pins and exclusions stored by the helper (reviewed like other changes) instead of Manager-side notes. */
+const policies = session.policies;
+const excluded = (m: InstalledMod) => session.policyOf(m.key).excluded;
+const pinnedNow = (m: InstalledMod) => (policies.value ? session.policyOf(m.key).pinned : pinned.value.has(m.key));
 
 const statusFilters: { id: StatusFilter; label: MessageKey }[] = [
   { id: 'all', label: 'filterAll' }, { id: 'updates', label: 'filterUpdates' }, { id: 'disabled', label: 'filterDisabled' },
@@ -87,7 +91,8 @@ const canChoose = computed(() => !!session.backend.projectVersions && session.so
 const choosingFor = ref<InstalledMod | null>(null);
 function chooseVersion(m: InstalledMod, v: ProjectVersion) {
   draftWith([{ kind: 'update', modKey: m.key, targetVersionId: v.id }]);
-  session.setPinned([m.key], true);
+  // A helper policy pins the installed version, so it is set after the update is applied, not with it.
+  if (!policies.value) session.setPinned([m.key], true);
   choosingFor.value = null;
 }
 function draftWith(changes: DraftChange[]) {
@@ -98,7 +103,7 @@ function bulk(kind: 'update' | 'enable' | 'disable' | 'remove') {
   const changes: DraftChange[] = [];
   for (const m of selectedMods.value) {
     if (kind === 'update') {
-      if (hasUpdate(m) && !pinned.value.has(m.key) && m.available) changes.push({ kind: 'update', modKey: m.key, targetVersionId: m.available.id });
+      if (hasUpdate(m) && !pinned.value.has(m.key) && !m.updateExcluded && m.available) changes.push({ kind: 'update', modKey: m.key, targetVersionId: m.available.id });
     } else if (kind === 'enable' ? !m.enabled : kind === 'disable' ? m.enabled : true) {
       changes.push({ kind, modKey: m.key });
     }
@@ -237,7 +242,9 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
                       <span v-if="m.metadataState === 'conflict'" class="badge warn tiny" :title="t('metadataConflictHint')">{{ t('metadataConflict') }}</span>
                       <span v-if="m.kind === 'directory'" class="badge tiny">{{ t('kindFolder') }}</span>
                       <span v-if="m.linked" class="badge tiny" :title="t('linkedHint')">{{ t('linkedFile') }}</span>
-                      <Lock v-if="m.updateLocked" :size="13" class="pin" :aria-label="t('lockedInLauncher')" />
+                      <span v-if="m.loaderBridge" class="badge info tiny">{{ t('connectorBadge') }}</span>
+                      <Lock v-if="policies ? m.nativeLock : m.updateLocked" :size="13" class="pin" :aria-label="t(policies ? 'lockedByPack' : 'lockedInLauncher')" />
+                      <BellOff v-if="m.updateExcluded" :size="13" class="pin" :aria-label="t('excludedFromUpdates')" />
                     </span>
                     <span class="file">{{ m.fileName }}</span>
                   </span>
@@ -273,6 +280,10 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
             <button class="btn btn-small btn-ghost" type="button" @click="bulk('disable')"><PowerOff :size="15" />{{ t('bulkDisable') }}</button>
             <button class="btn btn-small btn-ghost" type="button" @click="session.setPinned(selection.keys, true)"><Pin :size="15" />{{ t('bulkPin') }}</button>
             <button class="btn btn-small btn-ghost" type="button" @click="session.setPinned(selection.keys, false)"><PinOff :size="15" />{{ t('bulkUnpin') }}</button>
+            <template v-if="policies">
+              <button class="btn btn-small btn-ghost" type="button" @click="session.setExcluded(selection.keys, true)"><BellOff :size="15" />{{ t('bulkExclude') }}</button>
+              <button class="btn btn-small btn-ghost" type="button" @click="session.setExcluded(selection.keys, false)"><BellRing :size="15" />{{ t('bulkInclude') }}</button>
+            </template>
             <button class="btn btn-small btn-ghost btn-danger" type="button" @click="bulk('remove')"><Trash2 :size="15" />{{ t('bulkRemove') }}</button>
             <button class="icon-btn end" type="button" :aria-label="t('clearSelection')" :title="t('clearSelection')" @click="clearSelection"><X :size="16" /></button>
           </div>
@@ -291,7 +302,8 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
           </div>
           <p v-if="focused.metadataState === 'conflict'" class="notice warn small"><TriangleAlert :size="18" />{{ t('metadataConflictHint') }}</p>
           <p v-else-if="focused.source === 'manual'" class="notice warn small"><FileQuestion :size="18" />{{ t('manualFileHint') }}</p>
-          <p v-if="focused.updateLocked" class="muted small hint"><Lock :size="13" />{{ t('lockedInLauncherHint') }}</p>
+          <p v-if="policies ? focused.nativeLock : focused.updateLocked" class="muted small hint"><Lock :size="13" />{{ t(policies ? 'lockedByPackHint' : 'lockedInLauncherHint') }}</p>
+          <p v-if="focused.updateExcluded" class="muted small hint"><BellOff :size="13" />{{ t('excludedFromUpdatesHint') }}</p>
 
           <dl class="facts">
             <dt>{{ t('detailFile') }}</dt><dd class="mono-text">{{ focused.fileName }}</dd>
@@ -308,12 +320,15 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
             <button class="btn btn-small" type="button" @click="draftWith([{ kind: focused.enabled ? 'disable' : 'enable', modKey: focused.key }])">
               <PowerOff v-if="focused.enabled" :size="15" /><Power v-else :size="15" />{{ focused.enabled ? t('bulkDisable') : t('bulkEnable') }}
             </button>
-            <button class="btn btn-small" type="button" @click="session.setPinned([focused.key], !pinned.has(focused.key))">
-              <PinOff v-if="pinned.has(focused.key)" :size="15" /><Pin v-else :size="15" />{{ pinned.has(focused.key) ? t('bulkUnpin') : t('bulkPin') }}
+            <button class="btn btn-small" type="button" :disabled="policies && (!focused.installed || focused.source === 'manual')" @click="session.setPinned([focused.key], !pinnedNow(focused))">
+              <PinOff v-if="pinnedNow(focused)" :size="15" /><Pin v-else :size="15" />{{ pinnedNow(focused) ? t('bulkUnpin') : t('bulkPin') }}
+            </button>
+            <button v-if="policies" class="btn btn-small" type="button" :disabled="!focused.installed || focused.source === 'manual'" @click="session.setExcluded([focused.key], !excluded(focused))">
+              <BellRing v-if="excluded(focused)" :size="15" /><BellOff v-else :size="15" />{{ excluded(focused) ? t('bulkInclude') : t('bulkExclude') }}
             </button>
             <button class="btn btn-small btn-danger" type="button" @click="draftWith([{ kind: 'remove', modKey: focused.key }])"><Trash2 :size="15" />{{ t('bulkRemove') }}</button>
           </div>
-          <p v-if="pinned.has(focused.key)" class="muted small hint"><Pin :size="13" />{{ t('pinHint') }}</p>
+          <p v-if="pinned.has(focused.key)" class="muted small hint"><Pin :size="13" />{{ policies ? t('pinHintHelper') : t('pinHint') }}</p>
 
           <div v-if="pendingByKey.get(focused.key)?.length" class="pending">
             <span v-for="c in pendingByKey.get(focused.key)" :key="c.kind" class="pending-item">

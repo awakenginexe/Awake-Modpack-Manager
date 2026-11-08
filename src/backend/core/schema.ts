@@ -4,22 +4,32 @@ import schema from './core.schema.json';
  * Awake native helper protocol 2.0 (role `modpack-core`).
  *
  * Source of truth: Awake Launcher docs/modpack-manager/{core-protocol.md, core.schema.json} at
- * commit 299c140bd91656cf988efc4cff27887b54ae1efc (branch feat/modpack-manager-integration),
- * copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
+ * commit 31d0611a9de0409560f0b62282de078e5970a396 (branch feat/native-core-manager-020, helper
+ * implementation 0.2.1, opt-in hello extensions `manager.v0.2.1` then `manager.v0.2`), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
  * accepts is checked against that schema, so the client can neither send nor trust anything the
  * contract does not define. Re-pin by replacing the JSON file and this commit.
  */
-export const CORE_CONTRACT_COMMIT = '299c140bd91656cf988efc4cff27887b54ae1efc';
+export const CORE_CONTRACT_COMMIT = '31d0611a9de0409560f0b62282de078e5970a396';
+/** Hello extension that enables the Manager 0.2 capabilities and payload variants. */
+export const MANAGER_EXTENSION = 'manager.v0.2';
+/**
+ * Helper 0.2.1 level: implies manager.v0.2 and adds structured dependency conflicts with loader-metadata
+ * evidence (error.details), reviewed dependencyResolutions and Sinytra Connector imports. Offered first;
+ * an older helper rejects it and is asked again with manager.v0.2.
+ */
+export const EVIDENCE_EXTENSION = 'manager.v0.2.1';
 export const CORE_VERSION = { major: 2, minor: 0 } as const;
 
 type Schema = Record<string, unknown>;
 const defs = (schema as { $defs: Record<string, Schema> }).$defs;
-const methods = (schema as { 'x-methods': Record<string, { params: Schema; result: Schema }> })['x-methods'];
+const xMethods = (schema as { 'x-methods': Record<string, { params: Schema; result: Schema }> })['x-methods'];
+const method = (m: string) => xMethods[m];
 export type CoreMethod =
   | 'hello' | 'core.info' | 'core.shutdown' | 'catalog.versions' | 'workspaces.create' | 'workspaces.list'
   | 'providers.search' | 'providers.versions' | 'plans.prepare' | 'plans.get' | 'transactions.apply'
   | 'mods.list' | 'updates.check' | 'operations.get' | 'operations.list' | 'operations.cancel' | 'events.poll'
-  | 'recovery.list' | 'recovery.run' | 'inbox.begin' | 'inbox.write' | 'inbox.commit' | 'inbox.status' | 'outbox.read';
+  | 'recovery.list' | 'recovery.run' | 'inbox.begin' | 'inbox.write' | 'inbox.commit' | 'inbox.status' | 'outbox.read'
+  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'providers.project' | 'outbox.list';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -75,6 +85,7 @@ export function check(s: Schema, v: unknown, at = '$'): string | null {
   return null;
 }
 
-export const paramsError = (m: CoreMethod, params: unknown) => check(methods[m]!.params, params, `${m}.params`);
-export const resultError = (m: CoreMethod, result: unknown) => check(methods[m]!.result, result, `${m}.result`);
+const contract = (m: string) => { const x = method(m); if (!x) throw new Error(`${m} is not in the pinned contract`); return x; };
+export const paramsError = (m: CoreMethod, params: unknown) => check(contract(m).params, params, `${m}.params`);
+export const resultError = (m: CoreMethod, result: unknown) => check(contract(m).result, result, `${m}.result`);
 export const descriptorError = (d: unknown) => check(defs.descriptor!, d, 'descriptor');

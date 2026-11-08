@@ -27,13 +27,18 @@ export type Capability =
   | 'export.curseforge'
   | 'launch.request'
   | 'packs.search'
-  | 'packs.install';
+  | 'packs.install'
+  /** Helper-owned pins and update exclusions (policies.v1). */
+  | 'mods.policies'
+  /** Native .mrpack / CurseForge ZIP import through bounded uploads (imports.* + inbox.*). */
+  | 'packs.import';
 
 /** Every capability this Manager build knows how to use. */
 export const ALL_CAPABILITIES: Capability[] = [
   'installations.discover', 'instances.list', 'instances.create', 'mods.inventory', 'providers.search',
   'plan.validate', 'plan.prepare', 'plan.apply', 'operations.watch', 'operations.cancel', 'operations.reconnect',
   'recovery.status', 'files.read', 'export.mrpack', 'export.curseforge', 'launch.request', 'packs.search', 'packs.install',
+  'mods.policies', 'packs.import',
 ];
 
 export type ProviderId = 'modrinth' | 'curseforge';
@@ -206,7 +211,16 @@ export interface InstalledMod {
   metadataState?: 'indexed' | 'unindexed' | 'conflict';
   kind?: 'jar' | 'directory' | 'other';
   linked?: boolean;
+  /** Pinned by policy or locked by native metadata (helper: OR of pin, exclusion and native lock). */
   updateLocked?: boolean;
+  /** Helper policy pin, read back separately (manager.v0.2). Undefined when the helper cannot say. */
+  pinned?: boolean;
+  /** Native Packwiz update=false lock (manager.v0.2); a Manager policy change cannot clear it. */
+  nativeLock?: boolean;
+  /** Excluded from update checks by the helper's policy (policies.v1). */
+  updateExcluded?: boolean;
+  /** A Fabric mod loaded through Sinytra Connector in a Forge/NeoForge project (manager.v0.2.1). */
+  loaderBridge?: 'sinytra-connector';
 }
 
 export interface ModInventory {
@@ -251,7 +265,9 @@ export type DraftChange =
   | { kind: 'update'; modKey: string; targetVersionId: string }
   | { kind: 'remove'; modKey: string }
   | { kind: 'enable'; modKey: string }
-  | { kind: 'disable'; modKey: string };
+  | { kind: 'disable'; modKey: string }
+  /** Helper-owned update policy (policies.v1): pin the installed version and/or exclude from updates. */
+  | { kind: 'policy'; modKey: string; pinned: boolean; excluded: boolean };
 
 /** A Manager-owned draft. It never touches the instance until a confirmed plan is applied. */
 export interface Draft {
@@ -263,7 +279,7 @@ export interface Draft {
   pinnedKeys: string[];
 }
 
-export type PlanAction = 'install' | 'update' | 'remove' | 'enable' | 'disable' | 'keep';
+export type PlanAction = 'install' | 'update' | 'remove' | 'enable' | 'disable' | 'keep' | 'override' | 'policy';
 
 export interface PlanItem {
   action: PlanAction;
@@ -291,6 +307,8 @@ export interface PlanIssue {
     | 'unknown-dependency'
     /** A required dependency the coordinator added and verified. */
     | 'dependency-included'
+    /** A dependency conflict the user reviewed and resolved for this plan (manager.v0.2.1). */
+    | 'dependency-reviewed'
     /** Free-text warning from the coordinator's plan. */
     | 'coordinator-warning';
   message: string;
@@ -391,6 +409,33 @@ export interface ProjectVersion extends VersionRef {
   dependencies: { projectId: string | null; versionId: string | null; type: DependencyKind | 'unknown' }[];
 }
 
+/** What the helper read from a committed modpack archive (imports.inspect). Nothing is applied. */
+export interface ImportInspection {
+  format: 'mrpack' | 'curseforge';
+  minecraftVersion: string;
+  loader: { kind: LoaderKind; version: string };
+  /** Override files with the helper-computed hash; they are installed only through a reviewed plan. */
+  files: { path: string; sha256: string; size: number }[];
+  projects: { provider: ProviderId; projectId: string; versionId: string; required: boolean }[];
+  downloadCount: number;
+  warnings: string[];
+}
+
+/** A workspace's provider files with full download identity, for building an export in the Manager. */
+export interface WorkspaceSnapshot {
+  name: string;
+  minecraftVersion: string;
+  loader: { kind: LoaderKind; version: string };
+  mods: {
+    provider: ProviderId; projectId: string; versionId: string; versionName: string; name: string;
+    fileName: string; size: number; sha1: string; sha512?: string; url: string; enabled: boolean;
+  }[];
+  /** Files that cannot be described by a provider reference, and why. They are never exported silently. */
+  skipped: { fileName: string; reason: 'manual' | 'modified' | 'provider' | 'not-found' }[];
+  /** Unchanged, helper-tracked config/ files (outbox.list/read), paths relative to the game folder. */
+  configs?: { path: string; data: Uint8Array }[];
+}
+
 export interface RecoveryStatus {
   instanceId: string;
   pending: boolean;
@@ -462,10 +507,46 @@ export type BackendErrorCode =
   /** An interrupted change must be recovered in the Launcher before this instance is used. */
   | 'recovery-required'
   /** The Manager's native helper is not installed, failed to start, or is incompatible. */
-  | 'helper-unavailable';
+  | 'helper-unavailable'
+  /** Unsupported or unsafe archive (ZIP64, encryption, traversal...): the helper's INVALID_ARCHIVE. */
+  | 'invalid-archive'
+  /** A file must be downloaded manually or its host is not allowed (PROVIDER_RESTRICTED / PROVIDER_UNAVAILABLE). */
+  | 'provider-restricted'
+  /** DEPENDENCY_CONFLICT: `conflicts` carries the structured review data when the helper provides it. */
+  | 'dependency-conflict';
+
+/** What loader metadata inside the verified JARs says about a provider dependency claim. */
+export interface DependencyEvidence {
+  result: 'satisfied' | 'violated' | 'not_declared' | 'unknown';
+  modId: string | null;
+  declaredRange: string | null;
+  mandatory: boolean | null;
+  selectedModVersion: string | null;
+}
+/** One dependency problem found while preparing a plan, with everything a person needs to decide. */
+export interface DependencyConflict {
+  kind: 'version_pin' | 'missing_dependency' | 'incompatible' | 'loader_bridge';
+  provider: ProviderId;
+  projectId: string;
+  /** Friendly project name (never only the raw provider ID when the helper knows the title). */
+  title: string;
+  selected: { versionId: string; versionNumber: string; fileName: string } | null;
+  requests: {
+    provider: ProviderId; projectId: string; title: string; versionId: string; versionNumber: string; fileName: string;
+    requestedVersionId: string | null; requestedVersionNumber: string | null; evidence: DependencyEvidence;
+  }[];
+  candidates: { versionId: string; versionNumber: string }[];
+  /** Choices the helper accepts for this conflict; empty when it cannot be resolved by review. */
+  resolutions: ('use_version' | 'proceed_without')[];
+  message: string;
+}
+/** A reviewed decision: keep/choose `versionId` of the dependency, or `null` to proceed without it. */
+export interface DependencyResolution { provider: ProviderId; projectId: string; versionId: string | null }
 
 export class BackendError extends Error {
-  constructor(readonly code: BackendErrorCode, message: string, readonly detail?: string) {
+  constructor(readonly code: BackendErrorCode, message: string, readonly detail?: string,
+    /** Structured dependency conflicts (code `dependency-conflict`, manager.v0.2.1 helpers). */
+    readonly conflicts?: DependencyConflict[], readonly conflictsTruncated = false) {
     super(message);
     this.name = 'BackendError';
   }

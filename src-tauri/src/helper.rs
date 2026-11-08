@@ -5,7 +5,7 @@
 //! never kills it: not on window close, pipe loss or a timeout, so accepted work always finishes
 //! or is recovered by the helper itself on its next start.
 //!
-//! Contract: Awake Launcher docs/modpack-manager/core-protocol.md 2.0 and handoff.md at 299c140bd / 68c55f2c7. The helper is
+//! Contract: Awake Launcher docs/modpack-manager/core-protocol.md 2.0 (+ manager.v0.2.1) and handoff.md at b06c9a804 / 75b362c69. The helper is
 //! started with `--profile <private absolute directory>`, publishes
 //! `<profile>\integration\core-v2\endpoint.json` and serves `\\.\pipe\awake-core-v2-<session UUID>`.
 
@@ -24,6 +24,54 @@ pub const HELPER_EXE: &str = "awake-core-host.exe";
 const STUB_MARKER: &str = "STUB";
 const START_GRACE: Duration = Duration::from_secs(20);
 const LOG_MAX: u64 = 1 << 20;
+/// The pinned package's SHA256SUMS, embedded at build time (build.rs). Empty in stub/dev builds.
+const PACKAGE_SUMS: &str = include_str!(concat!(env!("OUT_DIR"), "/helper-sums.txt"));
+/// Files next to the helper that are not part of its package manifest.
+const PACKAGE_EXTRA: [&str; 2] = ["SHA256SUMS", "HELPER-SOURCE.txt"];
+
+/// Every file in the helper folder must be listed in `sums` with the same SHA-256, and nothing
+/// else may be there (a planted DLL would be loaded by the helper). Empty `sums`: nothing to check.
+pub fn verify_package(dir: &Path, sums: &str) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    if sums.trim().is_empty() {
+        return Ok(());
+    }
+    let mut listed = std::collections::BTreeMap::new();
+    for line in sums.lines().map(|l| l.trim_end_matches('\r')).filter(|l| !l.is_empty()) {
+        let (hash, path) = line.split_once("  ").ok_or("The embedded helper manifest is malformed.")?;
+        listed.insert(path.to_string(), hash.to_ascii_lowercase());
+    }
+    let mut present = Vec::new();
+    fn walk(base: &Path, d: &Path, out: &mut Vec<String>) -> std::io::Result<()> {
+        for e in fs::read_dir(d)? {
+            let e = e?;
+            let t = e.file_type()?;
+            if t.is_symlink() {
+                return Err(std::io::Error::other(format!("link {}", e.path().display())));
+            }
+            if t.is_dir() {
+                walk(base, &e.path(), out)?;
+            } else {
+                out.push(e.path().strip_prefix(base).unwrap_or(&e.path()).to_string_lossy().replace('\\', "/"));
+            }
+        }
+        Ok(())
+    }
+    walk(dir, dir, &mut present).map_err(|e| format!("Cannot read the helper folder: {e}"))?;
+    let damaged = |what: String| Err(format!("The Manager helper files are damaged or were replaced ({what}). Reinstall Awake Modpack Manager."));
+    for rel in present.iter().filter(|p| !PACKAGE_EXTRA.contains(&p.as_str())) {
+        let Some(want) = listed.get(rel) else { return damaged(format!("unexpected file {rel}")) };
+        let bytes = fs::read(dir.join(rel)).map_err(|e| format!("Cannot read {rel}: {e}"))?;
+        let got: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        if &got != want {
+            return damaged(format!("{rel} changed"));
+        }
+    }
+    if let Some(missing) = listed.keys().find(|p| !present.contains(p)) {
+        return damaged(format!("{missing} is missing"));
+    }
+    Ok(())
+}
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -136,6 +184,12 @@ fn open_log(data_root: &Path) -> Option<fs::File> {
     fs::OpenOptions::new().create(true).append(true).open(path).ok()
 }
 
+fn configure_curseforge(command: &mut std::process::Command, authorized: Option<&str>, api_key: Option<&str>) {
+    if let (Some("1"), Some(key)) = (authorized, api_key.filter(|key| !key.trim().is_empty())) {
+        command.env("AWAKE_CORE_CURSEFORGE_AUTHORIZED", "1").env("AWAKE_CORE_CURSEFORGE_API_KEY", key);
+    }
+}
+
 #[cfg(windows)]
 fn spawn(exe: &Path, data_root: &Path) -> std::io::Result<u32> {
     use std::os::windows::process::CommandExt;
@@ -146,6 +200,7 @@ fn spawn(exe: &Path, data_root: &Path) -> std::io::Result<u32> {
         let log = open_log(data_root);
         let mut cmd = Command::new(exe);
         cmd.arg("--profile").arg(data_root).current_dir(exe.parent().unwrap_or(data_root)).creation_flags(flags).stdin(Stdio::null()).stdout(Stdio::null());
+        configure_curseforge(&mut cmd, option_env!("AWAKE_CORE_CURSEFORGE_AUTHORIZED"), option_env!("AWAKE_CORE_CURSEFORGE_API_KEY"));
         match log {
             Some(f) => cmd.stderr(f),
             None => cmd.stderr(Stdio::null()),
@@ -201,6 +256,10 @@ pub fn ensure(resource_dir: &Path, data_root: &Path, spawned: &Spawned) -> Helpe
             return status("failed", None, stub, Some(format!("The Manager helper exited during startup. Details: {}", log_path(data_root).display())));
         }
     }
+    // Only the pinned, complete package may start (the running one was checked when it started).
+    if let Err(e) = verify_package(exe.parent().unwrap_or(resource_dir), PACKAGE_SUMS) {
+        return status("failed", None, stub, Some(e));
+    }
     match spawn(&exe, data_root) {
         Ok(pid) => {
             *last = Some((pid, Instant::now()));
@@ -239,6 +298,21 @@ pub fn helper_open(app: tauri::AppHandle, state: tauri::State<'_, pipe::Connecti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn curseforge_release_configuration_requires_authorization_and_a_key() {
+        use std::process::Command;
+        for (authorized,key) in [(None,None),(Some("0"),Some("fixture-api-key")),(Some("1"),None),(Some("1"),Some(" "))] {
+            let mut command=Command::new("helper.exe");
+            configure_curseforge(&mut command,authorized,key);
+            assert_eq!(command.get_envs().count(),0);
+        }
+        let mut command=Command::new("helper.exe");
+        configure_curseforge(&mut command,Some("1"),Some("fixture-api-key"));
+        let env: std::collections::BTreeMap<_,_>=command.get_envs().map(|(k,v)|(k.to_string_lossy().into_owned(),v.unwrap().to_string_lossy().into_owned())).collect();
+        assert_eq!(env.get("AWAKE_CORE_CURSEFORGE_AUTHORIZED").map(String::as_str),Some("1"));
+        assert_eq!(env.get("AWAKE_CORE_CURSEFORGE_API_KEY").map(String::as_str),Some("fixture-api-key"));
+    }
 
     fn temp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("awake-mm-helper-{name}-{}", std::process::id()));
@@ -321,6 +395,28 @@ mod tests {
         assert!(same_file(&pipe::process_image(pid).unwrap(), &exe), "image is the bundled helper");
         assert!(pipe::connect(name, pid + 1).is_err(), "a wrong advertised PID is refused");
         assert!(log_path(&profile).starts_with(res.join("data")));
+    }
+
+    #[test]
+    fn helper_package_must_match_its_pinned_manifest_exactly() {
+        let dir = temp("pkg");
+        fs::create_dir_all(dir.join("tls")).unwrap();
+        fs::write(dir.join(HELPER_EXE), b"MZ").unwrap();
+        fs::write(dir.join("tls").join("a.dll"), b"tls").unwrap();
+        fs::write(dir.join("HELPER-SOURCE.txt"), b"record").unwrap();
+        let sums = "6cdb5c3a1cc0cfd5ea8ff2d8b9b7a7a8bc9d6f0d6f3c09b0a4c7df8d0c1b8bc8  awake-core-host.exe\r\n";
+        // Real hashes for the two files:
+        use sha2::{Digest, Sha256};
+        let h = |b: &[u8]| Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let good = format!("{}  {HELPER_EXE}\r\n{}  tls/a.dll\r\n", h(b"MZ"), h(b"tls"));
+        assert!(verify_package(&dir, &good).is_ok());
+        assert!(verify_package(&dir, "").is_ok(), "stub/dev builds embed nothing");
+        assert!(verify_package(&dir, sums).unwrap_err().contains("awake-core-host.exe changed"));
+        fs::write(dir.join("version.dll"), b"evil").unwrap();
+        assert!(verify_package(&dir, &good).unwrap_err().contains("unexpected file version.dll"));
+        fs::remove_file(dir.join("version.dll")).unwrap();
+        fs::remove_file(dir.join("tls").join("a.dll")).unwrap();
+        assert!(verify_package(&dir, &good).unwrap_err().contains("tls/a.dll is missing"));
     }
 
     #[test]

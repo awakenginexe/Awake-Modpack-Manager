@@ -18,6 +18,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
   let retry: ReturnType<typeof setTimeout> | undefined;
 
   const all = [parts.helper, parts.launcher];
+  const noHelper = (): Promise<never> => Promise.reject(new BackendError('unsupported', 'Only Manager projects (the Manager helper) support this.'));
   const overall = (): ConnectionState => (all.some((p) => p.handshake && !p.error) ? 'connected' : 'disconnected');
   let signature = '';
   /** Notify only when a side's reachability actually changed, not on every quiet retry. */
@@ -113,9 +114,9 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     packVersions: (prov, id) => current.backend.packVersions(prov, id),
     installPack: async (r) => own(current, await current.backend.installPack(r)),
 
-    async validateDraft(d) {
+    async validateDraft(d, resolutions) {
       const p = byInstance(d.instanceId);
-      const plan = await p.backend.validateDraft(d);
+      const plan = await p.backend.validateDraft(d, resolutions);
       owners.plan.set(plan.planId, p);
       return plan;
     },
@@ -142,6 +143,25 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     projectVersions: (id, prov, pid) => { const b = byInstance(id).backend; return b.projectVersions ? b.projectVersions(id, prov, pid) : Promise.reject(new BackendError('unsupported', 'No version list here.')); },
     runRecovery: async (opId, key) => { const p = byOp(opId); if (!p.backend.runRecovery) throw new BackendError('unsupported', 'Recovery is not available here.'); return own(p, await p.backend.runRecovery(opId, key)); },
     requestLaunch: async (id, key) => own(byInstance(id), await byInstance(id).backend.requestLaunch(id, key)),
+    openInLauncher: async (id) => {
+      const backend = byInstance(id).backend;
+      if (!backend.openInLauncher) throw new BackendError('unsupported', 'This workspace cannot be opened in Launcher.');
+      await backend.openInLauncher(id);
+    },
+
+    // Imports always land in the Manager's own workspaces: they go to the helper, never the Launcher.
+    canImport: () => !!parts.helper.handshake && !!helper.canImport?.(),
+    uploadImport: (f, onProgress, signal) => (helper.uploadImport ? helper.uploadImport(f, onProgress, signal) : noHelper()),
+    inspectImport: (token, format) => (helper.inspectImport ? helper.inspectImport(token, format) : noHelper()),
+    canResolveDependencies: () => !!parts.helper.handshake && !!helper.canResolveDependencies?.(),
+    async prepareImport(id, token, format, includeOptional, resolutions) {
+      if (!helper.prepareImport || byInstance(id) !== parts.helper) return noHelper();
+      const plan = await helper.prepareImport(id, token, format, includeOptional, resolutions);
+      owners.plan.set(plan.planId, parts.helper);
+      return plan;
+    },
+    discardImport: (token) => (helper.discardImport ? helper.discardImport(token) : noHelper()),
+    snapshotWorkspace: (id, onProgress) => { const b = byInstance(id).backend; return b.snapshotWorkspace ? b.snapshotWorkspace(id, onProgress) : noHelper(); },
   };
   return backend;
 }

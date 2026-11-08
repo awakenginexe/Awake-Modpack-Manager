@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { importPack, ImportError } from '../src/domain/packFormats';
-import { analyzeProject, buildExport, newProject, planExport, type ModpackProject } from '../src/domain/project';
+import { analyzeProject, buildExport, newProject, planExport, privateOverrideReason, type ModpackProject } from '../src/domain/project';
 import { bytesSource, crc32, readEntry, readZip, unsafePathReason, writeZip, ZipError } from '../src/domain/zip';
 
 const fixture = (name: string) => bytesSource(new Uint8Array(readFileSync(`tests/fixtures/packs/${name}`)));
@@ -125,5 +125,43 @@ describe('project analysis and export', () => {
     p.mods = [{ key: 'mr:sodium', name: 'Sodium', provider: 'modrinth', projectId: 'sodium', required: true, pinned: false, verified: false, origin: 'planned' }];
     const codes = planExport(p, 'mrpack').blockers.map((b) => b.code).sort();
     expect(codes).toEqual(['no-download', 'no-hashes', 'no-loader-version', 'no-size']);
+  });
+});
+
+describe('export with override files (0.2)', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const project = (): ModpackProject => newProject({
+    name: 'Round trip', minecraftVersion: '1.20.1', loader: { kind: 'forge', version: '47.4.28' },
+    mods: [{ key: 'mr:AANobbMI', name: 'Sodium', provider: 'modrinth', projectId: 'AANobbMI', versionId: 'v1', required: true, pinned: false, verified: true, origin: 'import',
+      file: { path: 'mods/sodium.jar', size: 10, sha1: 'a'.repeat(40), sha512: 'b'.repeat(128), downloads: ['https://cdn.modrinth.com/data/AANobbMI/versions/v1/sodium.jar'] } }],
+  });
+
+  it('never takes private files', () => {
+    for (const p of ['saves/world/level.dat', 'logs/latest.log', 'launcher_accounts.json', 'config/api-token.txt', 'keys/server.pem', '.env', 'usercache.json'])
+      expect(privateOverrideReason(p), p).not.toBeNull();
+    for (const p of ['config/sodium-options.json', 'kubejs/server_scripts/a.js', 'options.txt', 'resourcepacks/x.zip']) expect(privateOverrideReason(p), p).toBeNull();
+  });
+
+  it('writes overrides into an .mrpack that re-imports with the same mods and override paths', async () => {
+    const p = project();
+    const files = [{ root: 'overrides' as const, path: 'config/a.toml', data: enc('a=1') }, { root: 'client-overrides' as const, path: 'options.txt', data: enc('fov:1') }];
+    const bytes = buildExport(p, planExport(p, 'mrpack'), files);
+    const again = await importPack(bytesSource(bytes), 'rt.mrpack');
+    expect(again.project.mods.map((m) => [m.projectId, m.versionId])).toEqual([['AANobbMI', 'v1']]);
+    expect(again.project.overrides.map((o) => o.path).sort()).toEqual(['client-overrides/options.txt', 'overrides/config/a.toml']);
+    expect(again.project.loader).toEqual({ kind: 'forge', version: '47.4.28' });
+  });
+
+  it('merges client overrides over common ones for CurseForge and refuses private files', () => {
+    const p = newProject({ name: 'CF', minecraftVersion: '1.20.1', loader: { kind: 'forge', version: '47.4.28' },
+      mods: [{ key: 'cf:1', name: 'x', provider: 'curseforge', projectId: '1', versionId: '2', required: true, pinned: false, verified: true, origin: 'import' }] });
+    const plan = planExport(p, 'curseforge');
+    const files = [{ root: 'client-overrides' as const, path: 'config/a.toml', data: enc('client') }, { root: 'overrides' as const, path: 'config/a.toml', data: enc('common') }, { root: 'server-overrides' as const, path: 'server.properties', data: enc('x') }];
+    const zip = buildExport(p, plan, files);
+    return readZip(bytesSource(zip)).then(async (entries) => {
+      expect(entries.map((e) => e.path).sort()).toEqual(['manifest.json', 'overrides/config/a.toml']);
+      expect(new TextDecoder().decode(await readEntry(bytesSource(zip), entries.find((e) => e.path === 'overrides/config/a.toml')!))).toBe('client');
+      expect(() => buildExport(p, plan, [{ root: 'overrides', path: 'launcher_accounts.json', data: enc('{}') }])).toThrow(/Refusing/);
+    });
   });
 });

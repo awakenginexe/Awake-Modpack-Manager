@@ -1,7 +1,7 @@
 import type {
-  Accepted, LoaderKind, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
+  Accepted, ImportInspection, LoaderKind, WorkspaceSnapshot, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
-  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery,
+  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution,
 } from './contract';
 import type { LauncherProfile } from './launcher/transport';
 
@@ -26,6 +26,8 @@ export interface ManagerBackend {
   canStartLauncher?(): boolean;
   /** Start the Launcher normally for the selected profile, on an explicit user action only. */
   startLauncher?(): Promise<void>;
+  /** Link and select this workspace in Launcher. Minecraft still starts from Launcher. */
+  openInLauncher?(instanceId: string): Promise<void>;
   /** Prefer this Launcher data profile on the next connect. */
   setPreferredProfile?(dataRoot: string | null): void;
   listInstances(installationId: string): Promise<InstanceSummary[]>;
@@ -44,7 +46,8 @@ export interface ManagerBackend {
   installPack(request: InstallPackRequest): Promise<Accepted>;
 
   /** Resolve a draft against the authoritative baseline. Rejects with `stale-revision` if the base moved. */
-  validateDraft(draft: Draft): Promise<ResolvedPlan>;
+  /** `resolutions` answers dependency conflicts a previous attempt reported (helpers with dependencies.resolutions.v1). */
+  validateDraft(draft: Draft, resolutions?: DependencyResolution[]): Promise<ResolvedPlan>;
   /** Re-resolve right before apply. The returned hash may differ; the UI must then ask again. */
   preparePlan(planId: string): Promise<ResolvedPlan>;
   /** Accepting is not success: follow the operation to a terminal state. */
@@ -67,6 +70,23 @@ export interface ManagerBackend {
   projectVersions?(instanceId: string, provider: ProviderId, projectId: string): Promise<ProjectVersion[]>;
   /** Ask the coordinator to roll back an operation that is waiting for recovery. */
   runRecovery?(operationId: string, idempotencyKey: string): Promise<Accepted>;
+
+  /**
+   * Native modpack import (helper with manager.v0.2, imports.* and inbox.*). Absent or rejecting
+   * with `unsupported` otherwise. The archive travels through bounded upload chunks, never as a path.
+   */
+  canImport?(): boolean;
+  /** Upload and commit an archive; resolves to its transfer token. */
+  uploadImport?(file: Blob, onProgress?: (sent: number, total: number) => void, signal?: AbortSignal): Promise<string>;
+  inspectImport?(token: string, format: ImportInspection['format']): Promise<ImportInspection>;
+  /** Resolve, download and stage the import for a matching workspace; resolves to the full reviewable plan. */
+  prepareImport?(instanceId: string, token: string, format: ImportInspection['format'], includeOptional: boolean, resolutions?: DependencyResolution[]): Promise<ResolvedPlan>;
+  /** True when the helper accepts reviewed dependency resolutions (manager.v0.2.1). */
+  canResolveDependencies?(): boolean;
+  /** Remove the uploaded bytes (idempotent). Workspaces and prepared plans are not touched. */
+  discardImport?(token: string): Promise<void>;
+  /** Provider identity of every verified file in a workspace, for a Manager-built export. */
+  snapshotWorkspace?(instanceId: string, onProgress?: (done: number, total: number) => void): Promise<WorkspaceSnapshot>;
 
   /** Accepting is not "started": follow the operation until the Launcher reports process-started. */
   requestLaunch(instanceId: string, idempotencyKey: string): Promise<Accepted>;

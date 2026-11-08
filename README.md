@@ -4,6 +4,9 @@ A Windows desktop app for building and maintaining Minecraft modpacks. It create
 projects and installs real mods from Modrinth, with every change reviewed before it is applied.
 Awake Launcher is not required.
 
+> **Branch `feat/v0.2.0-native-core`:** v0.2.0 in development (unreleased). See
+> [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md) and [docs/INTEGRATION-020.md](docs/INTEGRATION-020.md).
+
 **Version 0.1.0 · Windows x64 · English, ไทย, 简体中文, 繁體中文 · GPL-3.0-only**
 
 ## Install
@@ -62,9 +65,9 @@ deletes that folder.
 ## How it works
 
 The Manager (Tauri 2, Rust and Vue 3) owns the interface. All file changes are made by the bundled
-**Awake Native Core** helper (`core-host/windows-x64/awake-core-host.exe`, version 0.1.1), a
+**Awake Native Core** helper (`core-host/windows-x64/awake-core-host.exe`, version 0.2.1 on this branch), a
 separate program built from [Awake Launcher](https://github.com/awakenginexe/Awake-Launcher)
-`native-core` at commit `299c140bd91656cf988efc4cff27887b54ae1efc`. The Manager starts it on
+`native-core` at commit `b06c9a804503545207bacfa3bfdf8bfe23604e07` (v0.1.0 shipped 0.1.1 from `299c140bd`). The Manager starts it on
 demand with a private profile, checks it is the bundled executable (pipe server PID, Windows user
 and image path), and talks to it over a local named pipe using the pinned protocol 2.0 schema. The
 helper exits by itself about a minute after it becomes idle; the installer waits for it instead of

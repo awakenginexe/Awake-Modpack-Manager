@@ -190,6 +190,12 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     launcherProfiles: () => profiles,
     // Shown only while waiting; a crashed Launcher can leave a stale descriptor behind, so ignore it.
     canStartLauncher: () => !!profile?.installDir && !!options.transport?.startLauncher,
+    async openInLauncher(workspaceId) {
+      const target = profile?.installDir ? profile : profiles.find((p) => p.installDir && (!preferred || p.dataRoot === preferred));
+      const t = transport();
+      if (!target || !t.startLauncher) throw new BackendError('unsupported', 'Install the compatible Awake Launcher beta and add its installation folder in Settings → Launcher connection. You can also use Link Existing Manager Workspace in Launcher.');
+      try { await t.startLauncher(target.dataRoot, added, workspaceId); } catch (e) { throw toBackendError(e); }
+    },
     async startLauncher() {
       const t = transport();
       if (!profile?.installDir || !t.startLauncher) throw new BackendError('unsupported', 'No Awake Launcher installation is known for this profile. Add the installation folder in Settings.');

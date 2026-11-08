@@ -2,16 +2,22 @@
 import { computed, ref, shallowRef, watch } from 'vue';
 import { CircleAlert, FileArchive, FolderKanban, Info, Lock, LockOpen, PackagePlus, Plus, Search, Trash2, TriangleAlert, Upload, X } from '@lucide/vue';
 import type { LoaderKind } from '../backend/contract';
+import NativeImportDialog from '../components/NativeImportDialog.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
 import VirtualList from '../components/VirtualList.vue';
+import type { ViewId } from '../App.vue';
+import { useSession } from '../state/session';
 import type { ImportPreview } from '../domain/packFormats';
-import { analyzeProject, type ExportBlocker, type IssueCode, type PackFormat, type ProjectMod } from '../domain/project';
+import { analyzeProject, privateOverrideReason, type ExportBlocker, type IssueCode, type OverrideFile, type PackFormat, type ProjectMod } from '../domain/project';
+import { blobSource, readEntry, readZip } from '../domain/zip';
 import { formatDate, formatNumber, t, type MessageKey } from '../i18n';
 import { compactRows } from '../state/prefs';
 import { useProjects } from '../state/projects';
 import { formatBytes, loaderLabel } from '../ui/labels';
 
+const emit = defineEmits<{ navigate: [ViewId] }>();
 const store = useProjects();
+const session = useSession();
 const project = store.selected;
 const error = ref('');
 
@@ -28,6 +34,9 @@ function create() {
 /* ----- import ----- */
 const fileInput = ref<HTMLInputElement | null>(null);
 const preview = shallowRef<ImportPreview | null>(null);
+/** The archive behind the preview, kept only while the preview is open (native import uploads it). */
+const previewFile = shallowRef<File | null>(null);
+const nativeImport = ref(false);
 const importing = ref(false);
 async function onFile(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0];
@@ -35,7 +44,7 @@ async function onFile(e: Event) {
   if (!file) return;
   error.value = '';
   importing.value = true;
-  try { preview.value = await store.preview(file, file.name); } catch (err) { error.value = t('importFailed', { reason: err instanceof Error ? err.message : String(err) }); } finally { importing.value = false; }
+  try { preview.value = await store.preview(file, file.name); previewFile.value = file; } catch (err) { error.value = t('importFailed', { reason: err instanceof Error ? err.message : String(err) }); } finally { importing.value = false; }
 }
 const previewCounts = computed(() => {
   const mods = preview.value?.project.mods ?? [];
@@ -137,12 +146,49 @@ const blockerSummary = computed(() => {
 });
 const savedTo = ref('');
 const saving = ref(false);
+
+/**
+ * Override files (configs, scripts...) are not stored in projects. For an export they are taken
+ * from an archive the user picks (usually the pack the project was imported from); private files
+ * (accounts, credentials, logs, saves) are never taken.
+ */
+const overrideInput = ref<HTMLInputElement | null>(null);
+const exportOverrides = shallowRef<OverrideFile[]>([]);
+const overrideSkipped = ref<{ path: string; reason: string }[]>([]);
+const overrideSource = ref('');
+watch(() => project.value?.id, (id) => {
+  const a = id ? store.attachedOverrides(id) : undefined;
+  exportOverrides.value = a?.files ?? []; overrideSkipped.value = []; overrideSource.value = a?.source ?? '';
+}, { immediate: true });
+async function onOverrideArchive(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  (e.target as HTMLInputElement).value = '';
+  if (!file) return;
+  error.value = '';
+  try {
+    const src = blobSource(file);
+    const files: OverrideFile[] = [];
+    const skipped: { path: string; reason: string }[] = [];
+    for (const entry of await readZip(src)) {
+      const m = /^(overrides|client-overrides|server-overrides)\/(.+)$/.exec(entry.path);
+      if (!m || entry.directory) continue;
+      const reason = privateOverrideReason(m[2]!);
+      if (reason) { skipped.push({ path: m[2]!, reason }); continue; }
+      files.push({ root: m[1] as OverrideFile['root'], path: m[2]!, data: await readEntry(src, entry) });
+    }
+    exportOverrides.value = files;
+    overrideSkipped.value = skipped;
+    overrideSource.value = file.name;
+  } catch (err) {
+    error.value = t('importFailed', { reason: err instanceof Error ? err.message : String(err) });
+  }
+}
 /** Desktop: native Save As, written atomically by the host. Browser: a normal download. */
 async function download() {
   const p = project.value;
   const plan = exportPlan.value;
   if (!p || !plan?.ready) return;
-  const blob = store.exportArchive(p, plan.format, new Set(plan.excluded));
+  const blob = store.exportArchive(p, plan.format, new Set(plan.excluded), exportOverrides.value);
   const name = `${p.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}-${p.version}.${plan.format === 'mrpack' ? 'mrpack' : 'zip'}`;
   if ('__TAURI_INTERNALS__' in window) {
     saving.value = true;
@@ -329,11 +375,20 @@ function removeProject() {
           </div>
           <footer>
             <button class="btn" type="button" @click="preview = null">{{ t('cancel') }}</button>
-            <button class="btn btn-primary" type="button" @click="adopt">{{ t('importSave') }}</button>
+            <button class="btn" type="button" @click="adopt">{{ t('importSave') }}</button>
+            <button
+              class="btn btn-primary" type="button" :disabled="!session.can('packs.import') || !previewFile"
+              :title="session.can('packs.import') ? t('importNativeHint') : t('importNativeUnavailable')" @click="nativeImport = true"
+            >{{ t('importNative') }}</button>
           </footer>
         </div>
       </div>
     </Transition>
+
+    <NativeImportDialog
+      v-if="nativeImport && preview && previewFile" :file="previewFile" :preview="preview"
+      @close="nativeImport = false" @review="nativeImport = false; preview = null; previewFile = null; emit('navigate', 'review')"
+    />
 
     <!-- Plan a mod -->
     <Transition name="modal">
@@ -386,7 +441,17 @@ function removeProject() {
               <div><strong>{{ t('projExportBlocked') }}</strong><ul class="warn-list"><li v-for="[code, n] in blockerSummary" :key="code">{{ t(blockerKey[code]) }}<template v-if="n > 1"> ({{ formatNumber(n) }})</template></li></ul></div>
             </div>
             <p v-else class="notice small"><Info :size="18" />{{ t('projExportReady') }}</p>
-            <p v-if="exportPlan.overridesOmitted" class="notice warn small"><TriangleAlert :size="18" />{{ t('projOverridesOmitted', { count: formatNumber(exportPlan.overridesOmitted) }) }}</p>
+            <p v-if="exportPlan.overridesOmitted && !exportOverrides.length" class="notice warn small"><TriangleAlert :size="18" />{{ t('projOverridesOmitted', { count: formatNumber(exportPlan.overridesOmitted) }) }}</p>
+            <div class="notice small">
+              <Info :size="18" />
+              <div class="grow">
+                <p v-if="exportOverrides.length">{{ t('projOverridesIncluded', { count: formatNumber(exportOverrides.length), file: overrideSource }) }}</p>
+                <p v-else>{{ t('projOverridesNone') }}</p>
+                <p v-if="overrideSkipped.length" class="muted">{{ t('projOverridesPrivate', { count: overrideSkipped.length }) }} <code v-for="s in overrideSkipped.slice(0, 5)" :key="s.path">{{ s.path }} </code></p>
+                <input ref="overrideInput" type="file" accept=".mrpack,.zip" class="sr-only" @change="onOverrideArchive" />
+                <button class="btn btn-small" type="button" @click="overrideInput?.click()"><FileArchive :size="14" />{{ t('projOverridesPick') }}</button>
+              </div>
+            </div>
           </div>
           <footer>
             <button class="btn" type="button" @click="showExport = false">{{ t('cancel') }}</button>
