@@ -3,8 +3,8 @@ import { createHelperClient } from '../../src/backend/helper/HelperClient';
 import { nodeHelperTransport } from './nodeTransport';
 
 /**
- * The real pinned helper against the real CurseForge API, with the key from GitHub Actions
- * (.github/workflows/manager-checks.yml). Skipped everywhere else.
+ * The real pinned helper against the real CurseForge API, on a non-administrator Windows account:
+ * set AWAKE_CORE_CURSEFORGE_AUTHORIZED=1, the API key, AWAKE_CF_LIVE_HELPER and AWAKE_CF_LIVE_PROFILE.
  */
 const exe = process.env.AWAKE_CF_LIVE_HELPER, profile = process.env.AWAKE_CF_LIVE_PROFILE;
 describe.skipIf(!exe || !profile || process.env.AWAKE_CORE_CURSEFORGE_AUTHORIZED !== '1')('CurseForge through the pinned helper', () => {

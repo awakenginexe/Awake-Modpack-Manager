@@ -1132,6 +1132,11 @@ mod tests {
         assert!(packs.hits.iter().filter(|h| h.icon_url.is_some()).count() >= 5, "modpack logos");
         let versions = curseforge_versions(&packs.hits[0].pack_id).expect("versions");
         assert!(!versions.is_empty() && !versions[0].minecraft_version.is_empty());
+        // The same mod search Native Core sends: popular first, with logos on the media host.
+        let mods = cf_get("/mods/search?gameId=432&classId=6&searchFilter=Create&gameVersion=1.20.1&modLoaderType=1&sortField=2&sortOrder=desc&index=0&pageSize=20").expect("mod search");
+        let rows = mods["data"].as_array().expect("rows");
+        assert!(rows.iter().take(5).any(|m| s(m, "name").starts_with("Create")), "popular-first order");
+        assert!(rows.iter().filter(|m| m["logo"]["thumbnailUrl"].as_str().is_some_and(|u| u.starts_with("https://media.forgecdn.net/"))).count() > rows.len() / 2, "logo host");
         let meta = parse_curseforge_projects(&cf_post("/mods", &json!({"modIds": [238222], "filterPcOnly": false})).expect("batch"));
         assert!(meta[0].icon_url.as_deref().is_some_and(|u| u.starts_with("https://media.forgecdn.net/")), "project logo");
     }
