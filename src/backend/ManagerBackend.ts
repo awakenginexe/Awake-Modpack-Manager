@@ -26,6 +26,8 @@ export interface ManagerBackend {
   canStartLauncher?(): boolean;
   /** Start the Launcher normally for the selected profile, on an explicit user action only. */
   startLauncher?(): Promise<void>;
+  /** Link and select this workspace in Launcher. Minecraft still starts from Launcher. */
+  openInLauncher?(instanceId: string): Promise<void>;
   /** Prefer this Launcher data profile on the next connect. */
   setPreferredProfile?(dataRoot: string | null): void;
   listInstances(installationId: string): Promise<InstanceSummary[]>;

@@ -25,16 +25,15 @@ function pickBackend(): ManagerBackend {
   const demo = flags !== null || dataSource.value === 'demo' || (dataSource.value === 'auto' && !isDesktopHost());
   if (!demo) {
     const transport = isDesktopHost() ? createHostTransport() : null;
+    const launcher = createLauncherClient({
+      transport, clientVersion: pkg.version, addedFolders: addedFolders.value,
+      preferredProfile: preferredProfile.value, heartbeatMs: 20_000,
+    });
     return createCompositeBackend(
       // Startup recovery can take a while; the host never kills a slow helper, it only waits.
-      createHelperClient({ transport, clientVersion: pkg.version, heartbeatMs: 10_000, startTimeoutMs: 60_000 }),
-      createLauncherClient({
-        transport,
-        clientVersion: pkg.version,
-        addedFolders: addedFolders.value,
-        preferredProfile: preferredProfile.value,
-        heartbeatMs: 20_000,
-      }),
+      createHelperClient({ transport, clientVersion: pkg.version, heartbeatMs: 10_000, startTimeoutMs: 60_000,
+        openInLauncher: (workspaceId) => launcher.openInLauncher!(workspaceId) }),
+      launcher,
     );
   }
   const set = new Set((flags ?? '').split(','));

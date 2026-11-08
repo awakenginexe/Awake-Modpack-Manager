@@ -85,6 +85,13 @@ async function launch(inst: InstanceSummary) {
   }
 }
 
+async function openInLauncher(inst: InstanceSummary) {
+  try {
+    await session.backend.openInLauncher!(inst.id);
+    notice.value = t('workspaceOpened');
+  } catch (e) { notice.value = asError(e).message; }
+}
+
 async function create() {
   if (!form.value.name.trim()) return;
   creating.value = true;
@@ -209,6 +216,12 @@ async function create() {
             {{ inst.id === state.instanceId ? t('managing') : t('manage') }}<ArrowRight :size="16" />
           </button>
           <button
+            v-if="helper"
+            class="btn" type="button" :disabled="!inst.manageable"
+            @click="openInLauncher(inst)"
+          ><Play :size="16" />{{ t('openInLauncher') }}</button>
+          <button
+            v-else
             class="btn"
             type="button"
             :disabled="!session.can('launch.request')"

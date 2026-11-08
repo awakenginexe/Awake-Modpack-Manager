@@ -23,6 +23,7 @@ const LOADER_CAPABILITY: Record<CoreLoaderId, keyof CoreCapabilities | null> = {
 const CHUNK = 262_144;
 
 export interface HelperClientOptions {
+  openInLauncher?: (workspaceId: string) => Promise<void>;
   transport: PipeTransport | null;
   clientVersion: string;
   requestTimeoutMs?: number;
@@ -190,7 +191,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     const id = key(w.physicalId);
     workspaces.set(id, w);
     return {
-      id, name: w.name, minecraftVersion: w.minecraftVersion,
+        id, name: w.name, minecraftVersion: w.minecraftVersion,
+        path: status?.dataRoot ? `${status.dataRoot.replace(/\\/g, '/')}/workspaces/${w.workspaceId}` : undefined,
       loader: { kind: w.loader.id, version: w.loader.version || undefined },
       status: w.recoveryRequired ? 'broken' : 'ready',
       manageable: !w.recoveryRequired, blockedReason: w.recoveryRequired ? 'recovery' : undefined,
@@ -457,6 +459,11 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
 
   return {
     kind: 'helper',
+    async openInLauncher(instanceId) {
+      const workspace = workspaceOf(instanceId);
+      if (!options.openInLauncher) throw new BackendError('unsupported', 'Install the compatible Awake Launcher beta, then link this workspace in Launcher.');
+      await options.openInLauncher(workspace.workspaceId);
+    },
 
     async connect(): Promise<Handshake> {
       setState('connecting');

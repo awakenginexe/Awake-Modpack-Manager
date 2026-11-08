@@ -215,12 +215,38 @@ pub fn launcher_executable(profiles: &[Profile], data_root: &str) -> Result<Path
 /// Start the Launcher normally (its window may appear) for a discovered installation. Only on an
 /// explicit user action; there is no supported background start (protocol.md, Ownership).
 #[tauri::command]
-pub fn start_launcher(data_root: String, added: Vec<String>) -> Result<(), String> {
+pub fn start_launcher(data_root: String, added: Vec<String>, workspace_id: Option<String>) -> Result<(), String> {
     let profiles = discover(&added);
     let exe = launcher_executable(&profiles, &data_root)?;
     let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
-    // No arguments: this installation resolves to `data_root` by itself, as discovery checked.
-    std::process::Command::new(&exe).current_dir(dir).spawn().map(drop).map_err(|e| format!("Could not start Awake Launcher: {e}"))
+    let mut command = std::process::Command::new(&exe);
+    command.current_dir(dir);
+    if let Some(id) = workspace_id {
+        let path = workspace_path(&crate::helper::manager_data_dir()?, &id)?;
+        let mut probe = std::process::Command::new(&exe);
+        probe.arg("--help");
+        #[cfg(windows)] {
+            use std::os::windows::process::CommandExt;
+            probe.creation_flags(0x08000000);
+        }
+        let help = probe.output().map_err(|e| format!("Could not check Awake Launcher: {e}"))?;
+        if !help.status.success() || !String::from_utf8_lossy(&help.stdout).contains("--link-manager-workspace") {
+            return Err("This Awake Launcher version cannot open Manager workspaces. Install the compatible Launcher beta (3.1.0-beta.1 or newer). Your workspace was not copied or changed.".into());
+        }
+        command.arg("--link-manager-workspace").arg(path);
+    }
+    command.spawn().map(drop).map_err(|e| format!("Could not start Awake Launcher: {e}"))
+}
+
+fn workspace_path(data: &Path, id: &str) -> Result<PathBuf, String> {
+    if id.len() != 36 || !id.bytes().enumerate().all(|(i, b)| {
+        if [8, 13, 18, 23].contains(&i) { b == b'-' } else { b.is_ascii_hexdigit() && !b.is_ascii_uppercase() }
+    }) || id == "00000000-0000-0000-0000-000000000000" {
+        return Err("Refresh the Manager library and choose an existing workspace.".into());
+    }
+    let path = data.join("core").join("workspaces").join(id);
+    if !path.is_dir() { return Err("The Manager workspace folder is missing. Refresh the library.".into()); }
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -232,6 +258,20 @@ mod tests {
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         p
+    }
+
+    #[test]
+    fn workspace_links_accept_only_existing_registration_ids() {
+        let data = temp("workspace-link");
+        let id = "10000000-0000-4000-8000-000000000001";
+        assert!(workspace_path(&data, id).is_err());
+        let root = data.join("core/workspaces").join(id);
+        fs::create_dir_all(&root).unwrap();
+        assert_eq!(workspace_path(&data, id).unwrap(), root);
+        for invalid in ["../real-instance", "C:\\Minecraft", "00000000-0000-0000-0000-000000000000", "10000000-0000-4000-8000-00000000000Z"] {
+            assert!(workspace_path(&data, invalid).is_err());
+        }
+        fs::remove_dir_all(data).unwrap();
     }
 
     #[test]

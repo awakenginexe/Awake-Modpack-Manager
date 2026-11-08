@@ -117,3 +117,13 @@ The list below describes the pre-final helper. Current open blockers and test li
 6. **`plans.get` files have no kind.** The client classifies overrides vs bookkeeping
    (`.awake-integration/`, `.index/`, `instance.cfg`, `mmc-pack.json`) by path; an additive `kind`
    would avoid guessing.
+
+## Shared-workspace beta
+
+Manager **0.2.0-beta.1** pairs with Launcher **3.1.0-beta.1** and the existing pinned Native Core **0.2.1**. A Manager library card's **Open in Awake Launcher** action links/selects its original workspace. It does not export, import, copy, or start Minecraft. Finish Manager changes, then choose an account and press Play in Launcher. Close the game before changing mods.
+
+If no compatible Launcher installation is found, add its installation folder under Settings → Launcher connection, or use **Link Existing Manager Workspace** in Launcher with the path shown on the Manager card. The host checks the installed executable's supported command-line option before sending a link request. Launcher 3.0.0 lacks it. Both apps must use the same Windows account and a fixed local disk. The current beta does not move workspaces.
+
+Launcher stores its preferences separately and uses the original `.minecraft` directory. Existing Native Core locks block concurrent operations and game-time mod writes; unknown/recovery states remain blocked. Detailed behavior: [Launcher shared-workspace guide](https://github.com/awakenginexe/Awake-Launcher/blob/feat/native-core-manager-020/docs/modpack-manager/shared-workspaces.md).
+
+Prior real-pack defects remain out of scope: export omitted Frights and Foliage; inventory took about seven minutes; preparation took 11–13 minutes; a normal inventory request returned BUSY after 30.24 seconds; BetterEnd prevented full original-pack acceptance. Preserve existing private diagnostic evidence; do not bundle it in beta artifacts.

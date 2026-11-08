@@ -143,6 +143,11 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     projectVersions: (id, prov, pid) => { const b = byInstance(id).backend; return b.projectVersions ? b.projectVersions(id, prov, pid) : Promise.reject(new BackendError('unsupported', 'No version list here.')); },
     runRecovery: async (opId, key) => { const p = byOp(opId); if (!p.backend.runRecovery) throw new BackendError('unsupported', 'Recovery is not available here.'); return own(p, await p.backend.runRecovery(opId, key)); },
     requestLaunch: async (id, key) => own(byInstance(id), await byInstance(id).backend.requestLaunch(id, key)),
+    openInLauncher: async (id) => {
+      const backend = byInstance(id).backend;
+      if (!backend.openInLauncher) throw new BackendError('unsupported', 'This workspace cannot be opened in Launcher.');
+      await backend.openInLauncher(id);
+    },
 
     // Imports always land in the Manager's own workspaces: they go to the helper, never the Launcher.
     canImport: () => !!parts.helper.handshake && !!helper.canImport?.(),
