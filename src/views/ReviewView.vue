@@ -85,7 +85,7 @@ function reasonText(i: PlanItem) {
     <header class="view-header">
       <div>
         <h1>{{ t('reviewTitle') }}</h1>
-        <p>{{ session.source.value === 'helper' ? t('reviewSubtitleHelper') : t('reviewSubtitle') }}</p>
+        <p>{{ session.instanceSource.value === 'helper' ? t('reviewSubtitleHelper') : t('reviewSubtitle') }}</p>
       </div>
       <div v-if="changes.length" class="toolbar">
         <template v-if="confirmDiscard">

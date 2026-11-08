@@ -335,7 +335,7 @@ fn atl_search(cache: &CatalogCache, text: &str, offset: u32, limit: u32) -> Host
             name: s(p, "name").into(),
             author: String::new(),
             summary: s(p, "description").into(),
-            icon_url: Some(format!("{ATL_CDN}images/{}.png", s(p, "safeName").to_lowercase())),
+            icon_url: Some(format!("{ATL_CDN}launcher/images/{}.png", s(p, "safeName").to_lowercase())),
             downloads: None,
             minecraft_version: p["versions"][0]["minecraft"].as_str().map(Into::into),
             loader: None,

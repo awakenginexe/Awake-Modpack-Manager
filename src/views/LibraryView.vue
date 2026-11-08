@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
-import { ArrowRight, ArrowUpCircle, Boxes, CircleAlert, Copy, Ellipsis, Loader, Pencil, RefreshCw, Trash2, TriangleAlert, Download, FolderOpen, Gamepad2, Info, Layers, Play, Plus, Search, X } from '@lucide/vue';
+import { ArrowRight, ArrowUpCircle, Boxes, CircleAlert, Copy, Ellipsis, Loader, Pencil, RefreshCw, Trash2, TriangleAlert, Download, FolderOpen, Gamepad2, Info, Layers, Lock, Play, Plus, Search, X } from '@lucide/vue';
 import type { InstanceSummary, LoaderKind, PackVersion, VersionCatalog } from '../backend/contract';
 import { confirmDialog, copyText, openMenu, promptDialog, separator, toast, type MenuItem } from '../ui/desktop';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
 import { formatNumber, t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
+import { confirmShare } from '../ui/shareInstance';
 import { blockedText, connectErrorHint, connectErrorTitle, loaderLabel } from '../ui/labels';
 import { preferredProfile } from '../state/prefs';
 
@@ -138,6 +139,20 @@ async function rename(inst: InstanceSummary) {
   if (!name || name === inst.name) return;
   try { await session.renameInstance(inst.id, name); toast(t('renamedProject', { name }), 'ok'); } catch (e) { toast(asError(e).message, 'error'); }
 }
+const sharing = ref<string | null>(null);
+async function shareInstance(inst: InstanceSummary) {
+  if (!await confirmShare(inst.name)) return;
+  sharing.value = inst.id;
+  try { await session.shareInstance(inst.id); toast(t('shareDone', { name: inst.name }), 'ok'); emit('manage'); }
+  catch (e) { toast(asError(e).message, 'error'); } finally { sharing.value = null; }
+}
+async function stopSharing(inst: InstanceSummary) {
+  const ok = await confirmDialog({ title: t('shareStopTitle', { name: inst.name }), body: t('shareStopBody'), confirm: t('shareStopConfirm'), cancel: t('cancel') });
+  if (!ok) return;
+  sharing.value = inst.id;
+  try { await session.stopSharingInstance(inst.id); toast(t('shareStopped', { name: inst.name }), 'ok'); }
+  catch (e) { toast(asError(e).message, 'error'); } finally { sharing.value = null; }
+}
 function instanceMenu(inst: InstanceSummary): MenuItem[] {
   const update = packUpdates.value[inst.id];
   const canDelete = owned(inst);
@@ -145,6 +160,8 @@ function instanceMenu(inst: InstanceSummary): MenuItem[] {
     { label: t('manage'), icon: ArrowRight, disabled: !inst.manageable, action: () => manage(inst) },
     helper.value ? { label: t('openInLauncher'), icon: Play, disabled: !inst.manageable, action: () => openInLauncher(inst) } : { label: t('play'), icon: Play, disabled: !session.can('launch.request'), action: () => launch(inst) },
     ...(update ? [{ label: t('packUpdateTo', { version: update.name }), icon: ArrowUpCircle, action: () => updatePack(inst, update) }] : []),
+    ...(inst.shared ? [{ label: t('shareStopAction'), icon: Lock, disabled: sharing.value === inst.id, action: () => stopSharing(inst) }]
+      : !helper.value && session.canShare.value ? [{ label: t('shareAction'), icon: Pencil, disabled: !inst.manageable || sharing.value === inst.id, action: () => shareInstance(inst) }] : []),
     separator,
     { label: t('openFolder'), icon: FolderOpen, disabled: !helper.value, action: () => session.backend.openFolder?.(inst.id) },
     ...(inst.path ? [{ label: t('copyPath'), icon: Copy, action: () => copyText(inst.path!) }] : []),
@@ -293,6 +310,7 @@ async function create() {
             <h2 :title="inst.name">{{ inst.name }}</h2>
             <span class="badges">
               <span class="badge" :class="statusTone[inst.status]"><span class="dot"></span>{{ t(statusKey[inst.status]) }}</span>
+              <span v-if="inst.shared" class="badge info" :title="t('shareBadgeHint')"><Pencil :size="12" />{{ t('shareBadge') }}</span>
               <span v-if="inst.launcher?.identityStatus === 'conflict'" class="badge warn" :title="t('blockedConflict')"><TriangleAlert :size="12" />{{ t('identityConflict') }}</span>
             </span>
           </div>

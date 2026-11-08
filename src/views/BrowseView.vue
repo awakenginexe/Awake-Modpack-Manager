@@ -18,7 +18,7 @@ import type { ViewId } from '../App.vue';
 const emit = defineEmits<{ navigate: [ViewId] }>();
 const session = useSession();
 const inst = computed(() => session.instance.value!);
-const providers = computed(() => session.state.handshake?.providers ?? []);
+const providers = computed(() => session.instanceHandshake.value?.providers ?? []);
 
 const text = ref('');
 const provider = ref<ProviderId>(providers.value.find((p) => p.available)?.id ?? 'modrinth');
@@ -43,7 +43,7 @@ async function search(append = false) {
   error.value = '';
   try {
     const page = await session.backend.search({
-      text: text.value, provider: provider.value, minecraftVersion: inst.value.minecraftVersion ?? '', loader: inst.value.loader?.kind ?? 'vanilla',
+      instanceId: inst.value.id, text: text.value, provider: provider.value, minecraftVersion: inst.value.minecraftVersion ?? '', loader: inst.value.loader?.kind ?? 'vanilla',
       releaseTypes: releaseTypes.value, compatibleOnly: compatibleOnly.value, offset: append ? hits.value.length : 0, limit: PAGE,
     });
     if (id !== requestId) return; // a newer query superseded this one
@@ -122,7 +122,7 @@ function addToDraft(list: SearchHit[]) {
   picked.value = new Map();
 }
 /** Exact version choice, where the side serving this instance can list versions. */
-const canChoose = computed(() => !!session.backend.projectVersions && session.source.value === 'helper');
+const canChoose = computed(() => !!session.backend.projectVersions && session.instanceSource.value === 'helper');
 const choosing = ref<SearchHit | null>(null);
 function addVersion(hit: SearchHit, v: ProjectVersion) {
   const d = session.draft.value;

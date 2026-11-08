@@ -16,13 +16,23 @@ import { depState, emptyFilter, filterMods, hasUpdate, sortMods, type SortKey, t
 import { emptySelection, selectAll, selectRange, toggle } from '../domain/selection';
 import { formatDate, formatNumber, t, type MessageKey } from '../i18n';
 import { compactRows } from '../state/prefs';
-import { useSession } from '../state/session';
+import { asError, useSession } from '../state/session';
+import { confirmShare } from '../ui/shareInstance';
 import { formatBytes } from '../ui/labels';
 import type { ViewId } from '../App.vue';
 
 const emit = defineEmits<{ navigate: [ViewId] }>();
 const session = useSession();
 const { state, inventory, selection, pinned } = session;
+
+const sharing = ref(false);
+async function turnOnEditing() {
+  const inst = session.instance.value;
+  if (!inst) return;
+  sharing.value = true;
+  try { if (await confirmShare(inst.name)) { await session.shareInstance(inst.id); toast(t('shareDone', { name: inst.name }), 'ok'); } }
+  catch (e) { toast(asError(e).message, 'error'); } finally { sharing.value = false; }
+}
 
 const filter = ref(emptyFilter());
 const sortKey = ref<SortKey>('name');
@@ -132,7 +142,7 @@ function updateAll() {
 }
 
 /** Pick an exact version (where the serving side can list them). Choosing one pins it. */
-const canChoose = computed(() => !!session.backend.projectVersions && session.source.value === 'helper' && session.can('plan.validate'));
+const canChoose = computed(() => !!session.backend.projectVersions && session.instanceSource.value === 'helper' && session.can('plan.validate'));
 const choosingFor = ref<InstalledMod | null>(null);
 function chooseVersion(m: InstalledMod, v: ProjectVersion) {
   draftWith([{ kind: 'update', modKey: m.key, targetVersionId: v.id }]);
@@ -195,13 +205,14 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
       </div>
     </header>
 
-    <div v-if="session.source.value === 'launcher' && snapshot" class="notice warn" role="status">
+    <div v-if="session.instanceSource.value === 'launcher' && snapshot" class="notice warn" role="status">
       <History :size="18" /><span class="grow">{{ t('snapshotNotice', { time: formatDate(new Date(state.inventoryObservedAt!).toISOString()) }) }}</span>
     </div>
-    <div v-else-if="session.source.value === 'launcher' && !session.can('plan.apply')" class="notice" role="note">
-      <Lock :size="18" /><span class="grow">{{ t('readOnlyNotice') }}</span>
+    <div v-else-if="session.instanceSource.value === 'launcher' && !session.can('plan.apply')" class="notice" role="note">
+      <Lock :size="18" /><span class="grow">{{ session.canShare.value ? t('shareNotice') : t('readOnlyNotice') }}</span>
+      <button v-if="session.canShare.value && session.instance.value" class="btn btn-small" type="button" :disabled="sharing" @click="turnOnEditing">{{ t('shareAction') }}</button>
     </div>
-    <div v-else-if="session.source.value === 'helper' && !session.can('plan.apply')" class="notice" role="note">
+    <div v-else-if="session.instanceSource.value === 'helper' && !session.can('plan.apply')" class="notice" role="note">
       <Lock :size="18" /><span class="grow">{{ t('helperPendingNotice') }}</span>
     </div>
     <div v-if="state.inventoryError" class="notice error" role="alert">

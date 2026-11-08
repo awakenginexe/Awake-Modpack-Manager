@@ -168,7 +168,7 @@ useInfiniteScroll(sentinel, () => hasMore.value && !loading.value && !error.valu
               <Avatar :name="hit.name" :src="hit.iconUrl" :size="64" />
               <span class="hit-copy">
                 <span class="hit-title"><strong>{{ hit.name }}</strong></span>
-                <span class="muted small">{{ t('byAuthor', { author: hit.author }) }}</span>
+                <span v-if="hit.author" class="muted small">{{ t('byAuthor', { author: hit.author }) }}</span>
                 <span class="summary">{{ hit.summary }}</span>
                 <span class="meta">
                   <span v-if="hit.minecraftVersion"><Gamepad2 :size="14" />{{ hit.minecraftVersion }}</span>
@@ -194,7 +194,7 @@ useInfiniteScroll(sentinel, () => hasMore.value && !loading.value && !error.valu
             <Avatar :name="picked.name" :src="picked.iconUrl" :size="72" />
             <div>
               <h2>{{ picked.name }}</h2>
-              <p class="muted small">{{ t('byAuthor', { author: picked.author }) }}</p>
+              <p v-if="picked.author" class="muted small">{{ t('byAuthor', { author: picked.author }) }}</p>
               <span class="chip"><ProviderLogo :provider="picked.provider" :size="15" />{{ packProviderNames[picked.provider] }}</span>
             </div>
           </div>

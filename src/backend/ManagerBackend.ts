@@ -108,6 +108,18 @@ export interface ManagerBackend {
   recycleContent?(instanceId: string, area: ContentArea, paths: string[]): Promise<void>;
   openFolder?(instanceId: string, area?: ContentArea): Promise<void>;
 
+  /** Helper: connect a Launcher instance in place, keeping its files where they are. Resolves once finished. */
+  adoptInstance?(path: string): Promise<void>;
+  releaseInstance?(instanceId: string): Promise<void>;
+  canAdopt?(): boolean;
+  /** Launcher: hold, then reload, an instance while the helper connects or disconnects it. */
+  enrollInstance?(instanceId: string, phase: 'begin' | 'finish' | 'abort'): Promise<void>;
+  canEnroll?(): boolean;
+  /** Whether both sides can connect Launcher instances, so edits can go through the Manager. */
+  canShareInstances?(): boolean;
+  shareInstance?(instanceId: string): Promise<void>;
+  stopSharingInstance?(instanceId: string): Promise<void>;
+
   /** Accepting is not "started": follow the operation until the Launcher reports process-started. */
   requestLaunch(instanceId: string, idempotencyKey: string): Promise<Accepted>;
 }

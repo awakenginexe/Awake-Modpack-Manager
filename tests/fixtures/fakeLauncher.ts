@@ -178,7 +178,7 @@ export class FakeLauncher implements PipeTransport {
     if (method === 'hello') {
       const versions = params.versions as { major: number; minor: number }[];
       const client = params.client as { name: string; version: string };
-      if (!Array.isArray(versions) || !versions.length || !client?.name || typeof client.version !== 'string' || Object.keys(params).length !== 2) this.violation('hello params');
+      if (!Array.isArray(versions) || !versions.length || !client?.name || typeof client.version !== 'string' || Object.keys(params).length !== (params.extensions ? 3 : 2)) this.violation('hello params');
       c.helloDone = true;
       this.hellos++;
       return this.reply(rid, { result: { protocol: { major: 1, minor: 0 }, installationId: this.descriptor.installationId, profileId: this.descriptor.profileId, sessionId: this.helloSessionOverride ?? this.descriptor.sessionId, capabilities: this.capabilities, limits: { frameBytes: 1048576, clients: 8, pageItems: 500 }, ...this.helloExtra } });

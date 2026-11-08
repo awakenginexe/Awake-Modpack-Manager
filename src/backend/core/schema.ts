@@ -4,8 +4,8 @@ import schema from './core.schema.json';
  * Awake native helper protocol 2.0 (role `modpack-core`).
  *
  * Source of truth: Awake Launcher docs/modpack-manager/{core-protocol.md, core.schema.json} at
- * commit 4ec20f38c4056b7cd1d2febf7c3b7b8bef8f944a (branch feat/native-core-manager-030, helper
- * implementation 0.3.0, opt-in hello extensions `manager.v0.2.1` then `manager.v0.2`), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
+ * commit 8787e06f934c6f792d102d7ab885d8afffdccb12 (branch release/3.2.0, helper
+ * implementation 0.4.0, opt-in hello extensions `manager.v0.2.1` then `manager.v0.2`), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
  * accepts is checked against that schema, so the client can neither send nor trust anything the
  * contract does not define. Re-pin by replacing the JSON file and this commit.
  */
@@ -29,7 +29,7 @@ export type CoreMethod =
   | 'providers.search' | 'providers.versions' | 'plans.prepare' | 'plans.get' | 'transactions.apply'
   | 'mods.list' | 'updates.check' | 'operations.get' | 'operations.list' | 'operations.cancel' | 'events.poll'
   | 'recovery.list' | 'recovery.run' | 'inbox.begin' | 'inbox.write' | 'inbox.commit' | 'inbox.status' | 'outbox.read'
-  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'providers.project' | 'outbox.list' | 'workspaces.delete' | 'workspaces.rename';
+  | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'providers.project' | 'outbox.list' | 'workspaces.delete' | 'workspaces.rename' | 'workspaces.adopt' | 'workspaces.release';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
