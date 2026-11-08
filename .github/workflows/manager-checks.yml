@@ -56,7 +56,14 @@ jobs:
           Expand-Archive "$env:RUNNER_TEMP/helper.zip" "$env:RUNNER_TEMP/helper"
           $env:AWAKE_CF_LIVE_HELPER = "$env:RUNNER_TEMP/helper/core-host/windows-x64/awake-core-host.exe"
           $env:AWAKE_CF_LIVE_PROFILE = "$env:RUNNER_TEMP/cf-profile"
-          npx vitest run tests/realHelper/curseforgeLive.test.ts
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cargo test --manifest-path src-tauri/Cargo.toml --lib -- --ignored curseforge_live
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $failed = $false
+          foreach ($check in @(@('npx', 'vitest', 'run', 'tests/realHelper/curseforgeLive.test.ts'), @('cargo', 'test', '--manifest-path', 'src-tauri/Cargo.toml', '--lib', '--', '--ignored', 'curseforge_live'))) {
+            $out = & $check[0] $check[1..($check.Length - 1)] 2>&1 | Out-String
+            Write-Output $out
+            if ($LASTEXITCODE) {
+              $failed = $true
+              $tail = ($out -split "`n" | Where-Object { $_ -match 'Error|error|FAIL|panicked|expected' } | Select-Object -Last 12) -join ' | '
+              "::error title=$($check[0]) live check::$($tail.Substring(0, [Math]::Min(1800, $tail.Length)))"
+            }
+          }
+          if ($failed) { exit 1 }
