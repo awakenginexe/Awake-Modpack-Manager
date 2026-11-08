@@ -73,7 +73,9 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   watch(exportIncludes, (v) => save('exportIncludes', v), { deep: true });
   watch(() => state.instanceId, (v) => save('instance', v));
 
-  const can = (cap: Capability) => !!state.handshake?.capabilities.includes(cap);
+  /** These follow the list on screen; everything else follows the selected instance, which may be a connected one. */
+  const LIBRARY_CAPABILITIES: Capability[] = ['installations.discover', 'instances.list', 'instances.create', 'instances.delete', 'instances.rename', 'launch.request'];
+  const can = (cap: Capability) => !!(LIBRARY_CAPABILITIES.includes(cap) ? state.handshake : instanceHandshake.value)?.capabilities.includes(cap);
   /** Which side serves the selected installation: the Manager's helper, Awake Launcher, or demo data. */
   const source = ref<'mock' | 'launcher' | 'helper'>(backend.kind === 'composite' ? 'helper' : backend.kind === 'mock' ? 'mock' : backend.kind === 'helper' ? 'helper' : 'launcher');
   /** Capabilities, errors and "waiting for Launcher" follow the selected installation's side. */
@@ -87,12 +89,15 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   }
   if (isComposite(backend)) backend.onChanged(() => { syncPart(); void refreshInstallations().catch(() => undefined); });
   const instance = computed(() => state.instances.find((i) => i.id === state.instanceId) ?? null);
+  const instanceHandshake = computed(() => (instance.value?.shared && isComposite(backend) ? backend.parts.helper.handshake : state.handshake));
+  const instanceSource = computed(() => (instance.value?.shared ? 'helper' as const : source.value));
+  const canShare = computed(() => source.value === 'launcher' && !!state.handshake && !!backend.canShareInstances?.());
   const draft = computed<Draft | null>(() => {
     if (!state.instanceId || !inventory.value) return null;
     return drafts.value[state.instanceId] ?? newDraft(state.instanceId, inventory.value.revision);
   });
   /** With helper policies the pin lives in the workspace (updateLocked); otherwise it is a Manager-side note. */
-  const policies = computed(() => can('mods.policies') && source.value === 'helper');
+  const policies = computed(() => can('mods.policies') && instanceSource.value === 'helper');
   // manager.v0.2 reads the pin back on its own. Older replies only give updateLocked (pin OR native
   // lock OR exclusion), so there an excluded mod is shown as excluded only.
   const lockedPin = (m: { updateLocked?: boolean; updateExcluded?: boolean; pinned?: boolean }) => m.pinned ?? (!!m.updateLocked && !m.updateExcluded);
@@ -503,6 +508,22 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     return track(operationId);
   }
 
+  /** Connect a Launcher instance so its mods are changed here, then keep working on it under its new identity. */
+  async function shareInstance(id: string) {
+    const path = state.instances.find((i) => i.id === id)?.path;
+    await backend.shareInstance!(id);
+    await refreshInstances();
+    const connected = state.instances.find((i) => i.shared && i.path === path);
+    if (connected) await selectInstance(connected.id);
+    return connected ?? null;
+  }
+  async function stopSharingInstance(id: string) {
+    if (drafts.value[id]?.changes.length) throw new BackendError('rejected', 'This pack has unreviewed changes. Review or discard them first.');
+    await backend.stopSharingInstance!(id);
+    if (state.instanceId === id) { state.instanceId = null; inventory.value = null; selection.value = emptySelection(); resetReview(); }
+    await refreshInstances();
+  }
+
   /** Roll back an interrupted change, as the coordinator's recovery allows. Never a direct file repair. */
   async function runRecovery(operationId: string) {
     if (!backend.runRecovery) return null;
@@ -547,7 +568,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   }
 
   return {
-    backend, source, state, inventory, selection, drafts, pins, exportIncludes, review,
+    backend, source, instanceSource, instanceHandshake, canShare, shareInstance, stopSharingInstance, state, inventory, selection, drafts, pins, exportIncludes, review,
     can, instance, draft, pinned, planOutdated, policies, policyOf, packHandshake,
     connect, refreshInstances, selectInstance, loadInventory, checkUpdates, deleteInstance, renameInstance, preparePackUpdate,
     setDraft, discardDraft, setPinned, setExcluded, prepareImport,

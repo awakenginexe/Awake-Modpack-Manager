@@ -63,6 +63,8 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     pageLimit: options.pageLimit,
     peer: 'Awake Launcher',
     storePrefix: 'launcher-ops',
+    // Older Launchers refuse this offer; rpc then connects without it and they stay read-only.
+    extensions: ['launcher.v3.2'],
     onLost: () => setState('disconnected'),
     async locate() {
       profiles = await transport().discover(added);
@@ -239,6 +241,11 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
           const page = await call<InventoryResult>('mods.list', { physicalId: physicalIdOf(inst.id), limit: 1 });
           inst.modCount = page.total;
         } catch { /* count stays unknown */ }
+        if (!enabled('instances.icon')) continue;
+        try {
+          const icon = await call<{ mimeType: string; base64: string }>('instances.icon', { physicalId: physicalIdOf(inst.id) });
+          if (icon.mimeType === 'image/png' && /^[A-Za-z0-9+/]+=*$/.test(icon.base64)) inst.iconUrl = `data:image/png;base64,${icon.base64}`;
+        } catch { /* the initials stand in */ }
       }
       return instances;
     },
@@ -259,6 +266,12 @@ export function createLauncherClient(options: LauncherClientOptions): ManagerBac
     applyPlan: (request) => rpc.submit('transactions.apply', {
       idempotencyKey: request.idempotencyKey, operationId: request.planId, planDigest: request.planHash, instanceRevision: request.baseRevision,
     }, 'apply-plan'),
+
+    canEnroll: () => enabled('instances.enroll'),
+    async enrollInstance(instanceId, phase) {
+      if (!enabled('instances.enroll')) return unsupported();
+      await call('instances.enroll', { physicalId: physicalIdOf(instanceId), phase });
+    },
 
     async requestLaunch(instanceId, idempotencyKey) {
       if (!enabled('launch.request')) return unsupported();

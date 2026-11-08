@@ -1,4 +1,4 @@
-import { BackendError, isLauncherWait, type Handshake, type Installation, type OperationStatus } from './contract';
+import { BackendError, isLauncherWait, type Handshake, type InstanceSummary, type Installation, type OperationStatus } from './contract';
 import type { ConnectionState, ManagerBackend } from './ManagerBackend';
 
 export interface Part { backend: ManagerBackend; handshake: Handshake | null; error: BackendError | null }
@@ -15,6 +15,10 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
   let state: ConnectionState = 'disconnected';
   const owners = { installation: new Map<string, Part>(), instance: new Map<string, Part>(), plan: new Map<string, Part>(), op: new Map<string, Part>() };
   let current: Part = parts.helper;
+  /** Connected instances: helper id -> the Launcher's id for the same folder. */
+  const sharedOf = new Map<string, string>();
+  const launcherPaths = new Map<string, string>();
+  const samePath = (p: string) => p.replace(/\\/g, '/').toLowerCase();
   let retry: ReturnType<typeof setTimeout> | undefined;
 
   const all = [parts.helper, parts.launcher];
@@ -51,6 +55,20 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     });
   }
 
+  /** A connected instance appears once: edited through the helper, shown with the Launcher's state and image. */
+  async function withShared(list: InstanceSummary[]): Promise<InstanceSummary[]> {
+    for (const i of list) if (i.path) launcherPaths.set(i.id, i.path);
+    if (!parts.helper.handshake) return list;
+    const connected = new Map((await helper.listInstances('manager').catch(() => [] as InstanceSummary[])).filter((w) => w.sharedRoot).map((w) => [samePath(w.sharedRoot!), w]));
+    sharedOf.clear();
+    return list.map((i) => {
+      const w = i.path ? connected.get(samePath(i.path)) : undefined;
+      if (!w) return i;
+      owners.instance.set(w.id, parts.helper);
+      sharedOf.set(w.id, i.id);
+      return { ...w, path: i.path, iconUrl: i.iconUrl, shared: true, launcher: i.launcher, status: i.status === 'ready' ? w.status : i.status };
+    });
+  }
   const byInstance = (id: string) => owners.instance.get(id) ?? current;
   const byOp = (id: string) => owners.op.get(id) ?? current;
   const own = <T extends { operationId: string }>(p: Part, a: T) => { owners.op.set(a.operationId, p); return a; };
@@ -104,13 +122,14 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
       if (!p.handshake) throw p.error ?? new BackendError('disconnected', 'Not connected.');
       const list = await p.backend.listInstances(installationId);
       for (const i of list) owners.instance.set(i.id, p);
-      return list;
+      // The Manager's own list holds its projects; connected instances belong to the Launcher's list.
+      return p === parts.launcher ? withShared(list) : list.filter((i) => !i.sharedRoot);
     },
     createInstance: async (r) => own(current, await current.backend.createInstance(r)),
     getInventory: (id, onProgress) => byInstance(id).backend.getInventory(id, onProgress),
 
     // Search and packs follow the selected installation; each side reports its own availability.
-    search: (q) => current.backend.search(q),
+    search: (q) => (q.instanceId ? byInstance(q.instanceId) : current).backend.search(q),
     // Packs always become Manager projects, whichever list is on screen.
     searchPacks: (q) => helper.searchPacks(q),
     packVersions: (prov, id) => helper.packVersions(prov, id),
@@ -159,7 +178,29 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     versionCatalog: (q) => current.backend.versionCatalog ? current.backend.versionCatalog(q) : Promise.reject(new BackendError('unsupported', 'No version catalog here.')),
     projectVersions: (id, prov, pid) => { const b = byInstance(id).backend; return b.projectVersions ? b.projectVersions(id, prov, pid) : Promise.reject(new BackendError('unsupported', 'No version list here.')); },
     runRecovery: async (opId, key) => { const p = byOp(opId); if (!p.backend.runRecovery) throw new BackendError('unsupported', 'Recovery is not available here.'); return own(p, await p.backend.runRecovery(opId, key)); },
-    requestLaunch: async (id, key) => own(byInstance(id), await byInstance(id).backend.requestLaunch(id, key)),
+    requestLaunch: async (id, key) => {
+      const launcherId = sharedOf.get(id);
+      if (launcherId) return own(parts.launcher, await launcher.requestLaunch(launcherId, key));
+      return own(byInstance(id), await byInstance(id).backend.requestLaunch(id, key));
+    },
+    canShareInstances: () => !!parts.helper.handshake && !!parts.launcher.handshake && !!helper.canAdopt?.() && !!launcher.canEnroll?.(),
+    async shareInstance(id) {
+      const path = launcherPaths.get(id);
+      if (!path || !helper.adoptInstance || !launcher.enrollInstance) throw new BackendError('unsupported', 'Update Awake Launcher to 3.2.0 or newer to manage this instance here.');
+      // The Launcher refuses to start the game for this instance until it hears the outcome.
+      await launcher.enrollInstance(id, 'begin');
+      try { await helper.adoptInstance(path); } catch (e) { await launcher.enrollInstance(id, 'abort').catch(() => undefined); throw e; }
+      await launcher.enrollInstance(id, 'finish');
+    },
+    async stopSharingInstance(id) {
+      const launcherId = sharedOf.get(id);
+      if (!launcherId || !helper.releaseInstance || !launcher.enrollInstance) throw new BackendError('unsupported', 'Open Awake Launcher first.');
+      await launcher.enrollInstance(launcherId, 'begin');
+      try { await helper.releaseInstance(id); } catch (e) { await launcher.enrollInstance(launcherId, 'abort').catch(() => undefined); throw e; }
+      await launcher.enrollInstance(launcherId, 'finish');
+      sharedOf.delete(id);
+      owners.instance.delete(id);
+    },
     openInLauncher: async (id) => {
       const backend = byInstance(id).backend;
       if (!backend.openInLauncher) throw new BackendError('unsupported', 'This workspace cannot be opened in Launcher.');

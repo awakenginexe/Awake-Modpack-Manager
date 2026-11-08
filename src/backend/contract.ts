@@ -168,6 +168,10 @@ export interface InstanceSummary {
   /** Opaque authoritative revision. Any change to the instance's content changes it. */
   revision: string;
   pack?: PackLink;
+  /** A Launcher instance connected to the Manager: its mods are changed here, and it plays from the Launcher. */
+  shared?: boolean;
+  /** The Launcher folder of a connected instance, as the helper reports it. */
+  sharedRoot?: string;
   /** Launcher protocol identity details (absent for demo data). */
   launcher?: {
     instanceId: string;
@@ -244,6 +248,8 @@ export interface ModInventory {
 }
 
 export interface SearchQuery {
+  /** The instance being browsed for; decides which side answers. */
+  instanceId?: string;
   text: string;
   provider: ProviderId;
   minecraftVersion: string;

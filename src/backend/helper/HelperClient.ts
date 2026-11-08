@@ -216,7 +216,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     workspaces.set(id, w);
     return {
         id, name: w.name, minecraftVersion: w.minecraftVersion,
-        path: status?.dataRoot ? `${status.dataRoot.replace(/\\/g, '/')}/workspaces/${w.workspaceId}` : undefined,
+        path: w.sharedRoot ?? (status?.dataRoot ? `${status.dataRoot.replace(/\\/g, '/')}/workspaces/${w.workspaceId}` : undefined),
+        ...(w.sharedRoot ? { sharedRoot: w.sharedRoot } : {}),
       loader: { kind: w.loader.id, version: w.loader.version || undefined },
       status: w.recoveryRequired ? 'broken' : 'ready',
       manageable: !w.recoveryRequired, blockedReason: w.recoveryRequired ? 'recovery' : undefined,
@@ -916,6 +917,18 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     async shutdownHelper() {
       if (has('core.shutdown')) await call('core.shutdown', {}).catch(() => undefined);
     },
+    canAdopt: () => ext('workspaces.adopt', true),
+    async adoptInstance(path) {
+      if (!ext('workspaces.adopt', true)) return notYet('connecting Launcher instances');
+      const accepted = await submit('workspaces.adopt', { idempotencyKey: crypto.randomUUID(), path });
+      const op = await settle(accepted.operationId, undefined, false);
+      if (op.state !== 'completed') throw new BackendError('rejected', op.error?.message ?? 'This instance could not be connected.', op.error?.code);
+    },
+    async releaseInstance(instanceId) {
+      if (!ext('workspaces.release', true)) return notYet('disconnecting Launcher instances');
+      await call('workspaces.release', { physicalId: workspaceOf(instanceId).physicalId });
+      workspaces.delete(instanceId);
+    },
     async recycleContent(instanceId, area, paths) {
       if (!options.host) return notYet('removing files');
       await options.host.workspaceRecycle(workspaceOf(instanceId).workspaceId, area, paths);
@@ -925,7 +938,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     },
 
     async listContent(instanceId, area: ContentArea) {
-      if (!options.host) return notYet('file listing');
+      if (!options.host || workspaceOf(instanceId).sharedRoot) return notYet('file listing');
       return (await options.host.workspaceList(workspaceOf(instanceId).workspaceId, area)).map(({ modifiedMs, ...e }) => ({ ...e, ...(modifiedMs ? { modifiedAt: new Date(modifiedMs).toISOString() } : {}) }));
     },
     // Export is built in the Manager from snapshotWorkspace; these are the Launcher's own export path.

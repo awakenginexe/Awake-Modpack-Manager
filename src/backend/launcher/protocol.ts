@@ -21,7 +21,7 @@ export type ReadMethod = 'hello' | 'launcher.info' | 'instances.list' | 'mods.li
  * reports them false at the pin. The client sends one only when hello's capability map says true.
  * Only methods whose request and reply fields the draft fully defines are listed here.
  */
-export type DraftMethod = 'operations.get' | 'operations.cancel' | 'launch.request' | 'transactions.apply' | 'instances.create';
+export type DraftMethod = 'operations.get' | 'operations.cancel' | 'launch.request' | 'transactions.apply' | 'instances.create' | 'instances.enroll' | 'instances.icon';
 export type Method = ReadMethod | DraftMethod;
 
 export const OPERATION_STATES = [

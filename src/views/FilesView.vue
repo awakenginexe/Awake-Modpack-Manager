@@ -37,7 +37,7 @@ function setIncluded(path: string, on: boolean) {
 }
 watch(area, load, { immediate: true });
 /** Manager projects: their files can be opened and recycled. Launcher instances stay read-only here. */
-const owned = computed(() => session.source.value === 'helper' && !!session.backend.recycleContent);
+const owned = computed(() => session.source.value === 'helper' && !session.instance.value?.shared && !!session.backend.recycleContent);
 async function recycle(e: ContentEntry) {
   const id = session.state.instanceId;
   if (!id || !await confirmDialog({ title: t('recycleTitle', { name: e.path }), body: t('recycleBody'), confirm: t('recycleConfirm'), cancel: t('cancel'), danger: true })) return;

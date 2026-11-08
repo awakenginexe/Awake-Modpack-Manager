@@ -1,8 +1,6 @@
 # Integration with Awake Launcher
 
-**Status: read-only integration, protocol 1.0 (experimental), Windows x64 only.** The Manager
-also implements the draft operation methods whose fields the contract fully defines. It sends
-them only when the Launcher reports them enabled, which it doesn't yet. What the Manager still
+**Status: read-only by default, protocol 1.0 (experimental), Windows x64 only.** With Awake Launcher 3.2.0 or newer the Manager offers the `launcher.v3.2` extension, which adds `launch.request`, `operations.get`, `instances.enroll` and `instances.icon`. A pack the user connects with **Manage here** stays in the Launcher folder and is edited through the helper (`workspaces.adopt`, `workspaces.release`). What the Manager still
 needs from the Launcher is in [LAUNCHER-REQUESTS.md](LAUNCHER-REQUESTS.md).
 
 Contract pin: Awake Launcher `d3e6731a8a3d9a668ad6509eb795eb73030c0823` (re-pinned from `058714ec7`: the reserved operation schema gained the nonterminal `rolling_back` state and an enforced terminal flag; 1.0 read payloads and framing are unchanged)

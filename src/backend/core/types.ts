@@ -14,7 +14,7 @@ export type CoreExtensionCapability =
   | 'loaders.forge.v1' | 'loaders.neoforge.v1' | 'loaders.quilt.v1' | 'policies.v1' | 'providers.curseforge.v1'
   | 'imports.inspect' | 'imports.prepare' | 'inbox.discard' | 'inbox.discard.v1'
   | 'providers.project' | 'outbox.configs.v1' | 'outbox.list'
-  | 'workspaces.delete' | 'workspaces.rename' | 'imports.packAuthoritative.v1'
+  | 'workspaces.delete' | 'workspaces.rename' | 'workspaces.adopt' | 'workspaces.release' | 'imports.packAuthoritative.v1'
   /** manager.v0.2.1 only. */
   | 'dependencies.resolutions.v1' | 'loaders.connector.v1';
 
@@ -45,6 +45,8 @@ export interface CoreInfo {
 }
 
 export interface CoreWorkspace {
+  /** Present on a Launcher instance connected in place; the files stay in this folder. */
+  sharedRoot?: string;
   workspaceId: string;
   physicalId: string;
   name: string;

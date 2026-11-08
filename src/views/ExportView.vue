@@ -15,7 +15,7 @@ const emit = defineEmits<{ navigate: [ViewId] }>();
 const session = useSession();
 
 /* ----- Manager workspaces: the helper has no export, so the Manager builds it from a verified snapshot. ----- */
-const helperExport = computed(() => session.source.value === 'helper' && !!session.backend.snapshotWorkspace);
+const helperExport = computed(() => session.instanceSource.value === 'helper' && !!session.backend.snapshotWorkspace);
 const snapProgress = ref<{ done: number; total: number } | null>(null);
 const skipped = ref<WorkspaceSnapshot['skipped']>([]);
 async function snapshot() {
