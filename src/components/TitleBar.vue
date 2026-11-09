@@ -3,13 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ArrowLeft, ArrowRight, ArrowUpCircle, Loader } from '@lucide/vue';
 import { isDesktopHost } from '../backend/launcher/transport';
 import { t } from '../i18n';
-import { appUpdate, updateAvailable } from '../state/appUpdate';
+import { appUpdate, updateAvailable, updateNow } from '../state/appUpdate';
+import { useSession } from '../state/session';
 import awakeLogo from '../assets/brand/modpack-manager.png';
 import pkg from '../../package.json';
 
 defineProps<{ canBack: boolean; canForward: boolean; activeOps: number }>();
 defineEmits<{ back: []; forward: []; history: [] }>();
 
+const session = useSession();
 const desktop = isDesktopHost();
 const maximized = ref(false);
 const win = computed(() => import('@tauri-apps/api/window').then((m) => m.getCurrentWindow()));
@@ -35,7 +37,7 @@ const act = async (f: 'minimize' | 'toggleMaximize' | 'close') => { (await win.v
     </nav>
     <div class="spacer" data-tauri-drag-region></div>
     <button v-if="activeOps" class="pill" type="button" :title="t('titleWorking', { count: activeOps })" @click="$emit('history')"><Loader :size="13" class="spin" />{{ activeOps }}</button>
-    <button v-if="updateAvailable" class="pill accent" type="button" @click="appUpdate.dialogOpen = true"><ArrowUpCircle :size="14" />{{ t('titleUpdate', { version: appUpdate.info!.latest!.version }) }}</button>
+    <button v-if="updateAvailable" class="pill accent" type="button" :title="t('titleUpdate', { version: appUpdate.info!.latest!.version })" @click="updateNow(session)"><ArrowUpCircle :size="14" />{{ t('titleUpdateNow', { version: appUpdate.info!.latest!.version }) }}</button>
     <div v-if="desktop" class="traffic" role="group" :aria-label="t('titleWindow')">
       <button class="light min" type="button" :title="t('titleMinimize')" :aria-label="t('titleMinimize')" @click="act('minimize')"><span>−</span></button>
       <button class="light max" type="button" :title="t(maximized ? 'titleRestore' : 'titleMaximize')" :aria-label="t(maximized ? 'titleRestore' : 'titleMaximize')" @click="act('toggleMaximize')"><span>+</span></button>

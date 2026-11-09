@@ -7,6 +7,7 @@ import { CircleAlert, FileArchive, FolderKanban, Info, Lock, LockOpen, PackagePl
 import type { LoaderKind } from '../backend/contract';
 import NativeImportDialog from '../components/NativeImportDialog.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
+import SearchSelect from '../components/SearchSelect.vue';
 import VirtualList from '../components/VirtualList.vue';
 import type { ViewId } from '../App.vue';
 import { useSession } from '../state/session';
@@ -27,6 +28,16 @@ const error = ref('');
 /* ----- create ----- */
 const showCreate = ref(false);
 const form = ref({ name: '', minecraftVersion: '1.21.1', loader: 'fabric' as LoaderKind, loaderVersion: '' });
+const loaderOptions = (['fabric', 'quilt', 'forge', 'neoforge', 'vanilla'] as LoaderKind[]).map((value) => ({ value, label: loaderLabel(value) }));
+/** Common versions until the catalog answers; without one, typing a version still works. */
+const minecraftChoices = ref(['1.21.1', '1.20.1', '1.19.2', '1.18.2', '1.16.5']);
+watch(showCreate, async (open) => {
+  if (!open || !session.backend.versionCatalog) return;
+  try {
+    const { minecraftVersions } = await session.backend.versionCatalog({});
+    if (minecraftVersions.length) minecraftChoices.value = minecraftVersions;
+  } catch { /* the short list stays */ }
+});
 function create() {
   if (!form.value.name.trim() || !form.value.minecraftVersion.trim()) return;
   store.create({ name: form.value.name.trim(), minecraftVersion: form.value.minecraftVersion.trim(), loader: { kind: form.value.loader, version: form.value.loader === 'vanilla' ? '' : form.value.loaderVersion.trim() } });
@@ -355,10 +366,9 @@ async function removeProject(target?: ModpackProject) {
           <header><h2 id="proj-create">{{ t('projNew') }}</h2><p class="muted small">{{ t('projNewHint') }}</p></header>
           <div class="dialog-body">
             <label class="field"><span>{{ t('createName') }}</span><input v-model="form.name" class="input" required autofocus /></label>
-            <label class="field"><span>{{ t('createVersion') }}</span><input v-model="form.minecraftVersion" class="input" list="mc-versions" required /></label>
-            <datalist id="mc-versions"><option>1.21.1</option><option>1.20.1</option><option>1.19.2</option><option>1.18.2</option><option>1.16.5</option></datalist>
+            <label class="field"><span>{{ t('createVersion') }}</span><SearchSelect v-model="form.minecraftVersion" :options="minecraftChoices" allow-custom :aria-label="t('createVersion')" /></label>
             <label class="field"><span>{{ t('createLoader') }}</span>
-              <select v-model="form.loader" class="select"><option v-for="l in (['fabric', 'quilt', 'forge', 'neoforge', 'vanilla'] as LoaderKind[])" :key="l" :value="l">{{ loaderLabel(l) }}</option></select>
+              <SearchSelect v-model="form.loader" :options="loaderOptions" :searchable="false" :aria-label="t('createLoader')" />
             </label>
             <label v-if="form.loader !== 'vanilla'" class="field"><span>{{ t('projLoaderVersion') }}</span><input v-model="form.loaderVersion" class="input" :placeholder="t('projLoaderVersionHint')" /></label>
           </div>
