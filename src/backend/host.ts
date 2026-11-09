@@ -1,8 +1,8 @@
-import { BackendError, type ContentEntry, type PackHit, type PackProviderId, type PackProviderInfo, type PackVersion, type ProviderId } from './contract';
+import { BackendError, type ContentEntry, type ExportFileMatch, type InstanceZipResult, type PackHit, type PackProviderId, type PackProviderInfo, type PackVersion, type ProviderId } from './contract';
 
 /** A pack the desktop host downloaded and verified, ready to upload to the helper. */
 export interface FetchedPack { token: string; format: 'mrpack' | 'curseforge'; size: number; sha256: string; notes: string[] }
-export interface ProjectMeta { provider: ProviderId; projectId: string; name: string; iconUrl?: string }
+export interface ProjectMeta { provider: ProviderId; projectId: string; name: string; iconUrl?: string; restricted?: boolean; pageUrl?: string }
 export interface ModUpdate { provider: ProviderId; projectId: string; installedVersionId: string; candidate: { id: string; name: string; releaseType: 'release' | 'beta' | 'alpha' } | null }
 export interface ProjectDetail { author: string; summary: string; downloads: number | null; updatedAt: string | null; license: string | null; categories: string[]; pageUrl: string | null }
 export interface ProjectRef { provider: ProviderId; projectId: string; versionId?: string }
@@ -25,6 +25,8 @@ export interface HostApi {
   workspaceList(workspace: string, area: string): Promise<(ContentEntry & { modifiedMs?: number })[]>;
   workspaceRecycle(workspace: string, area: string, paths: string[]): Promise<void>;
   workspaceOpen(workspace: string, area?: string): Promise<void>;
+  exportMatch(workspace: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]>;
+  exportInstance(workspace: string, meta: { fileName: string; name: string; version: string; minecraft: string; loader: string }, onProgress?: (written: number, total: number) => void): Promise<InstanceZipResult | null>;
 }
 
 /** Host failures become BackendErrors with the host's own wording. */
@@ -61,5 +63,11 @@ export function createHostApi(): HostApi {
     workspaceList: (workspace, area) => hostInvoke('workspace_list', { workspace, area }),
     workspaceRecycle: (workspace, area, paths) => hostInvoke('workspace_recycle', { workspace, area, paths }),
     workspaceOpen: (workspace, area) => hostInvoke('workspace_open', { workspace, area: area ?? null }),
+    exportMatch: (workspace, target, fileNames) => hostInvoke('export_match', { workspace, target, fileNames }),
+    async exportInstance(workspace, meta, onProgress) {
+      const { listen } = await import('@tauri-apps/api/event');
+      const stop = await listen<{ done: number; total: number }>('export-progress', (e) => onProgress?.(e.payload.done, e.payload.total));
+      try { return await hostInvoke('export_instance', { workspace, ...meta }); } finally { stop(); }
+    },
   };
 }

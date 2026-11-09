@@ -91,6 +91,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     storePrefix: 'core-ops',
     onLost: () => setState('disconnected'),
     async locate() {
+      if (stopping) throw new BackendError('helper-unavailable', 'The Manager helper is stopping for an update.', 'stopping');
       const d = (await ensure()).descriptor!;
       return { conn: await transport().openHelper(d.serverName, d.pid), expect: { profileId: d.profileId, sessionId: d.sessionId } };
     },
@@ -115,6 +116,8 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
   };
   const notYet = (what = 'this'): Promise<never> => Promise.reject(new BackendError('unsupported', `The Manager helper in this build does not support ${what} yet.`));
 
+  /** Set while an update replaces the helper: connecting now would start it again and hold its files. */
+  let stopping = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   function startHeartbeat() {
     clearInterval(heartbeat);
@@ -122,6 +125,12 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     heartbeat = setInterval(() => {
       if (state === 'connected' && has('core.info')) call('core.info', {}).catch(() => undefined);
     }, options.heartbeatMs);
+  }
+
+  async function cancelPreparedPlans() {
+    if (!has('operations.list') || !has('operations.cancel', true)) return;
+    const { items } = await all<CoreOperation, { operations: CoreOperation[]; nextOffset: number | null }>('operations.list', {}, (p) => p.operations).catch(() => ({ items: [] as CoreOperation[] }));
+    for (const op of items) if (op.state === 'prepared') await call('operations.cancel', { operationId: op.operationId }).catch(() => undefined);
   }
 
   /* ----- identity of workspaces and their content ----- */
@@ -455,6 +464,24 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     await call('inbox.discard', { token });
     save(uploadsKey(), uploads().filter((t) => t !== token));
   }
+  /** One installed file's provider record. A reason instead when it cannot be described. */
+  async function lookUpFile(w: CoreWorkspace, provider: ProviderId, projectId: string, versionId: string, fileName: string) {
+    let found: CoreVersion | undefined;
+    try {
+      // providers.versions is newest first; an older installed version can sit a few pages down.
+      for (let offset = 0; !found && offset < 1000; offset += PAGE) {
+        const page = await call<{ versions: CoreVersion[] }>('providers.versions', { provider, minecraftVersion: w.minecraftVersion, loader: coreLoader(w.loader.id), projectId, offset, limit: PAGE });
+        found = page.versions.find((v) => v.versionId === versionId);
+        if (page.versions.length < PAGE) break;
+      }
+    } catch (e) {
+      if (e instanceof BackendError && e.code === 'provider-restricted') return 'restricted' as const;
+      throw e;
+    }
+    const file = found && (found.files.find((f) => f.fileName === fileName.replace(/\.disabled$/i, '')) ?? found.files[0]);
+    if (!found || !file) return 'not-found' as const;
+    return { versionName: found.versionNumber, fileName: file.fileName, size: Number(file.size), sha1: file.sha1, sha512: file.sha512, url: file.url };
+  }
   /** Unchanged, helper-tracked config/ overrides, all read at one revision and hash-checked. */
   async function readConfigs(w: CoreWorkspace): Promise<{ path: string; data: Uint8Array }[]> {
     if (!ext('outbox.list') || !ext('outbox.read') || !ext('outbox.configs.v1')) return [];
@@ -617,8 +644,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       // by an earlier Manager run can't be applied from this one, so cancel them once at start.
       if (!startupCleaned && has('operations.list') && has('operations.cancel', true)) {
         startupCleaned = true;
-        const { items } = await all<CoreOperation, { operations: CoreOperation[]; nextOffset: number | null }>('operations.list', {}, (p) => p.operations).catch(() => ({ items: [] as CoreOperation[] }));
-        for (const op of items) if (op.state === 'prepared') await call('operations.cancel', { operationId: op.operationId }).catch(() => undefined);
+        await cancelPreparedPlans();
         if (has('inbox.discard', true)) for (const token of uploads()) await discard(token).catch(() => undefined);
       }
       const search = has('providers.search');
@@ -809,23 +835,64 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
         if (!it.projectId || !it.versionId) { snap.skipped.push({ fileName: it.fileName, reason: 'manual' }); continue; }
         if (it.metadataState !== 'verified') { snap.skipped.push({ fileName: it.fileName, reason: 'modified' }); continue; }
         if (!providerOk(provider)) { snap.skipped.push({ fileName: it.fileName, reason: 'provider' }); continue; }
-        let found: CoreVersion | undefined;
-        // providers.versions is newest first; an older installed version can sit a few pages down.
-        for (let offset = 0; !found && offset < 1000; offset += PAGE) {
-          const page = await call<{ versions: CoreVersion[] }>('providers.versions', { provider, minecraftVersion: w.minecraftVersion, loader: coreLoader(w.loader.id), projectId: it.projectId, offset, limit: PAGE });
-          found = page.versions.find((v) => v.versionId === it.versionId);
-          if (page.versions.length < PAGE) break;
-        }
-        const file = found && (found.files.find((f) => f.fileName === it.fileName.replace(/\.disabled$/i, '')) ?? found.files[0]);
-        if (!found || !file) { snap.skipped.push({ fileName: it.fileName, reason: 'not-found' }); continue; }
-        snap.mods.push({
-          provider, projectId: it.projectId, versionId: it.versionId, versionName: found.versionNumber, name: titles[`${provider}:${it.projectId}`]?.name ?? fileStem(it.fileName),
-          fileName: file.fileName, size: Number(file.size), sha1: file.sha1, sha512: file.sha512, url: file.url, enabled: it.enabled,
-        });
+        const looked = await lookUpFile(w, provider, it.projectId, it.versionId, it.fileName);
+        if (typeof looked === 'string') { snap.skipped.push({ fileName: it.fileName, reason: looked }); continue; }
+        snap.mods.push({ ...looked, provider, projectId: it.projectId, versionId: it.versionId, name: titles[`${provider}:${it.projectId}`]?.name ?? fileStem(it.fileName), enabled: it.enabled });
       }
       onProgress?.(items.length, items.length);
       snap.configs = await readConfigs(w);
       return snap;
+    },
+
+    async exportMatches(instanceId, target, fileNames) {
+      if (!options.host) return notYet('finding identical files');
+      return options.host.exportMatch(workspaceOf(instanceId).workspaceId, target, fileNames);
+    },
+    async exportRestricted(_instanceId, projectIds) {
+      if (!options.host) return [];
+      const metas = await options.host.projectMeta(projectIds.map((projectId) => ({ provider: 'curseforge' as const, projectId })));
+      return metas.filter((m) => m.restricted).map((m) => ({ projectId: m.projectId, name: m.name, pageUrl: m.pageUrl }));
+    },
+    async prepareExport(instanceId, format, entries, onProgress) {
+      if (!has('mods.list')) return notYet('export');
+      const w = workspaceOf(instanceId);
+      const { items } = await rpc.paged<{ nextOffset: number | null; instanceRevision: string; total: number }, CoreInstalled>('mods.list', { physicalId: w.physicalId }, 'items');
+      const installed = new Map(items.map((it) => [it.fileName, it]));
+      const snap: WorkspaceSnapshot = { name: w.name, minecraftVersion: w.minecraftVersion, loader: { kind: w.loader.id, version: w.loader.version }, mods: [], skipped: [] };
+      let done = 0;
+      for (const e of entries) {
+        onProgress?.(done++, entries.length);
+        const it = installed.get(e.fileName);
+        if (!it) { snap.skipped.push({ fileName: e.fileName, reason: 'not-found' }); continue; }
+        if (e.kind === 'matched') {
+          const m = e.match;
+          snap.mods.push({ provider: e.provider, projectId: m.projectId, versionId: m.versionId, versionName: m.versionName, name: titles[`${it.provider ?? 'modrinth'}:${it.projectId}`]?.name ?? fileStem(it.fileName), fileName: m.remoteFileName || e.fileName, size: m.size, sha1: m.sha1, sha512: m.sha512, url: m.url, enabled: it.enabled });
+          continue;
+        }
+        const provider = e.kind === 'replaced' ? e.provider : it.provider ?? 'modrinth';
+        const projectId = e.kind === 'replaced' ? e.projectId : it.projectId;
+        const versionId = e.kind === 'replaced' ? e.versionId : it.versionId;
+        if (!projectId || !versionId) { snap.skipped.push({ fileName: e.fileName, reason: 'manual' }); continue; }
+        const name = e.kind === 'replaced' ? e.name : titles[`${provider}:${projectId}`]?.name ?? fileStem(it.fileName);
+        // A CurseForge pack lists only project and file IDs, so nothing needs asking.
+        if (format === 'curseforge' && provider === 'curseforge') {
+          snap.mods.push({ provider, projectId, versionId, versionName: it.versionNumber ?? versionId, name, fileName: it.fileName.replace(/\.disabled$/i, ''), size: Number(it.size), sha1: '', url: '', enabled: it.enabled });
+          continue;
+        }
+        if (!providerOk(provider)) { snap.skipped.push({ fileName: e.fileName, reason: 'provider' }); continue; }
+        const looked = await lookUpFile(w, provider, projectId, versionId, it.fileName);
+        if (typeof looked === 'string') { snap.skipped.push({ fileName: e.fileName, reason: looked }); continue; }
+        snap.mods.push({ ...looked, provider, projectId, versionId, name, enabled: it.enabled });
+      }
+      onProgress?.(entries.length, entries.length);
+      snap.configs = await readConfigs(w);
+      return snap;
+    },
+    async exportInstanceZip(instanceId, meta, onProgress) {
+      if (!options.host) return notYet('Instance zips');
+      const w = workspaceOf(instanceId);
+      const loader = w.loader.id === 'vanilla' ? '' : `${w.loader.id}-${w.loader.version}`;
+      return options.host.exportInstance(w.workspaceId, { fileName: `${meta.name}-${meta.version}.zip`, name: meta.name, version: meta.version, minecraft: w.minecraftVersion, loader }, onProgress);
     },
 
     async searchPacks(q) {
@@ -915,7 +982,31 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       setPackLink(w.workspaceId, { ...link, versionId: update.versionId, versionName: update.versionName, managed: items.map((m) => m.inventoryId).filter((k) => !own.has(k)) });
     },
     async shutdownHelper() {
-      if (has('core.shutdown')) await call('core.shutdown', {}).catch(() => undefined);
+      if (!has('core.shutdown')) return;
+      clearInterval(heartbeat);
+      // An unapplied plan keeps the helper running, and the next start would cancel it anyway.
+      await cancelPreparedPlans();
+      stopping = true;
+      // A read still in flight is enough for a refusal, so give those a moment to finish.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await call('core.shutdown', {});
+          return;
+        } catch (e) {
+          // Losing the pipe here just means it already stopped; only a refusal matters.
+          if (!(e instanceof BackendError) || e.code !== 'instance-busy') return;
+          if (attempt >= 6) {
+            stopping = false;
+            startHeartbeat();
+            throw e;
+          }
+          await sleep(poll);
+        }
+      }
+    },
+    resumeHelper() {
+      stopping = false;
+      startHeartbeat();
     },
     canAdopt: () => ext('workspaces.adopt', true),
     async adoptInstance(path) {

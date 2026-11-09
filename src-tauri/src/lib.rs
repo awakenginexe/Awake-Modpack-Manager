@@ -15,6 +15,7 @@ mod pipe;
 mod profile_access;
 mod providers;
 mod updater;
+mod export;
 
 /// Live test against a running Awake Launcher. Skipped unless AWAKE_MM_LIVE_PROFILE names the
 /// Launcher data folder: `AWAKE_MM_LIVE_PROFILE=C:\path cargo test -- --ignored live_`.
@@ -98,7 +99,10 @@ pub fn run() {
             providers::project_detail,
             providers::mod_updates,
             updater::update_check,
-            updater::update_install,
+            updater::update_download,
+            updater::update_run,
+            export::export_match,
+            export::export_instance,
             desktop::workspace_list,
             desktop::workspace_recycle,
             desktop::workspace_open,

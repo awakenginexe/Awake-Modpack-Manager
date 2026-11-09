@@ -12,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 const AREAS: [&str; 6] = ["config", "defaultconfigs", "kubejs", "scripts", "resourcepacks", "shaderpacks"];
 const LIST_MAX: usize = 20_000;
 
-fn is_uuid(id: &str) -> bool {
+pub fn is_uuid(id: &str) -> bool {
     id.len() == 36 && id.bytes().enumerate().all(|(i, b)| if [8, 13, 18, 23].contains(&i) { b == b'-' } else { b.is_ascii_hexdigit() })
 }
 

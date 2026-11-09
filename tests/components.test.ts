@@ -5,9 +5,11 @@ import SearchSelect from '../src/components/SearchSelect.vue';
 import VirtualList from '../src/components/VirtualList.vue';
 import ModsView from '../src/views/ModsView.vue';
 import ReviewView from '../src/views/ReviewView.vue';
+import type { InstanceSummary } from '../src/backend/contract';
 import { MockBackend } from '../src/backend/mock/MockBackend';
 import { appUpdate, canSelfUpdate, updateNow, workInProgress } from '../src/state/appUpdate';
 import { createSession, SessionKey, type Session } from '../src/state/session';
+import { dialog, settleDialog } from '../src/ui/desktop';
 
 async function mounted(component: typeof ModsView) {
   localStorage.clear();
@@ -122,6 +124,73 @@ describe('updating the app', () => {
     await updateNow(session);
     expect(appUpdate.dialogOpen).toBe(true);
     expect(appUpdate.installing).toBe(false);
+  });
+});
+
+describe('handing a pack between the Manager and the Launcher', () => {
+  type Hooks = { release?: Promise<void> };
+  async function managedPack(hooks: Hooks = {}) {
+    localStorage.clear();
+    const backend = new MockBackend({ stepMs: 1, latencyMs: 0 });
+    const session = createSession(backend, { pollMs: 5 });
+    await session.connect();
+    const [managed, launcher] = session.state.instances as InstanceSummary[];
+    const stopSharingInstance = vi.fn(async () => {
+      await hooks.release;
+      managed!.shared = false;
+    });
+    Object.assign(backend, { stopSharingInstance, shareInstance: vi.fn(async () => { await hooks.release; }) });
+    managed!.shared = true;
+    await session.selectInstance(managed!.id);
+    return { session, managed: managed!, launcher: launcher!, stopSharingInstance };
+  }
+  const stopButton = (w: ReturnType<typeof mount>) => w.findAll('.notice button').find((b) => b.text() === 'Stop managing here');
+
+  it('offers Stop managing on the Mods page of a managed pack, and asks first', async () => {
+    const { session, stopSharingInstance } = await managedPack();
+    const wrapper = mount(ModsView, { global: { provide: { [SessionKey as symbol]: session } } });
+    await flushPromises();
+    await stopButton(wrapper)!.trigger('click');
+    await flushPromises();
+    expect(dialog.value?.title).toContain('Stop managing');
+    expect(stopSharingInstance).not.toHaveBeenCalled();
+    settleDialog(true);
+    await flushPromises();
+    expect(stopSharingInstance).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it('does not offer it for a pack the Launcher still manages', async () => {
+    const { session, managed } = await managedPack();
+    managed.shared = false;
+    const wrapper = mount(ModsView, { global: { provide: { [SessionKey as symbol]: session } } });
+    await flushPromises();
+    expect(stopButton(wrapper)).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it('reports progress the whole time a pack is handed back', async () => {
+    let finish = () => {};
+    const release = new Promise<void>((r) => { finish = r; });
+    const { session, managed } = await managedPack({ release });
+    const running = session.stopSharingInstance(managed.id);
+    await flushPromises();
+    expect(session.state.instanceAccess).toMatchObject({ instanceId: managed.id, stage: 'releasing' });
+    finish();
+    await running;
+    expect(session.state.instanceAccess).toBeNull();
+  });
+
+  it('reports progress while connecting, and clears it when connecting fails', async () => {
+    let fail = (_: Error) => {};
+    const release = new Promise<void>((_, reject) => { fail = reject; });
+    const { session, launcher } = await managedPack({ release });
+    const running = session.shareInstance(launcher.id);
+    await flushPromises();
+    expect(session.state.instanceAccess).toMatchObject({ instanceId: launcher.id, stage: 'connecting' });
+    fail(new Error('no'));
+    await expect(running).rejects.toThrow('no');
+    expect(session.state.instanceAccess).toBeNull();
   });
 });
 

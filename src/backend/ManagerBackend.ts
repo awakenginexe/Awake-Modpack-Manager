@@ -1,8 +1,7 @@
 import type {
   Accepted, ImportInspection, LoaderKind, WorkspaceSnapshot, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
-  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution, VersionRef,
-} from './contract';
+  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution, VersionRef, WorkspaceExportItem, ExportFileMatch, ExportRestriction, InstanceZipResult } from './contract';
 import type { LauncherProfile } from './launcher/transport';
 import type { ProjectDetail } from './host';
 
@@ -102,8 +101,18 @@ export interface ManagerBackend {
   finishPackUpdate?(instanceId: string): Promise<void>;
   /** Author, statistics and links of a provider project, for its details panel. */
   projectDetail?(provider: ProviderId, projectId: string): Promise<ProjectDetail>;
-  /** Tell the helper to exit so an installer can replace its files. */
+  /** The identical file on `target`, for installed mods of the given names. No answer means no identical file. */
+  exportMatches?(instanceId: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]>;
+  /** Which of these CurseForge projects players must download by hand. */
+  exportRestricted?(instanceId: string, projectIds: string[]): Promise<ExportRestriction[]>;
+  /** Describe exactly these mods for a provider format, asking the provider only for what that format needs. */
+  prepareExport?(instanceId: string, format: 'mrpack' | 'curseforge', entries: WorkspaceExportItem[], onProgress?: (done: number, total: number) => void): Promise<WorkspaceSnapshot>;
+  /** Save the whole pack, mod files included, where the user chooses. Null when they cancel. */
+  exportInstanceZip?(instanceId: string, meta: { name: string; version: string }, onProgress?: (written: number, total: number) => void): Promise<InstanceZipResult | null>;
+  /** Stop the helper so an installer can replace its files, and keep it stopped. Rejects if it has work it must finish. */
   shutdownHelper?(): Promise<void>;
+  /** The update did not go ahead after all: the helper may start again. */
+  resumeHelper?(): void;
   /** Move non-mod project content to the Recycle Bin. */
   recycleContent?(instanceId: string, area: ContentArea, paths: string[]): Promise<void>;
   openFolder?(instanceId: string, area?: ContentArea): Promise<void>;

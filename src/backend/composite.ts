@@ -146,6 +146,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     },
     finishPackUpdate: async (id) => { await byInstance(id).backend.finishPackUpdate?.(id); },
     shutdownHelper: async () => { await helper.shutdownHelper?.(); },
+    resumeHelper: () => helper.resumeHelper?.(),
     projectDetail: (provider, projectId) => (helper.projectDetail ? helper.projectDetail(provider, projectId) : noHelper()),
     recycleContent: async (id, area, paths) => { await byInstance(id).backend.recycleContent?.(id, area, paths); },
     openFolder: async (id, area) => { await byInstance(id).backend.openFolder?.(id, area); },
@@ -219,6 +220,10 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
       return plan;
     },
     discardImport: (token) => (helper.discardImport ? helper.discardImport(token) : noHelper()),
+    exportMatches: (id, target, names) => { const b = byInstance(id).backend; return b.exportMatches ? b.exportMatches(id, target, names) : noHelper(); },
+    exportRestricted: (id, ids) => { const b = byInstance(id).backend; return b.exportRestricted ? b.exportRestricted(id, ids) : noHelper(); },
+    prepareExport: (id, format, entries, onProgress) => { const b = byInstance(id).backend; return b.prepareExport ? b.prepareExport(id, format, entries, onProgress) : noHelper(); },
+    exportInstanceZip: (id, meta, onProgress) => { const b = byInstance(id).backend; return b.exportInstanceZip ? b.exportInstanceZip(id, meta, onProgress) : noHelper(); },
     snapshotWorkspace: (id, onProgress) => { const b = byInstance(id).backend; return b.snapshotWorkspace ? b.snapshotWorkspace(id, onProgress) : noHelper(); },
   };
   return backend;

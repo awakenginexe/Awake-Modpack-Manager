@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
-import { Boxes, Download, FolderKanban, FolderOpen, History, LayoutGrid, ListChecks, PackageSearch, Search, Settings, Upload } from '@lucide/vue';
+import { Boxes, Download, FolderKanban, FolderOpen, History, LayoutGrid, ListChecks, Loader, PackageSearch, Search, Settings, Upload } from '@lucide/vue';
 import Avatar from './components/Avatar.vue';
 import { isSettled } from './domain/operation';
 import { t, type MessageKey } from './i18n';
@@ -30,6 +30,7 @@ const session = useSession();
 /** Dev-only protocol fixture (?mock=core): label it like demo data. */
 const devFixture = import.meta.env.DEV && location.search.includes('mock=core');
 const { state } = session;
+const accessMessage = { connecting: 'shareWorking', loading: 'shareLoading', releasing: 'shareReleasing' } as const;
 // Start on the library; jump to Mods only once the remembered instance has actually loaded.
 const view = ref<ViewId>('library');
 let restored = false;
@@ -234,6 +235,10 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
       <div v-if="(session.backend.kind === 'mock' || devFixture) && view !== 'projects'" class="mock-banner" role="note">
         <span class="dot"></span>{{ t('connMockHint') }}
       </div>
+      <div v-if="state.instanceAccess" class="notice access-status" role="status">
+        <Loader :size="18" class="access-spin" />
+        <span class="grow">{{ t(accessMessage[state.instanceAccess.stage], { name: state.instanceAccess.name }) }}<span class="access-bar" aria-hidden="true"></span></span>
+      </div>
       <Transition name="page" :mode="motionOff ? 'default' : 'out-in'" :css="!motionOff">
         <component
           :is="shownView" v-if="shownView" :key="viewKey"
@@ -300,6 +305,13 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
 .conn-text { overflow: hidden; text-overflow: ellipsis; }
 .stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 .stage > :deep(.view), .stage > .empty { flex: 1; min-height: 0; }
+.access-status { flex-shrink: 0; }
+.access-spin { animation: access-spin 1.2s linear infinite; }
+@keyframes access-spin { to { transform: rotate(360deg); } }
+.access-bar { display: block; position: relative; height: 3px; margin-top: 7px; border-radius: var(--radius-pill); background: var(--surface-interactive); overflow: hidden; }
+.access-bar::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 34%; border-radius: inherit; background: var(--accent-gradient); animation: access-slide 1.4s var(--ease) infinite; }
+@keyframes access-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+@media (prefers-reduced-motion: reduce) { .access-spin, .access-bar::after { animation: none; } .access-bar::after { width: 100%; opacity: 0.6; } }
 .mock-banner { display: inline-flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #fcd34d; padding: 4px 12px; border-radius: var(--radius-pill); background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); align-self: flex-start; }
 
 @media (max-width: 900px) {

@@ -1,3 +1,4 @@
+import type { ExportFileMatch, ExportRestriction, InstanceZipResult, ProviderId, WorkspaceExportItem, WorkspaceSnapshot } from '../contract';
 import {
   ALL_CAPABILITIES, BackendError, TERMINAL_STATES,
   type Accepted, type ApplyRequest, type Capability, type ContentArea, type ContentEntry, type CreateInstanceRequest,
@@ -471,6 +472,22 @@ export class MockBackend implements ManagerBackend {
     });
   }
 
+  async exportMatches(_instanceId: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]> {
+    await this.delay();
+    return fileNames.slice(0, Math.ceil(fileNames.length / 2)).map((fileName, i) => ({ fileName, projectId: `demo-${target}-${i}`, versionId: `demo-v${i}`, versionName: '1.0.0', remoteFileName: fileName, size: 1000, sha1: 'a'.repeat(40), sha512: 'b'.repeat(128), url: 'https://cdn.modrinth.com/demo.jar' }));
+  }
+  async exportRestricted(_instanceId: string, projectIds: string[]): Promise<ExportRestriction[]> {
+    return projectIds.slice(0, 2).map((projectId) => ({ projectId, name: `Restricted demo mod ${projectId}`, pageUrl: 'https://www.curseforge.com/minecraft/mc-mods' }));
+  }
+  async prepareExport(instanceId: string, _format: 'mrpack' | 'curseforge', entries: WorkspaceExportItem[]): Promise<WorkspaceSnapshot> {
+    await this.delay();
+    const inst = this.instances.find((i) => i.id === instanceId)!;
+    return { name: inst.name, minecraftVersion: inst.minecraftVersion ?? '1.21.1', loader: { kind: inst.loader?.kind ?? 'fabric', version: inst.loader?.version ?? '0.16.9' }, skipped: [], mods: entries.map((e, i) => ({ provider: e.kind === 'installed' ? 'modrinth' as const : e.provider, projectId: `demo-${i}`, versionId: `demo-v${i}`, versionName: '1.0.0', name: e.fileName, fileName: e.fileName, size: 1000, sha1: 'a'.repeat(40), sha512: 'b'.repeat(128), url: 'https://cdn.modrinth.com/demo.jar', enabled: true })) };
+  }
+  async exportInstanceZip(): Promise<InstanceZipResult> {
+    await this.delay();
+    return { path: 'C:/Demo/Export.zip', files: 412, bytes: 734_003_200 };
+  }
   checkExport(instanceId: string, format: ExportFormat): Promise<ExportReport> {
     return this.call(() => ({
       format,

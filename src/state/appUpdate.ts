@@ -2,6 +2,7 @@ import { computed, reactive } from 'vue';
 import { isDesktopHost } from '../backend/launcher/transport';
 import { hostInvoke } from '../backend/host';
 import type { ManagerBackend } from '../backend/ManagerBackend';
+import { t } from '../i18n';
 import { includePrereleases } from './prefs';
 import type { Session } from './session';
 
@@ -75,13 +76,18 @@ export async function installAppUpdate(backend: ManagerBackend) {
   appUpdate.progress = null;
   const { listen } = await import('@tauri-apps/api/event');
   const stop = await listen<{ done: number; total: number }>('update-progress', (e) => { appUpdate.progress = e.payload; });
+  let helperStopped = false;
   try {
-    // The installer cannot replace a running helper's files.
-    await backend.shutdownHelper?.();
-    await hostInvoke('update_install', { tag: release.tag });
+    await hostInvoke('update_download', { tag: release.tag });
+    // The installer cannot replace a running helper's files. Stopping it last means a failed
+    // download leaves it running, and nothing can restart it while the download runs.
+    try { await backend.shutdownHelper?.(); } catch { throw new Error(t('updateHelperBusy')); }
+    helperStopped = true;
+    await hostInvoke('update_run');
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow().destroy();
   } catch (e) {
+    if (helperStopped) backend.resumeHelper?.();
     appUpdate.installError = message(e);
     appUpdate.installing = false;
   } finally {

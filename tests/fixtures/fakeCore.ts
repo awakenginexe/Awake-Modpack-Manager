@@ -156,6 +156,8 @@ export class FakeCore implements PipeTransport {
     return this.seq;
   }
   async close(id: number) { this.conns.delete(id); }
+  shutdownBusy = false;
+  restrictedProjects = new Set<string>();
   crash() { this.conns.clear(); this.sessionId = uuid(`session-${++this.seq}`); }
 
   async request(id: number, body: string): Promise<string> {
@@ -368,6 +370,7 @@ export class FakeCore implements PipeTransport {
         return { path: p.path, instanceRevision: e.ws.instanceRevision, offset: String(off), size: String(all.length), bytesBase64: btoa(Array.from(part, (b) => String.fromCharCode(b)).join('')), eof: off + part.length >= all.length, sha256: sha256Hex(text) };
       }
       case 'providers.versions': {
+        if (this.restrictedProjects.has(String(p.projectId))) throw this.err('PROVIDER_RESTRICTED', 'CurseForge project does not allow third-party distribution.');
         const e = CATALOG[String(p.projectId)];
         if (!e) throw this.err('NOT_FOUND');
         return { versions: e.versions, total: e.versions.length, nextOffset: null };
@@ -442,6 +445,9 @@ export class FakeCore implements PipeTransport {
         const { slice, total, nextOffset } = this.page([...this.ops.values()].map((o) => o.op), p);
         return { operations: slice, total, nextOffset };
       }
+      case 'core.shutdown':
+        if (this.shutdownBusy) throw this.err('BUSY');
+        return { shuttingDown: true };
       case 'operations.cancel': {
         const o = this.ops.get(String(p.operationId));
         if (!o) throw this.err('NOT_FOUND');

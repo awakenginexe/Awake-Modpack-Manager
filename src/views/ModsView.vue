@@ -17,7 +17,7 @@ import { emptySelection, selectAll, selectRange, toggle } from '../domain/select
 import { formatDate, formatNumber, t, type MessageKey } from '../i18n';
 import { compactRows } from '../state/prefs';
 import { asError, useSession } from '../state/session';
-import { confirmShare } from '../ui/shareInstance';
+import { confirmShare, confirmStopShare } from '../ui/shareInstance';
 import { formatBytes } from '../ui/labels';
 import type { ViewId } from '../App.vue';
 
@@ -25,13 +25,17 @@ const emit = defineEmits<{ navigate: [ViewId] }>();
 const session = useSession();
 const { state, inventory, selection, pinned } = session;
 
-const sharing = ref(false);
 async function turnOnEditing() {
   const inst = session.instance.value;
-  if (!inst) return;
-  sharing.value = true;
-  try { if (await confirmShare(inst.name)) { await session.shareInstance(inst.id); toast(t('shareDone', { name: inst.name }), 'ok'); } }
-  catch (e) { toast(asError(e).message, 'error'); } finally { sharing.value = false; }
+  if (!inst || !await confirmShare(inst.name)) return;
+  try { await session.shareInstance(inst.id); toast(t('shareDone', { name: inst.name }), 'ok'); }
+  catch (e) { toast(asError(e).message, 'error'); }
+}
+async function stopManaging() {
+  const inst = session.instance.value;
+  if (!inst || !await confirmStopShare(inst.name)) return;
+  try { await session.stopSharingInstance(inst.id); toast(t('shareStopped', { name: inst.name }), 'ok'); }
+  catch (e) { toast(asError(e).message, 'error'); }
 }
 
 const filter = ref(emptyFilter());
@@ -210,7 +214,11 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
     </div>
     <div v-else-if="session.instanceSource.value === 'launcher' && !session.can('plan.apply')" class="notice" role="note">
       <Lock :size="18" /><span class="grow">{{ session.canShare.value ? t('shareNotice') : t('readOnlyNotice') }}</span>
-      <button v-if="session.canShare.value && session.instance.value" class="btn btn-small" type="button" :disabled="sharing" @click="turnOnEditing">{{ t('shareAction') }}</button>
+      <button v-if="session.canShare.value && session.instance.value" class="btn btn-small" type="button" :disabled="!!state.instanceAccess" @click="turnOnEditing">{{ state.instanceAccess ? t('shareBusyShort') : t('shareAction') }}</button>
+    </div>
+    <div v-else-if="session.instance.value?.shared" class="notice" role="note">
+      <Info :size="18" /><span class="grow">{{ t('shareManagedNotice') }}</span>
+      <button class="btn btn-small" type="button" :disabled="!!state.instanceAccess" @click="stopManaging">{{ state.instanceAccess ? t('shareBusyShort') : t('shareStopAction') }}</button>
     </div>
     <div v-else-if="session.instanceSource.value === 'helper' && !session.can('plan.apply')" class="notice" role="note">
       <Lock :size="18" /><span class="grow">{{ t('helperPendingNotice') }}</span>

@@ -31,6 +31,8 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     instancesLoading: false,
     instanceId: load<string | null>('instance', null),
     inventoryLoading: false,
+    /** A Launcher instance being connected or handed back: both can take a while on a large pack. */
+    instanceAccess: null as { instanceId: string; name: string; stage: 'connecting' | 'loading' | 'releasing' } | null,
     inventoryError: null as BackendError | null,
     /** Paged loading progress for large inventories. */
     inventoryProgress: null as { loaded: number; total: number } | null,
@@ -510,18 +512,37 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
 
   /** Connect a Launcher instance so its mods are changed here, then keep working on it under its new identity. */
   async function shareInstance(id: string) {
-    const path = state.instances.find((i) => i.id === id)?.path;
-    await backend.shareInstance!(id);
-    await refreshInstances();
-    const connected = state.instances.find((i) => i.shared && i.path === path);
-    if (connected) await selectInstance(connected.id);
-    return connected ?? null;
+    const inst = state.instances.find((i) => i.id === id);
+    const name = inst?.name ?? '';
+    state.instanceAccess = { instanceId: id, name, stage: 'connecting' };
+    try {
+      await backend.shareInstance!(id);
+      await refreshInstances();
+      const connected = state.instances.find((i) => i.shared && i.path === inst?.path);
+      if (connected) {
+        state.instanceAccess = { instanceId: connected.id, name, stage: 'loading' };
+        await selectInstance(connected.id);
+      }
+      return connected ?? null;
+    } finally {
+      state.instanceAccess = null;
+    }
   }
   async function stopSharingInstance(id: string) {
     if (drafts.value[id]?.changes.length) throw new BackendError('rejected', 'This pack has unreviewed changes. Review or discard them first.');
-    await backend.stopSharingInstance!(id);
-    if (state.instanceId === id) { state.instanceId = null; inventory.value = null; selection.value = emptySelection(); resetReview(); }
-    await refreshInstances();
+    const inst = state.instances.find((i) => i.id === id);
+    const wasOpen = state.instanceId === id;
+    state.instanceAccess = { instanceId: id, name: inst?.name ?? '', stage: 'releasing' };
+    try {
+      await backend.stopSharingInstance!(id);
+      if (wasOpen) { state.instanceId = null; inventory.value = null; selection.value = emptySelection(); resetReview(); }
+      await refreshInstances();
+      // Stay on the same pack, now under the Launcher, so the Mods page does not go empty.
+      const returned = wasOpen ? state.instances.find((i) => !i.shared && i.path === inst?.path) : undefined;
+      if (returned) await selectInstance(returned.id);
+    } finally {
+      state.instanceAccess = null;
+    }
   }
 
   /** Roll back an interrupted change, as the coordinator's recovery allows. Never a direct file repair. */
