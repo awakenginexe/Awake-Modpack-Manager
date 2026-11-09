@@ -2,14 +2,14 @@
 import { computed } from 'vue';
 import { CircleAlert, Download, ExternalLink } from '@lucide/vue';
 import { formatDate, t } from '../i18n';
-import { appUpdate, installAppUpdate, openExternal } from '../state/appUpdate';
+import { appUpdate, canSelfUpdate, installAppUpdate, openExternal, workInProgress } from '../state/appUpdate';
 import { useSession } from '../state/session';
 import { formatBytes } from '../ui/labels';
 
 const session = useSession();
 const release = computed(() => appUpdate.info?.latest ?? null);
 const percent = computed(() => (appUpdate.progress?.total ? Math.round((appUpdate.progress.done / appUpdate.progress.total) * 100) : 0));
-const busyOps = computed(() => session.state.operations.some((o) => !['completed', 'failed', 'cancelled', 'rolled_back', 'prepared'].includes(o.state)));
+const busyOps = computed(() => workInProgress(session));
 </script>
 
 <template>
@@ -33,7 +33,7 @@ const busyOps = computed(() => session.state.operations.some((o) => !['completed
       <footer>
         <button class="btn" type="button" :disabled="appUpdate.installing" @click="appUpdate.dialogOpen = false">{{ t('updateLater') }}</button>
         <button class="btn" type="button" @click="openExternal(release.url)"><ExternalLink :size="15" />{{ t('updateViewRelease') }}</button>
-        <button v-if="appUpdate.info!.canInstall && release.installerSize" class="btn btn-primary" type="button" :disabled="appUpdate.installing || busyOps" @click="installAppUpdate(session.backend)"><Download :size="15" />{{ t('updateInstall') }}</button>
+        <button v-if="canSelfUpdate" class="btn btn-primary" type="button" :disabled="appUpdate.installing || busyOps" @click="installAppUpdate(session.backend)"><Download :size="15" />{{ t('updateInstall') }}</button>
       </footer>
     </section>
   </div>

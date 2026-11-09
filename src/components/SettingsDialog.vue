@@ -5,7 +5,7 @@ import { ALL_CAPABILITIES } from '../backend/contract';
 import ProviderLogo from './ProviderLogo.vue';
 import { locale, localeNames, t, type Locale, type MessageKey } from '../i18n';
 import { addedFolders, compactRows, dataSource, includePrereleases, preferredProfile, reducedMotion, systemReducedMotion, type DataSource } from '../state/prefs';
-import { appUpdate, checkAppUpdate, updateAvailable } from '../state/appUpdate';
+import { appUpdate, canSelfUpdate, checkAppUpdate, updateAvailable, updateNow } from '../state/appUpdate';
 import { isDesktopHost } from '../backend/launcher/transport';
 import type { LauncherProfile } from '../backend/launcher/transport';
 import { useSession } from '../state/session';
@@ -259,7 +259,8 @@ async function removeFolder(folder: string) {
                   <template v-else-if="updateAvailable">{{ t('titleUpdate', { version: appUpdate.info!.latest!.version }) }}</template>
                   <template v-else-if="appUpdate.checkedAt">{{ t('appUpToDate') }}</template>
                 </span>
-                <button v-if="updateAvailable" class="btn btn-small btn-primary" type="button" @click="appUpdate.dialogOpen = true">{{ t('updateDetails') }}</button>
+                <button v-if="updateAvailable" class="btn btn-small btn-primary" type="button" :disabled="appUpdate.installing" @click="updateNow(session)">{{ t(canSelfUpdate ? 'updateNow' : 'updateViewRelease') }}</button>
+                <button v-if="updateAvailable" class="btn btn-small" type="button" @click="appUpdate.dialogOpen = true">{{ t('updateDetails') }}</button>
                 <button class="btn btn-small" type="button" :disabled="appUpdate.checking" @click="checkAppUpdate()">{{ t('updatesCheck') }}</button>
               </div>
               <label class="check update-pre"><input v-model="includePrereleases" type="checkbox" @change="checkAppUpdate()" />{{ t('updatesIncludePre') }}</label>

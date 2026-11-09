@@ -5,6 +5,7 @@ import type { InstanceSummary, LoaderKind, PackVersion, VersionCatalog } from '.
 import { confirmDialog, copyText, openMenu, promptDialog, separator, toast, type MenuItem } from '../ui/desktop';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
+import SearchSelect from '../components/SearchSelect.vue';
 import { formatNumber, t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
 import { confirmShare } from '../ui/shareInstance';
@@ -50,6 +51,7 @@ watch(showCreate, (open) => { if (open) void loadCatalog(); });
 watch(() => [form.value.minecraftVersion, form.value.loader], () => { if (showCreate.value && catalog.value) void loadCatalog(); });
 const minecraftChoices = computed(() => catalog.value?.minecraftVersions ?? ['1.21.1', '1.20.1', '1.19.2', '1.18.2']);
 const loaderChoices = computed(() => catalog.value?.loaders ?? ALL_LOADERS);
+const loaderOptions = computed(() => loaderChoices.value.map((value) => ({ value, label: loaderLabel(value) })));
 const needsLoaderVersion = computed(() => !!catalog.value && form.value.loader !== 'vanilla');
 /** The helper validated this pair and has no loader build for it: say so instead of an empty list. */
 const incompatible = computed(() => needsLoaderVersion.value && !catalogLoading.value && !catalog.value!.loaderVersions.length);
@@ -372,19 +374,13 @@ async function create() {
           <div class="dialog-body">
             <label class="field"><span>{{ t('createName') }}</span><input v-model="form.name" class="input" required autofocus /></label>
             <label class="field"><span>{{ t('createVersion') }}</span>
-              <select v-model="form.minecraftVersion" class="select" :disabled="catalogLoading && !catalog">
-                <option v-for="v in minecraftChoices" :key="v" :value="v">{{ v }}</option>
-              </select>
+              <SearchSelect v-model="form.minecraftVersion" :options="minecraftChoices" :disabled="catalogLoading && !catalog" :aria-label="t('createVersion')" />
             </label>
             <label class="field"><span>{{ t('createLoader') }}</span>
-              <select v-model="form.loader" class="select">
-                <option v-for="l in loaderChoices" :key="l" :value="l">{{ loaderLabel(l) }}</option>
-              </select>
+              <SearchSelect v-model="form.loader" :options="loaderOptions" :searchable="false" :aria-label="t('createLoader')" />
             </label>
             <label v-if="needsLoaderVersion" class="field"><span>{{ t('createLoaderVersion') }}</span>
-              <select v-model="form.loaderVersion" class="select" :disabled="catalogLoading">
-                <option v-for="v in catalog!.loaderVersions" :key="v" :value="v">{{ v }}</option>
-              </select>
+              <SearchSelect v-model="form.loaderVersion" :options="catalog!.loaderVersions" :disabled="catalogLoading" :aria-label="t('createLoaderVersion')" />
             </label>
             <p v-if="incompatible" class="notice warn" role="alert"><TriangleAlert :size="18" />{{ t('createIncompatible', { loader: loaderLabel(form.loader), version: form.minecraftVersion }) }}</p>
             <p v-if="catalogLoading" class="muted small" role="status"><Loader :size="14" class="spin" /> {{ t('catalogLoading') }}</p>

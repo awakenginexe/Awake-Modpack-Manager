@@ -1,11 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { h } from 'vue';
+import SearchSelect from '../src/components/SearchSelect.vue';
 import VirtualList from '../src/components/VirtualList.vue';
 import ModsView from '../src/views/ModsView.vue';
 import ReviewView from '../src/views/ReviewView.vue';
 import { MockBackend } from '../src/backend/mock/MockBackend';
-import { createSession, SessionKey } from '../src/state/session';
+import { appUpdate, canSelfUpdate, updateNow, workInProgress } from '../src/state/appUpdate';
+import { createSession, SessionKey, type Session } from '../src/state/session';
 
 async function mounted(component: typeof ModsView) {
   localStorage.clear();
@@ -27,6 +29,99 @@ describe('VirtualList', () => {
     const rendered = wrapper.findAll('.cell').length;
     expect(rendered).toBeGreaterThan(0);
     expect(rendered).toBeLessThan(40);
+  });
+});
+
+describe('SearchSelect', () => {
+  const VERSIONS = ['1.21.1', '1.20.6', '1.20.1', '1.20', '1.19.2', '1.12.0'];
+  function picker(props: Record<string, unknown> = {}, modelValue = '1.21.1') {
+    const updates: string[] = [];
+    const wrapper = mount(SearchSelect<string>, {
+      attachTo: document.body,
+      props: { options: VERSIONS, modelValue, 'onUpdate:modelValue': (v: string) => { updates.push(v); }, ...props },
+    });
+    const search = () => document.body.querySelector<HTMLInputElement>('.picker-search input')!;
+    const rows = () => [...document.body.querySelectorAll('.option .label')].map((e) => e.textContent);
+    const type = async (text: string) => { search().value = text; search().dispatchEvent(new Event('input')); await flushPromises(); };
+    const key = async (k: string) => { (search() ?? document.body.querySelector('.picker-panel')).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); await flushPromises(); };
+    return { wrapper, updates, search, rows, type, key };
+  }
+
+  it('narrows a long list to what was typed, exact match first', async () => {
+    const p = picker();
+    await p.wrapper.find('button').trigger('click');
+    await flushPromises();
+    expect(p.rows()).toEqual(VERSIONS);
+    await p.type('1.20');
+    expect(p.rows()).toEqual(['1.20', '1.20.6', '1.20.1']);
+    p.wrapper.unmount();
+  });
+
+  it('picks with the keyboard and closes', async () => {
+    const p = picker();
+    await p.wrapper.find('button').trigger('click');
+    await flushPromises();
+    await p.type('1.20');
+    await p.key('ArrowDown');
+    await p.key('ArrowDown');
+    await p.key('Enter');
+    expect(p.updates).toEqual(['1.20.1']);
+    expect(document.body.querySelector('.picker-panel')).toBeNull();
+    p.wrapper.unmount();
+  });
+
+  it('only offers typed text when allowed, and says when nothing matches', async () => {
+    const strict = picker();
+    await strict.wrapper.find('button').trigger('click');
+    await flushPromises();
+    await strict.type('25w14a');
+    expect(strict.rows()).toEqual([]);
+    expect(document.body.querySelector('.no-match')?.textContent).toContain('25w14a');
+    strict.wrapper.unmount();
+
+    const custom = picker({ allowCustom: true });
+    await custom.wrapper.find('button').trigger('click');
+    await flushPromises();
+    await custom.type('25w14a');
+    await custom.key('Enter');
+    expect(custom.updates).toEqual(['25w14a']);
+    custom.wrapper.unmount();
+  });
+
+  it('closes on an outside press without changing the value', async () => {
+    const p = picker();
+    await p.wrapper.find('button').trigger('click');
+    await flushPromises();
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await flushPromises();
+    expect(document.body.querySelector('.picker-panel')).toBeNull();
+    expect(p.updates).toEqual([]);
+    p.wrapper.unmount();
+  });
+});
+
+describe('updating the app', () => {
+  const release = { tag: 'v9.0.0', version: '9.0.0', name: '', notes: '', url: 'https://example.test/release', publishedAt: '', prerelease: false, installerSize: 10 };
+  const sessionWith = (states: string[]) => ({ state: { operations: states.map((state) => ({ state })) }, backend: {} }) as unknown as Session;
+  afterEach(() => { appUpdate.info = null; appUpdate.dialogOpen = false; appUpdate.installing = false; vi.restoreAllMocks(); });
+
+  it('sends a portable copy straight to the release page', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    appUpdate.info = { current: '1.0.0', latest: release, updateAvailable: true, canInstall: false };
+    expect(canSelfUpdate.value).toBe(false);
+    await updateNow(sessionWith([]));
+    expect(open).toHaveBeenCalledOnce();
+    expect(appUpdate.dialogOpen).toBe(false);
+  });
+
+  it('waits for running work and explains why in the dialog', async () => {
+    appUpdate.info = { current: '1.0.0', latest: release, updateAvailable: true, canInstall: true };
+    expect(canSelfUpdate.value).toBe(true);
+    const session = sessionWith(['running']);
+    expect(workInProgress(session)).toBe(true);
+    await updateNow(session);
+    expect(appUpdate.dialogOpen).toBe(true);
+    expect(appUpdate.installing).toBe(false);
   });
 });
 

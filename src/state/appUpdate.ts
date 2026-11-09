@@ -3,6 +3,7 @@ import { isDesktopHost } from '../backend/launcher/transport';
 import { hostInvoke } from '../backend/host';
 import type { ManagerBackend } from '../backend/ManagerBackend';
 import { includePrereleases } from './prefs';
+import type { Session } from './session';
 
 export interface AppRelease { tag: string; version: string; name: string; notes: string; url: string; publishedAt: string; prerelease: boolean; installerSize: number | null }
 export interface AppUpdateInfo { current: string; latest: AppRelease | null; updateAvailable: boolean; canInstall: boolean }
@@ -18,6 +19,8 @@ export const appUpdate = reactive({
   dialogOpen: false,
 });
 export const updateAvailable = computed(() => !!appUpdate.info?.updateAvailable);
+/** An installed copy with a published installer updates itself; a portable copy goes to the release page. */
+export const canSelfUpdate = computed(() => !!appUpdate.info?.canInstall && !!appUpdate.info.latest?.installerSize);
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -44,6 +47,23 @@ export function startUpdateChecks() {
 export async function openExternal(url: string) {
   if (isDesktopHost()) await hostInvoke('open_url', { url });
   else window.open(url, '_blank', 'noopener');
+}
+
+const FINISHED_STATES = ['completed', 'failed', 'cancelled', 'rolled_back', 'prepared'];
+export function workInProgress(session: Session) {
+  return session.state.operations.some((o) => !FINISHED_STATES.includes(o.state));
+}
+
+/** What every update button does. The dialog stays up to show progress, an error, or the work that has to finish first. */
+export async function updateNow(session: Session) {
+  const release = appUpdate.info?.latest;
+  if (!release || appUpdate.installing) return;
+  if (!canSelfUpdate.value) {
+    await openExternal(release.url);
+    return;
+  }
+  appUpdate.dialogOpen = true;
+  if (!workInProgress(session)) await installAppUpdate(session.backend);
 }
 
 /** Verify and start the installer, then close. The installer reopens the Manager when it finishes. */
