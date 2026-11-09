@@ -1,14 +1,14 @@
 {
   "comment": "The only native helper package a release may ship. stage-helper.mjs and the desktop host refuse anything else. Re-pin when a new helper is delivered.",
   "sourceRepository": "https://github.com/awakenginexe/Awake-Launcher",
-  "sourceBranch": "release/3.2.0",
-  "sourceCommit": "8787e06f934c6f792d102d7ab885d8afffdccb12",
-  "implementationVersion": "0.4.0",
+  "sourceBranch": "release/3.2.1",
+  "sourceCommit": "1ae3218cdd8b1ddd67e4e356638bc127a22d52b0",
+  "implementationVersion": "0.4.1",
   "extension": "manager.v0.2.1",
-  "exeSha256": "4e0c761a9550d3236ace200d38676c729075d509f9d828577d5d527b5cfe9a6b",
-  "sumsSha256": "f10ff14db549ccbabba267794c882330e3711561208c479498c2a2a0fdcfe319",
-  "archiveSha256": "76cb2078d065efeb0a80b230cbed794d04ac2079ee1cd70973b0b56a616ab7b5",
-  "deliveryCommit": "108e1c3389409cbe3038ce743acf76e85d0db6af",
-  "sourceArchive": "awake-core-source-8787e06f934c.zip",
-  "sourceArchiveSha256": "55e57c82b76ee026350817647d1be32838d77f8db196de9b4404f87956f76c2b"
+  "exeSha256": "330b04a3d92407b3b20e7c9349c9d6bf3cb8ec6a79360b9645cf6936b83ca7c3",
+  "sumsSha256": "ae3db0ed62d3809b7d6538cbd83dc3d9b0afe036e27073ea4dd98ea0cb618eeb",
+  "archiveSha256": "dd70b9c0ddae4f1b95d0358ebf47ed9526da3aafd6b7c8fbee916598188cd555",
+  "deliveryCommit": "0d9b204420c73e22454d8d6e145eabdd283fafff",
+  "sourceArchive": "awake-core-source-1ae3218cdd8b.zip",
+  "sourceArchiveSha256": "df3db5f64fba207d469e7f87db01b757d6d5a867d74f1b8d7200bc5c7ab68b58"
 }

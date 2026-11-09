@@ -5,7 +5,7 @@ import schema from './core.schema.json';
  *
  * Source of truth: Awake Launcher docs/modpack-manager/{core-protocol.md, core.schema.json} at
  * commit 8787e06f934c6f792d102d7ab885d8afffdccb12 (branch release/3.2.0, helper
- * implementation 0.4.0, opt-in hello extensions `manager.v0.2.1` then `manager.v0.2`), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
+ * implementation 0.4.1, opt-in hello extensions `manager.v0.2.1` then `manager.v0.2`), copied verbatim to ./core.schema.json. Every request the Manager sends and every result it
  * accepts is checked against that schema, so the client can neither send nor trust anything the
  * contract does not define. Re-pin by replacing the JSON file and this commit.
  */
