@@ -231,6 +231,35 @@ describe('HelperClient protocol 2.0 (fixture)', () => {
     expect(s.state).toBe('rolled_back');
   });
 
+  it('cancels a checked plan when its draft is discarded or emptied', async () => {
+    const add = { kind: 'install' as const, provider: 'modrinth' as const, projectId: 'fabricapi', name: 'Fabric API', versionId: 'fapiV1' };
+    const cancelled = (id: string) => core.log.some((l) => l.method === 'operations.cancel' && l.params.operationId === id);
+    const session = await standalone();
+    session.setDraft(addChange(session.draft.value!, add));
+    await session.validate();
+    const discarded = session.review.plan!.planId;
+    session.discardDraft();
+    await wait();
+    expect(cancelled(discarded)).toBe(true);
+
+    session.setDraft(addChange(session.draft.value!, add));
+    await session.validate();
+    const emptied = session.review.plan!.planId;
+    session.setDraft({ ...session.draft.value!, changes: [] });
+    await wait();
+    expect(cancelled(emptied)).toBe(true);
+  });
+
+  it('leaves a checked plan alone while its draft still has changes', async () => {
+    const session = await standalone();
+    session.setDraft(addChange(session.draft.value!, { kind: 'install', provider: 'modrinth', projectId: 'fabricapi', name: 'Fabric API', versionId: 'fapiV1' }));
+    await session.validate();
+    const before = core.log.filter((l) => l.method === 'operations.cancel').length;
+    session.setDraft(addChange(session.draft.value!, { kind: 'install', provider: 'modrinth', projectId: 'lithium', name: 'Lithium', versionId: 'litV1' }));
+    await wait();
+    expect(core.log.filter((l) => l.method === 'operations.cancel').length).toBe(before);
+  });
+
   it('cancels a superseded prepared plan instead of leaving it pending', async () => {
     const session = await standalone();
     session.setDraft(addChange(session.draft.value!, { kind: 'install', provider: 'modrinth', projectId: 'fabricapi', name: 'Fabric API', versionId: 'fapiV1' }));

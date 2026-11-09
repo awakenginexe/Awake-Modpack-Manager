@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
 import { Boxes, Download, FolderKanban, FolderOpen, History, LayoutGrid, ListChecks, Loader, PackageSearch, Search, Settings, Upload } from '@lucide/vue';
 import Avatar from './components/Avatar.vue';
-import { isSettled } from './domain/operation';
+import { isRunning } from './domain/operation';
 import { t, type MessageKey } from './i18n';
 import SettingsDialog from './components/SettingsDialog.vue';
 import { reducedMotion, systemReducedMotion } from './state/prefs';
@@ -58,7 +58,7 @@ const instanceNav: NavItem[] = [
 ];
 
 const draftCount = computed(() => session.draft.value?.changes.length ?? 0);
-const activeOps = computed(() => state.operations.filter((o) => !isSettled(o)).length);
+const activeOps = computed(() => state.operations.filter(isRunning).length);
 const connectionText = computed(() => {
   if (state.connectError?.code === 'unsupported') return t('connUnsupported');
   if (state.waitingForLauncher) return t('launcherNotRunning');

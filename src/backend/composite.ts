@@ -147,6 +147,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     finishPackUpdate: async (id) => { await byInstance(id).backend.finishPackUpdate?.(id); },
     shutdownHelper: async () => { await helper.shutdownHelper?.(); },
     resumeHelper: () => helper.resumeHelper?.(),
+    discardPlan: async (id) => { await byInstance(id).backend.discardPlan?.(id); },
     projectDetail: (provider, projectId) => (helper.projectDetail ? helper.projectDetail(provider, projectId) : noHelper()),
     recycleContent: async (id, area, paths) => { await byInstance(id).backend.recycleContent?.(id, area, paths); },
     openFolder: async (id, area) => { await byInstance(id).backend.openFolder?.(id, area); },

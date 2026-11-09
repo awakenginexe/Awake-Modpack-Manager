@@ -109,6 +109,8 @@ export interface ManagerBackend {
   prepareExport?(instanceId: string, format: 'mrpack' | 'curseforge', entries: WorkspaceExportItem[], onProgress?: (done: number, total: number) => void): Promise<WorkspaceSnapshot>;
   /** Save the whole pack, mod files included, where the user chooses. Null when they cancel. */
   exportInstanceZip?(instanceId: string, meta: { name: string; version: string }, onProgress?: (written: number, total: number) => void): Promise<InstanceZipResult | null>;
+  /** Cancel this instance's checked plan, if one is waiting to be applied. */
+  discardPlan?(instanceId: string): Promise<void>;
   /** Stop the helper so an installer can replace its files, and keep it stopped. Rejects if it has work it must finish. */
   shutdownHelper?(): Promise<void>;
   /** The update did not go ahead after all: the helper may start again. */

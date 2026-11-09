@@ -4,6 +4,10 @@ import type { ManagerBackend } from '../backend/ManagerBackend';
 export const isTerminal = (s: OperationStatus) => TERMINAL_STATES.includes(s.state);
 /** Nothing more will happen without the user: terminal, or waiting for recovery. */
 export const isSettled = (s: OperationStatus) => isTerminal(s) || s.state === 'recovery_required';
+/** A checked plan: nothing is running, it is waiting for the user to apply it. */
+export const isWaitingForUser = (s: OperationStatus) => s.state === 'prepared';
+/** Work actually in progress. */
+export const isRunning = (s: OperationStatus) => !isSettled(s) && !isWaitingForUser(s);
 
 export interface FollowOptions {
   /** Safety-net poll interval. Events can be lost across disconnects, so status is re-read. */
