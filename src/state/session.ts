@@ -5,7 +5,7 @@ import {
 } from '../backend/contract';
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
 import { isComposite } from '../backend/composite';
-import { newDraft } from '../domain/draft';
+import { isStale, newDraft, rebase } from '../domain/draft';
 import { followOperation, isSettled } from '../domain/operation';
 import { load, save } from '../domain/storage';
 import { prune, emptySelection, type Selection } from '../domain/selection';
@@ -296,6 +296,14 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     dropWaitingPlan(instanceId);
   }
 
+  /** Move the draft onto the instance as it is now. Re-read first: the coordinator said our copy is old. */
+  async function rebaseDraft() {
+    await loadInventory();
+    if (!draft.value || !inventory.value) return;
+    setDraft(rebase(draft.value, inventory.value.revision, inventory.value.mods).draft);
+    resetReview();
+  }
+
   /** The policy a mod will have after the draft: its pending policy change, else what the helper reports. */
   function policyOf(key: string) {
     const c = draft.value?.changes.find((x) => x.kind === 'policy' && x.modKey === key);
@@ -334,7 +342,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   }
 
   /** `resolutions` answers dependency conflicts the previous attempt reported (reviewed by the user). */
-  async function validate(resolutions?: DependencyResolution[]) {
+  async function validate(resolutions?: DependencyResolution[], retried = false) {
     const d = draft.value;
     if (!d || !can('plan.validate')) return;
     Object.assign(review, { phase: 'resolving', error: null, operation: null, source: 'draft' });
@@ -345,6 +353,16 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
       review.phase = 'reviewed';
     } catch (e) {
       review.error = asError(e);
+      // Something else changed the instance (the Launcher, a game run). Nothing is reviewed yet, so
+      // re-read it and check again; only stop when that makes part of the draft pointless.
+      if (review.error.code === 'stale-revision' && !retried) {
+        await loadInventory();
+        const cur = draft.value;
+        if (cur && inventory.value && isStale(cur, inventory.value.revision)) {
+          const { draft: next, dropped } = rebase(cur, inventory.value.revision, inventory.value.mods);
+          if (!dropped.length) { setDraft(next); return validate(resolutions, true); }
+        }
+      }
       review.phase = review.error.code === 'stale-revision' ? 'stale' : 'failed';
       review.plan = null;
     }
@@ -602,7 +620,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     backend, source, instanceSource, instanceHandshake, canShare, shareInstance, stopSharingInstance, state, inventory, selection, drafts, pins, exportIncludes, review,
     can, instance, draft, pinned, planOutdated, policies, policyOf, packHandshake,
     connect, refreshInstances, selectInstance, loadInventory, checkUpdates, deleteInstance, renameInstance, preparePackUpdate,
-    setDraft, discardDraft, setPinned, setExcluded, prepareImport,
+    setDraft, discardDraft, rebaseDraft, setPinned, setExcluded, prepareImport,
     validate, apply, acceptChangedPlan, resetReview,
     refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher, makeProfilePrivate,
   };

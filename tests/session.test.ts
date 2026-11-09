@@ -75,12 +75,38 @@ describe('session', () => {
     expect(apply).toHaveBeenCalledTimes(1);
   });
 
-  it('reports a stale revision instead of applying', async () => {
+  it('checks the plan against an instance that changed since the draft was made', async () => {
     const { session, backend } = await ready();
     draftUpdates(session);
     backend.touchInstance('inst-atlas');
     await session.validate();
+    expect(session.review.phase).toBe('reviewed');
+    expect(session.review.plan!.baseRevision).toBe(session.inventory.value!.revision);
+  });
+
+  it('stops as stale when the changed instance makes part of the draft pointless', async () => {
+    const { session, backend } = await ready();
+    draftUpdates(session);
+    const gone = session.draft.value!.changes[0] as { modKey: string };
+    backend.touchInstance('inst-atlas');
+    const read = backend.getInventory.bind(backend);
+    vi.spyOn(backend, 'getInventory').mockImplementation(async (...a) => { const inv = await read(...a); return { ...inv, mods: inv.mods.filter((m) => m.key !== gone.modKey) }; });
+    await session.validate();
     expect(session.review.phase).toBe('stale');
+    expect(session.draft.value!.changes).toHaveLength(3);
+  });
+
+  it('updating a stale draft re-reads the instance, so the next check passes', async () => {
+    const { session, backend } = await ready();
+    draftUpdates(session);
+    await session.validate();
+    backend.touchInstance('inst-atlas');
+    await session.apply();
+    expect(session.review.phase).toBe('stale');
+    await session.rebaseDraft();
+    expect(session.review.phase).toBe('idle');
+    await session.validate();
+    expect(session.review.phase).toBe('reviewed');
   });
 
   it('recovers a lost Apply reply by resending the same request, which the coordinator de-duplicates', async () => {

@@ -175,12 +175,13 @@ describe('HelperClient protocol 2.0 (fixture)', () => {
     expect((await next.backend.getOperation(planId)).state).toBe('cancelled');
   });
 
-  it('stops on a stale revision instead of preparing against changed files', async () => {
+  it('re-reads a changed workspace and prepares against its current revision, never the old one', async () => {
     const session = await standalone();
     session.setDraft(addChange(session.draft.value!, { kind: 'install', provider: 'modrinth', projectId: 'lithium', name: 'Lithium' }));
     [...core.workspaces.values()][0]!.ws.instanceRevision = 'f'.repeat(64);
     await session.validate();
-    expect(session.review.phase).toBe('stale');
+    expect(session.review.phase).toBe('reviewed');
+    expect(core.log.filter((l) => l.method === 'plans.prepare').at(-1)?.params.instanceRevision).toBe('f'.repeat(64));
   });
 
   it('chooses the newest release when no version was picked, and the plan shows it before anything is applied', async () => {

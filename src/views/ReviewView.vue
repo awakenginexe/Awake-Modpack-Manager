@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type Component } from 'vue';
 import type { DraftChange, OptionalSuggestion, PlanAction, PlanItem } from '../backend/contract';
-import { addChange, isStale, rebase, removeChange } from '../domain/draft';
+import { addChange, isStale, removeChange } from '../domain/draft';
 import { t, type MessageKey } from '../i18n';
 import { useSession } from '../state/session';
 import { opStateKey, opStateTone, planActionKey, sourceLabel } from '../ui/labels';
@@ -67,11 +67,7 @@ function undo(c: DraftChange) { if (draft.value) session.setDraft(removeChange(d
 function addOptional(o: OptionalSuggestion) {
   if (draft.value) session.setDraft(addChange(draft.value, { kind: 'install', provider: o.provider, projectId: o.projectId, name: o.name }));
 }
-function refreshDraft() {
-  if (!draft.value || !inventory.value) return;
-  session.setDraft(rebase(draft.value, inventory.value.revision, inventory.value.mods).draft);
-  session.resetReview();
-}
+const refreshDraft = () => void session.rebaseDraft();
 function discard() { session.discardDraft(); confirmDiscard.value = false; }
 function reasonText(i: PlanItem) {
   if (i.reason === 'required-dependency') return t('reasonRequired', { names: (i.requiredBy ?? []).join(', ') });
