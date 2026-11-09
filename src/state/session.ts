@@ -276,15 +276,24 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
 
   /* ----- draft & pins (Manager-owned) ----- */
 
+  /** A checked plan with no draft behind it can never be applied, and it keeps the helper running. */
+  function dropWaitingPlan(instanceId: string) {
+    void backend.discardPlan?.(instanceId).then(refreshOperations).catch(() => undefined);
+  }
+
   function setDraft(next: Draft) {
+    const emptied = !next.changes.length && !!drafts.value[next.instanceId]?.changes.length;
     drafts.value = { ...drafts.value, [next.instanceId]: next };
+    if (emptied) dropWaitingPlan(next.instanceId);
   }
 
   function discardDraft() {
     if (!state.instanceId) return;
     const { [state.instanceId]: _, ...rest } = drafts.value;
+    const instanceId = state.instanceId;
     drafts.value = rest;
     resetReview();
+    dropWaitingPlan(instanceId);
   }
 
   /** The policy a mod will have after the draft: its pending policy change, else what the helper reports. */
@@ -471,6 +480,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
 
   async function cancelOperation(id: string) {
     await backend.cancelOperation(id);
+    await refreshOperations();
   }
 
   async function createInstance(req: Omit<CreateInstanceRequest, 'idempotencyKey'>) {

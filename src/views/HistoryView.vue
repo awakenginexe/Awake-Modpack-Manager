@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue';
-import { Archive, Ban, CircleAlert, CircleCheck, Download, FolderOpen, History, LifeBuoy, Loader, PackagePlus, Play, RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, Upload, Wrench, X, Trash2 } from '@lucide/vue';
+import { Archive, ArrowRight, Ban, CircleAlert, CircleCheck, Download, FolderOpen, History, Hourglass, LifeBuoy, Loader, PackagePlus, Play, RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, Upload, Wrench, X, Trash2 } from '@lucide/vue';
 import type { OperationKind, OperationStatus, RecoveryStatus } from '../backend/contract';
-import { isSettled } from '../domain/operation';
+import { isRunning, isSettled, isWaitingForUser } from '../domain/operation';
 import { formatDate, t } from '../i18n';
 import { asError, useSession } from '../state/session';
 import { opKindKey, opStateKey, opStateTone } from '../ui/labels';
+import type { ViewId } from '../App.vue';
+
+const emit = defineEmits<{ navigate: [ViewId] }>();
 
 const session = useSession();
 const { state } = session;
@@ -34,6 +37,7 @@ onMounted(refresh);
 
 const kindIcon: Record<OperationKind, Component> = { 'apply-plan': Wrench, 'create-instance': PackagePlus, 'delete-instance': Trash2, 'install-pack': Download, export: Upload, launch: Play };
 function stateIcon(op: OperationStatus): Component {
+  if (isWaitingForUser(op)) return Hourglass;
   if (!isSettled(op)) return Loader;
   return { completed: CircleCheck, cancelled: Ban, rolled_back: RotateCcw, failed: CircleAlert, recovery_required: CircleAlert }[op.state as 'completed'] ?? CircleCheck;
 }
@@ -59,13 +63,19 @@ function stateIcon(op: OperationStatus): Component {
         </div>
         <ol class="timeline">
           <li v-for="(op, i) in ops" :key="op.operationId" class="op rise" :class="opStateTone[op.state]" :style="{ '--i': i }">
-            <span class="node"><component :is="stateIcon(op)" :size="16" :class="{ spin: !isSettled(op) }" /></span>
+            <span class="node"><component :is="stateIcon(op)" :size="16" :class="{ spin: isRunning(op) }" /></span>
             <div class="op-body">
               <div class="op-head">
                 <component :is="kindIcon[op.kind]" :size="16" class="muted" />
                 <strong>{{ t(opKindKey[op.kind]) }}</strong>
                 <span class="badge" :class="opStateTone[op.state]">{{ t(opStateKey[op.state]) }}</span>
                 <span class="muted small grow">{{ formatDate(op.startedAt) }}</span>
+                <button
+                  v-if="isWaitingForUser(op) && session.review.plan?.planId === op.operationId"
+                  class="btn btn-small btn-primary"
+                  type="button"
+                  @click="emit('navigate', 'review')"
+                >{{ t('reviewChanges') }}<ArrowRight :size="14" /></button>
                 <button
                   v-if="!isSettled(op) && op.cancellable"
                   class="btn btn-small btn-danger"
@@ -81,7 +91,7 @@ function stateIcon(op: OperationStatus): Component {
                   @click="rollBack(op)"
                 ><RotateCcw :size="14" />{{ recovering === op.operationId ? t('rollingBack') : t('rollBack') }}</button>
               </div>
-              <div v-if="!isSettled(op)" class="progress"><span :style="{ width: `${Math.round((op.progress ?? 0) * 100)}%` }"></span></div>
+              <div v-if="isRunning(op)" class="progress"><span :style="{ width: `${Math.round((op.progress ?? 0) * 100)}%` }"></span></div>
               <div v-if="op.error" class="detail error-box">
                 <strong>{{ t('errorDetails') }}</strong>
                 <p>{{ op.error.message }}</p>

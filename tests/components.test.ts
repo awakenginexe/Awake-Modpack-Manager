@@ -3,9 +3,10 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { h } from 'vue';
 import SearchSelect from '../src/components/SearchSelect.vue';
 import VirtualList from '../src/components/VirtualList.vue';
+import HistoryView from '../src/views/HistoryView.vue';
 import ModsView from '../src/views/ModsView.vue';
 import ReviewView from '../src/views/ReviewView.vue';
-import type { InstanceSummary } from '../src/backend/contract';
+import type { InstanceSummary, OperationStatus } from '../src/backend/contract';
 import { MockBackend } from '../src/backend/mock/MockBackend';
 import { appUpdate, canSelfUpdate, updateNow, workInProgress } from '../src/state/appUpdate';
 import { createSession, SessionKey, type Session } from '../src/state/session';
@@ -124,6 +125,39 @@ describe('updating the app', () => {
     await updateNow(session);
     expect(appUpdate.dialogOpen).toBe(true);
     expect(appUpdate.installing).toBe(false);
+  });
+});
+
+describe('History', () => {
+  const op = (operationId: string, state: OperationStatus['state']): OperationStatus => ({ operationId, kind: 'apply-plan', state, progress: 0.4, startedAt: '2026-11-09T04:11:00Z', updatedAt: '2026-11-09T04:11:00Z', cancellable: true });
+  async function history(operations: OperationStatus[], planId?: string) {
+    const { wrapper: mods, session } = await mounted(ModsView);
+    mods.unmount();
+    session.backend.listOperations = async () => operations;
+    if (planId) session.review.plan = { planId } as typeof session.review.plan;
+    const wrapper = mount(HistoryView, { global: { provide: { [SessionKey as symbol]: session } } });
+    await flushPromises();
+    return wrapper;
+  }
+
+  it('shows a plan waiting for the user as waiting, not as running work', async () => {
+    const wrapper = await history([op('plan', 'prepared')]);
+    expect(wrapper.find('.spin').exists()).toBe(false);
+    expect(wrapper.find('.progress').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Cancel');
+    expect(wrapper.findAll('button').some((b) => b.text() === 'Review changes')).toBe(false);
+  });
+
+  it('still shows real work as running', async () => {
+    const wrapper = await history([op('work', 'downloading')]);
+    expect(wrapper.find('.spin').exists()).toBe(true);
+    expect(wrapper.find('.progress').exists()).toBe(true);
+  });
+
+  it('goes back to the plan when it is still open', async () => {
+    const wrapper = await history([op('plan', 'prepared')], 'plan');
+    await wrapper.findAll('button').find((b) => b.text() === 'Review changes')!.trigger('click');
+    expect(wrapper.emitted('navigate')).toEqual([['review']]);
   });
 });
 

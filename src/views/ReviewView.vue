@@ -4,7 +4,7 @@ import type { DraftChange, OptionalSuggestion, PlanAction, PlanItem } from '../b
 import { addChange, isStale, rebase, removeChange } from '../domain/draft';
 import { t, type MessageKey } from '../i18n';
 import { useSession } from '../state/session';
-import { opStateKey, opStateTone, planActionKey } from '../ui/labels';
+import { opStateKey, opStateTone, planActionKey, sourceLabel } from '../ui/labels';
 import {
   ArrowRight, ArrowUpCircle, Check, CircleAlert, CircleCheck, Download, FileCog, FileArchive, Info, ListChecks, Loader, Pin, Power, PowerOff,
   Sparkles, Trash2, TriangleAlert, Undo2,
@@ -135,7 +135,7 @@ function reasonText(i: PlanItem) {
             <Avatar :name="nameOf(c)" :size="28" />
             <span class="grow">
               <span class="item-name">{{ nameOf(c) }}</span>
-              <span class="item-kind" :class="c.kind"><component :is="changeIcon[c.kind]" :size="12" />{{ t(changeLabel[c.kind]) }}</span>
+              <span class="item-kind" :class="c.kind"><component :is="changeIcon[c.kind]" :size="12" />{{ t(changeLabel[c.kind]) }}<template v-if="c.kind === 'install'"> · {{ sourceLabel(c.provider) }}</template></span>
             </span>
             <button class="icon-btn" type="button" :disabled="busy" :aria-label="t('undoChange')" :title="t('undoChange')" @click="undo(c)"><Undo2 :size="15" /></button>
           </li>

@@ -733,6 +733,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       return versionsOf(instanceId, projectId, provider);
     },
 
+    discardPlan: replacePrepared,
     canResolveDependencies: () => evidence(),
     async validateDraft(d, resolutions) {
       if (!has('plans.prepare', true) || !has('plans.get')) return notYet('reviewing changes');
