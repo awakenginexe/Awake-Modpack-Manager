@@ -8,7 +8,7 @@ import ProviderLogo from '../components/ProviderLogo.vue';
 import SearchSelect from '../components/SearchSelect.vue';
 import { formatNumber, t, type MessageKey } from '../i18n';
 import { asError, useSession } from '../state/session';
-import { confirmShare } from '../ui/shareInstance';
+import { confirmShare, confirmStopShare } from '../ui/shareInstance';
 import { blockedText, connectErrorHint, connectErrorTitle, loaderLabel } from '../ui/labels';
 import { preferredProfile } from '../state/prefs';
 
@@ -141,19 +141,15 @@ async function rename(inst: InstanceSummary) {
   if (!name || name === inst.name) return;
   try { await session.renameInstance(inst.id, name); toast(t('renamedProject', { name }), 'ok'); } catch (e) { toast(asError(e).message, 'error'); }
 }
-const sharing = ref<string | null>(null);
 async function shareInstance(inst: InstanceSummary) {
   if (!await confirmShare(inst.name)) return;
-  sharing.value = inst.id;
   try { await session.shareInstance(inst.id); toast(t('shareDone', { name: inst.name }), 'ok'); emit('manage'); }
-  catch (e) { toast(asError(e).message, 'error'); } finally { sharing.value = null; }
+  catch (e) { toast(asError(e).message, 'error'); }
 }
 async function stopSharing(inst: InstanceSummary) {
-  const ok = await confirmDialog({ title: t('shareStopTitle', { name: inst.name }), body: t('shareStopBody'), confirm: t('shareStopConfirm'), cancel: t('cancel') });
-  if (!ok) return;
-  sharing.value = inst.id;
+  if (!await confirmStopShare(inst.name)) return;
   try { await session.stopSharingInstance(inst.id); toast(t('shareStopped', { name: inst.name }), 'ok'); }
-  catch (e) { toast(asError(e).message, 'error'); } finally { sharing.value = null; }
+  catch (e) { toast(asError(e).message, 'error'); }
 }
 function instanceMenu(inst: InstanceSummary): MenuItem[] {
   const update = packUpdates.value[inst.id];
@@ -162,8 +158,8 @@ function instanceMenu(inst: InstanceSummary): MenuItem[] {
     { label: t('manage'), icon: ArrowRight, disabled: !inst.manageable, action: () => manage(inst) },
     helper.value ? { label: t('openInLauncher'), icon: Play, disabled: !inst.manageable, action: () => openInLauncher(inst) } : { label: t('play'), icon: Play, disabled: !session.can('launch.request'), action: () => launch(inst) },
     ...(update ? [{ label: t('packUpdateTo', { version: update.name }), icon: ArrowUpCircle, action: () => updatePack(inst, update) }] : []),
-    ...(inst.shared ? [{ label: t('shareStopAction'), icon: Lock, disabled: sharing.value === inst.id, action: () => stopSharing(inst) }]
-      : !helper.value && session.canShare.value ? [{ label: t('shareAction'), icon: Pencil, disabled: !inst.manageable || sharing.value === inst.id, action: () => shareInstance(inst) }] : []),
+    ...(inst.shared ? [{ label: t('shareStopAction'), icon: Lock, disabled: !!state.instanceAccess, action: () => stopSharing(inst) }]
+      : !helper.value && session.canShare.value ? [{ label: t('shareAction'), icon: Pencil, disabled: !inst.manageable || !!state.instanceAccess, action: () => shareInstance(inst) }] : []),
     separator,
     { label: t('openFolder'), icon: FolderOpen, disabled: !helper.value, action: () => session.backend.openFolder?.(inst.id) },
     ...(inst.path ? [{ label: t('copyPath'), icon: Copy, action: () => copyText(inst.path!) }] : []),
@@ -337,8 +333,9 @@ async function create() {
         <p v-if="!inst.manageable" class="blocked small"><CircleAlert :size="15" />{{ blockedText(inst) }}</p>
 
         <div class="card-actions">
-          <button class="btn btn-primary grow" type="button" :disabled="!inst.manageable" @click="manage(inst)">
-            {{ inst.id === state.instanceId ? t('managing') : t('manage') }}<ArrowRight :size="16" />
+          <button class="btn btn-primary grow" type="button" :disabled="!inst.manageable || state.instanceAccess?.instanceId === inst.id" @click="manage(inst)">
+            <template v-if="state.instanceAccess?.instanceId === inst.id">{{ t('shareBusyShort') }}</template>
+            <template v-else>{{ inst.id === state.instanceId ? t('managing') : t('manage') }}<ArrowRight :size="16" /></template>
           </button>
           <button
             v-if="helper"

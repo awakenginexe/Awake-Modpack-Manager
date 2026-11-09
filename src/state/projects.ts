@@ -58,6 +58,7 @@ export const LEGACY_KEY = 'awake-mm:projects';
 export function createProjectStore(primary: ProjectPersistence, legacy: ProjectPersistence | null = null) {
   const projects = shallowRef<ModpackProject[]>([]);
   const selectedId = ref<string | null>(load('project', null));
+  const exportIntent = ref<{ projectId: string; format: PackFormat } | null>(null);
   const saveError = ref<string | null>(null);
   /** Why the store is read-only (newer format, unreadable file), or null. */
   const readOnly = ref<string | null>(null);
@@ -166,6 +167,8 @@ export function createProjectStore(primary: ProjectPersistence, legacy: ProjectP
     },
 
     /** A project built elsewhere in the Manager (e.g. from a workspace snapshot). */
+    /** Set by the Export page so the Projects save dialog opens already on the chosen format. */
+    exportIntent,
     addProject(p: ModpackProject) {
       commit([p, ...projects.value]);
       select(p.id);

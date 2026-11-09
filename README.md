@@ -4,16 +4,16 @@ A Windows desktop app for building and maintaining Minecraft modpacks. It create
 projects and installs real mods from Modrinth, with every change reviewed before it is applied.
 Awake Launcher is not required.
 
-> **What's new in 1.1.1:** see [docs/releases/v1.1.1.md](docs/releases/v1.1.1.md).
+> **What's new in 1.2.0:** see [docs/releases/v1.2.0.md](docs/releases/v1.2.0.md).
 
-**Version 1.1.1 · Windows x64 · English, ไทย, 简体中文, 繁體中文 · GPL-3.0-only**
+**Version 1.2.0 · Windows x64 · English, ไทย, 简体中文, 繁體中文 · GPL-3.0-only**
 
 ## Install
 
-1. Download `Awake-Modpack-Manager-v1.1.1-Windows-x64-Setup.exe` from the
+1. Download `Awake-Modpack-Manager-v1.2.0-Windows-x64-Setup.exe` from the
    [latest release](https://github.com/awakenginexe/Awake-Modpack-Manager/releases/latest).
 2. Optional: check it against `SHA256SUMS.txt` from the same release
-   (`Get-FileHash .\Awake-Modpack-Manager-v1.1.1-Windows-x64-Setup.exe`).
+   (`Get-FileHash .\Awake-Modpack-Manager-v1.2.0-Windows-x64-Setup.exe`).
 3. Run the installer. It installs for your Windows user only (no administrator rights) into
    `%LOCALAPPDATA%\Awake Modpack Manager`.
    The installer is **not code-signed** yet, so Windows SmartScreen may warn that it is from an

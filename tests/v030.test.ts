@@ -23,6 +23,8 @@ function fakeHost(over: Partial<HostApi> = {}): HostApi {
     workspaceList: async () => [],
     workspaceRecycle: async () => undefined,
     workspaceOpen: async () => undefined,
+    exportMatch: async () => [],
+    exportInstance: async () => null,
     ...over,
   };
 }

@@ -251,6 +251,44 @@ describe('HelperClient protocol 2.0 (fixture)', () => {
     expect(await c.listInstances('manager')).toEqual([]);
   });
 
+  it('keeps a helper stopped for an update from being restarted', async () => {
+    core = new FakeCore({ caps: { 'core.shutdown': true } });
+    const c = helper(core, { heartbeatMs: 5 });
+    await c.connect();
+    await c.shutdownHelper!();
+    expect(core.log.some((l) => l.method === 'core.shutdown')).toBe(true);
+    const hellos = () => core.log.filter((l) => l.method === 'hello').length;
+    const before = hellos();
+    core.crash();
+    await wait(40);
+    expect(hellos()).toBe(before);
+    await expect(c.listInstances('manager')).rejects.toBeInstanceOf(BackendError);
+    c.resumeHelper!();
+    expect(await c.listInstances('manager')).toEqual([]);
+    expect(hellos()).toBeGreaterThan(before);
+  });
+
+  it('reports a helper that will not stop, and keeps using it', async () => {
+    core = new FakeCore({ caps: { 'core.shutdown': true } });
+    core.shutdownBusy = true;
+    const c = helper(core);
+    await c.connect();
+    await expect(c.shutdownHelper!()).rejects.toBeInstanceOf(BackendError);
+    expect(core.log.filter((l) => l.method === 'core.shutdown').length).toBeGreaterThan(1);
+    expect(await c.listInstances('manager')).toEqual([]);
+  });
+
+  it('cancels unapplied plans before stopping for an update', async () => {
+    const session = await standalone(new FakeCore({ caps: { 'core.shutdown': true } }));
+    session.setDraft(addChange(session.draft.value!, { kind: 'install', provider: 'modrinth', projectId: 'fabricapi', name: 'Fabric API', versionId: 'fapiV1' }));
+    await session.validate();
+    const plan = session.review.plan!.planId;
+    await session.backend.shutdownHelper!();
+    const names = core.log.map((l) => l.method);
+    expect(core.log.some((l) => l.method === 'operations.cancel' && l.params.operationId === plan)).toBe(true);
+    expect(names.lastIndexOf('operations.cancel')).toBeLessThan(names.lastIndexOf('core.shutdown'));
+  });
+
   it('waits while the helper starts and reports a missing helper clearly', async () => {
     core = new FakeCore();
     core.states = ['starting', 'starting'];
@@ -467,6 +505,47 @@ describe('manager.v0.2 negotiation and features (fixture)', () => {
     expect(snap.mods[0]!.url).toMatch(/^https:\/\/cdn\.modrinth\.com\//);
     expect(snap.skipped).toEqual([{ fileName: 'm-x.jar', reason: 'manual' }]);
     expect(snap.configs).toEqual([]);
+  });
+
+  it('keeps exporting past a mod whose author turned off third-party distribution', async () => {
+    const c = new FakeCore();
+    c.addWorkspace('Pack').mods = [c.installed('a', 'sodium', 'sodV1', '0.5.0'), c.installed('b', 'lithium', 'litV1', '0.12.0')];
+    c.restrictedProjects.add('sodium');
+    const session = await standalone(c);
+    const snap = await session.backend.snapshotWorkspace!(session.state.instanceId!);
+    expect(snap.mods.map((m) => m.projectId)).toEqual(['lithium']);
+    expect(snap.skipped).toEqual([{ fileName: 'sodium-0.5.0.jar', reason: 'restricted' }]);
+  });
+
+  it('prepares a CurseForge pack from IDs it already has, asking the provider nothing', async () => {
+    const c = new FakeCore();
+    const m = c.installed('a', '123', '456', '1.0');
+    m.provider = 'curseforge';
+    c.addWorkspace('Pack').mods = [m];
+    c.restrictedProjects.add('123');
+    const session = await standalone(c);
+    const before = c.log.filter((l) => l.method === 'providers.versions').length;
+    const snap = await session.backend.prepareExport!(session.state.instanceId!, 'curseforge', [{ kind: 'installed', fileName: m.fileName }]);
+    expect(c.log.filter((l) => l.method === 'providers.versions').length).toBe(before);
+    expect(snap.mods.map((x) => [x.provider, x.projectId, x.versionId, x.url])).toEqual([['curseforge', '123', '456', '']]);
+    expect(snap.skipped).toEqual([]);
+  });
+
+  it('uses a matched or replaced mod in place of the installed one', async () => {
+    const c = new FakeCore();
+    const m = c.installed('a', '123', '456', '1.0');
+    m.provider = 'curseforge';
+    const other = c.installed('b', '124', '457', '1.0');
+    other.provider = 'curseforge';
+    c.addWorkspace('Pack').mods = [m, other];
+    const session = await standalone(c);
+    const match = { fileName: m.fileName, projectId: 'mr', versionId: 'mv', versionName: '1', remoteFileName: 'same.jar', size: 3, sha1: 's', sha512: 'l', url: 'https://cdn.modrinth.com/x' };
+    const snap = await session.backend.prepareExport!(session.state.instanceId!, 'mrpack', [
+      { kind: 'matched', fileName: m.fileName, provider: 'modrinth', match },
+      { kind: 'replaced', fileName: other.fileName, provider: 'modrinth', projectId: 'lithium', versionId: 'litV1', name: 'Lithium' },
+    ]);
+    expect(snap.mods.map((x) => [x.provider, x.projectId, x.versionId, x.name === 'Lithium'])).toEqual([['modrinth', 'mr', 'mv', false], ['modrinth', 'lithium', 'litV1', true]]);
+    expect(snap.mods[0]!.fileName).toBe('same.jar');
   });
 
   it('exports tracked configs through outbox.list/read, hash-checked, at one revision', async () => {

@@ -453,10 +453,23 @@ export interface WorkspaceSnapshot {
     fileName: string; size: number; sha1: string; sha512?: string; url: string; enabled: boolean;
   }[];
   /** Files that cannot be described by a provider reference, and why. They are never exported silently. */
-  skipped: { fileName: string; reason: 'manual' | 'modified' | 'provider' | 'not-found' }[];
+  skipped: { fileName: string; reason: 'manual' | 'modified' | 'provider' | 'not-found' | 'restricted' }[];
   /** Unchanged, helper-tracked config/ files (outbox.list/read), paths relative to the game folder. */
   configs?: { path: string; data: Uint8Array }[];
 }
+
+/** The byte-for-byte same file as an installed mod, on another provider. */
+export interface ExportFileMatch {
+  fileName: string; projectId: string; versionId: string; versionName: string; remoteFileName: string; size: number; sha1: string; sha512?: string; url: string;
+}
+/** What goes into an exported pack, per installed file. */
+export type WorkspaceExportItem =
+  | { kind: 'installed'; fileName: string }
+  | { kind: 'matched'; fileName: string; provider: ProviderId; match: ExportFileMatch }
+  | { kind: 'replaced'; fileName: string; provider: ProviderId; projectId: string; versionId: string; name: string };
+/** A CurseForge mod whose author turned off third-party distribution. */
+export interface ExportRestriction { projectId: string; name: string; pageUrl?: string }
+export interface InstanceZipResult { path: string; files: number; bytes: number }
 
 export interface RecoveryStatus {
   instanceId: string;

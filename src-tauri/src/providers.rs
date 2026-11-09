@@ -83,7 +83,12 @@ fn cf_get(path: &str) -> HostResult<Value> {
     let response = agent(45).get(&url).header("x-api-key", &cf_key()?).header("Accept", "application/json").call().or_else(|e| err("network", format!("CurseForge: {e}")))?;
     read_json(&url, response)
 }
-fn cf_post(path: &str, body: &Value) -> HostResult<Value> {
+pub fn modrinth_post(path: &str, body: &Value) -> HostResult<Value> {
+    let url = format!("{MODRINTH}{path}");
+    let response = agent(60).post(&url).header("Accept", "application/json").send_json(body).or_else(|e| err("network", format!("Modrinth: {e}")))?;
+    read_json(&url, response)
+}
+pub fn cf_post(path: &str, body: &Value) -> HostResult<Value> {
     let url = format!("{CURSEFORGE}{path}");
     let response = agent(60).post(&url).header("x-api-key", &cf_key()?).header("Accept", "application/json").send_json(body).or_else(|e| err("network", format!("CurseForge: {e}")))?;
     read_json(&url, response)
@@ -490,7 +495,7 @@ pub fn sweep_pack_dir() {
     }
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -653,24 +658,32 @@ fn fetch_ftb(job: &Job, cache: &CatalogCache, pack: &str, version: &str, target:
 
 /// Writes a CurseForge-format archive whose whole content is overrides, for providers that only
 /// publish loose files. Those files are shown as local files in the Manager.
-struct OverrideZip {
+pub struct OverrideZip {
     zip: zip::ZipWriter<fs::File>,
     written: std::collections::HashSet<String>,
     bytes: u64,
+    limit: u64,
 }
 impl OverrideZip {
     fn new(target: &Path, minecraft: &str, loader: &str, name: &str, version: &str) -> HostResult<Self> {
+        Self::with_limit(target, minecraft, loader, name, version, ARCHIVE_MAX - (64 << 20))
+    }
+    /// For an export the user keeps: its size is theirs to decide.
+    pub fn unlimited(target: &Path, minecraft: &str, loader: &str, name: &str, version: &str) -> HostResult<Self> {
+        Self::with_limit(target, minecraft, loader, name, version, u64::MAX)
+    }
+    fn with_limit(target: &Path, minecraft: &str, loader: &str, name: &str, version: &str, limit: u64) -> HostResult<Self> {
         let file = fs::File::create(target).or_else(|e| err("io", e.to_string()))?;
         let mut zip = zip::ZipWriter::new(file);
-        let manifest = json!({"manifestType": "minecraftModpack", "manifestVersion": 1, "name": name, "version": version, "author": "", "minecraft": {"version": minecraft, "modLoaders": [{"id": loader, "primary": true}]}, "files": [], "overrides": "overrides"});
+        let manifest = json!({"manifestType": "minecraftModpack", "manifestVersion": 1, "name": name, "version": version, "author": "", "minecraft": {"version": minecraft, "modLoaders": if loader.is_empty() { json!([]) } else { json!([{"id": loader, "primary": true}]) }}, "files": [], "overrides": "overrides"});
         zip.start_file("manifest.json", zip_options()).or_else(|e| err("io", e.to_string()))?;
         zip.write_all(manifest.to_string().as_bytes()).or_else(|e| err("io", e.to_string()))?;
-        Ok(Self { zip, written: Default::default(), bytes: 0 })
+        Ok(Self { zip, written: Default::default(), bytes: 0, limit })
     }
-    fn add(&mut self, path: &str, data: &mut impl Read, size: u64) -> HostResult<()> {
+    pub fn add(&mut self, path: &str, data: &mut impl Read, size: u64) -> HostResult<()> {
         if !self.written.insert(path.to_lowercase()) { return Ok(()); }
         self.bytes += size;
-        if self.bytes > ARCHIVE_MAX - (64 << 20) { return err("too-large", "This pack is larger than the 1 GiB the Manager can import."); }
+        if self.bytes > self.limit { return err("too-large", "This pack is larger than the 1 GiB the Manager can import."); }
         self.zip.start_file(format!("overrides/{path}"), zip_options()).or_else(|e| err("io", e.to_string()))?;
         std::io::copy(data, &mut self.zip).or_else(|e| err("io", e.to_string()))?;
         Ok(())
@@ -703,7 +716,7 @@ impl OverrideZip {
         }
         Ok(())
     }
-    fn close(self) -> HostResult<()> {
+    pub fn close(self) -> HostResult<()> {
         self.zip.finish().map(|_| ()).or_else(|e| err("io", e.to_string()))
     }
 }
@@ -972,13 +985,18 @@ pub struct ProjectMeta {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     icon_url: Option<String>,
+    /// The author turned off third-party distribution, so players must download it by hand.
+    #[serde(default)]
+    restricted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page_url: Option<String>,
 }
 
 pub fn parse_modrinth_projects(list: &Value) -> Vec<ProjectMeta> {
-    list.as_array().map_or(vec![], |a| a.iter().map(|p| ProjectMeta { provider: "modrinth".into(), project_id: s(p, "id").into(), name: s(p, "title").into(), icon_url: p["icon_url"].as_str().filter(|u| !u.is_empty()).map(Into::into) }).collect())
+    list.as_array().map_or(vec![], |a| a.iter().map(|p| ProjectMeta { provider: "modrinth".into(), project_id: s(p, "id").into(), name: s(p, "title").into(), icon_url: p["icon_url"].as_str().filter(|u| !u.is_empty()).map(Into::into), restricted: false, page_url: None }).collect())
 }
 pub fn parse_curseforge_projects(page: &Value) -> Vec<ProjectMeta> {
-    page["data"].as_array().map_or(vec![], |a| a.iter().map(|p| ProjectMeta { provider: "curseforge".into(), project_id: p["id"].as_i64().unwrap_or(0).to_string(), name: s(p, "name").into(), icon_url: p["logo"]["thumbnailUrl"].as_str().filter(|u| !u.is_empty()).map(Into::into) }).collect())
+    page["data"].as_array().map_or(vec![], |a| a.iter().map(|p| ProjectMeta { provider: "curseforge".into(), project_id: p["id"].as_i64().unwrap_or(0).to_string(), name: s(p, "name").into(), icon_url: p["logo"]["thumbnailUrl"].as_str().filter(|u| !u.is_empty()).map(Into::into), restricted: p["allowModDistribution"] == false, page_url: p["links"]["websiteUrl"].as_str().filter(|u| !u.is_empty()).map(Into::into) }).collect())
 }
 
 #[tauri::command]
@@ -1145,7 +1163,7 @@ mod tests {
     fn curseforge_logos_and_names_are_read_from_a_batch() {
         let page = json!({"data": [{"id": 238222, "name": "JEI", "logo": {"thumbnailUrl": "https://media.forgecdn.net/avatars/thumbnails/1/2/64/64/x.png"}}, {"id": 5, "name": "No logo", "logo": null}]});
         let list = parse_curseforge_projects(&page);
-        assert_eq!(list[0], ProjectMeta { provider: "curseforge".into(), project_id: "238222".into(), name: "JEI".into(), icon_url: Some("https://media.forgecdn.net/avatars/thumbnails/1/2/64/64/x.png".into()) });
+        assert_eq!(list[0], ProjectMeta { provider: "curseforge".into(), project_id: "238222".into(), name: "JEI".into(), icon_url: Some("https://media.forgecdn.net/avatars/thumbnails/1/2/64/64/x.png".into()), restricted: false, page_url: None });
         assert_eq!(list[1].icon_url, None);
     }
 

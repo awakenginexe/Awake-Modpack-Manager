@@ -160,6 +160,13 @@ const blockerSummary = computed(() => {
 });
 const savedTo = ref('');
 const saving = ref(false);
+watch([() => store.exportIntent.value, () => project.value?.id], ([intent, id]) => {
+  if (!intent || intent.projectId !== id) return;
+  exportFormat.value = intent.format;
+  excludeBlocked.value = false;
+  showExport.value = true;
+  store.exportIntent.value = null;
+}, { flush: 'post', immediate: true });
 
 /**
  * Override files (configs, scripts...) are not stored in projects. For an export they are taken

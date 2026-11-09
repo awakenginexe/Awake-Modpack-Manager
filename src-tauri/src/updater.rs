@@ -13,10 +13,14 @@ use std::cmp::Ordering;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::Emitter;
 
 const REPOSITORY: &str = "awakenginexe/Awake-Modpack-Manager";
 const INSTALLER_MAX: u64 = 512 << 20;
+
+/// The verified installer, kept here so the page never names a program to run.
+static READY_INSTALLER: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// `major.minor.patch[-pre.n]`, ordered by semantic versioning. None when it is not a version.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -166,9 +170,9 @@ fn download_text(url: &str) -> HostResult<String> {
     response.body_mut().read_to_string().or_else(|e| err("network", e.to_string()))
 }
 
-/// Download the release's installer, verify it, and start it. On success the window should close.
+/// Download the release's installer and verify it. `update_run` starts it once the helper has stopped.
 #[tauri::command]
-pub async fn update_install(app: tauri::AppHandle, tag: String) -> HostResult<()> {
+pub async fn update_download(app: tauri::AppHandle, tag: String) -> HostResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         if !is_installed() {
             return err("portable", "This is a portable copy. Download the new version from the release page.");
@@ -216,12 +220,22 @@ pub async fn update_install(app: tauri::AppHandle, tag: String) -> HostResult<()
             let _ = fs::remove_file(&target);
             return err("integrity", "The downloaded installer does not match the release checksum. Nothing was changed.");
         }
-        // /P shows progress without asking questions; the installer relaunches the Manager when done.
-        std::process::Command::new(&target).args(["/P", "/UPDATE", "/R"]).spawn().or_else(|e| err("io", format!("Could not start the installer: {e}")))?;
+        *READY_INSTALLER.lock().unwrap_or_else(|e| e.into_inner()) = Some(target);
         Ok(())
     })
     .await
     .unwrap_or_else(|e| err("internal", e.to_string()))
+}
+
+/// Start the installer `update_download` verified. On success the window should close.
+#[tauri::command]
+pub fn update_run() -> HostResult<()> {
+    let Some(target) = READY_INSTALLER.lock().unwrap_or_else(|e| e.into_inner()).take() else {
+        return err("not-found", "The update has not been downloaded.");
+    };
+    // /P shows progress without asking questions; the installer relaunches the Manager when done.
+    std::process::Command::new(&target).args(["/P", "/UPDATE", "/R"]).spawn().or_else(|e| err("io", format!("Could not start the installer: {e}")))?;
+    Ok(())
 }
 
 #[cfg(test)]
