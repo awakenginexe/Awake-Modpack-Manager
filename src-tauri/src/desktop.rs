@@ -419,10 +419,10 @@ mod tests {
         let config = game.join("config");
         fs::create_dir_all(config.join("sub")).unwrap();
         fs::write(config.join("data.bin"), [0xffu8, 0xfe, 0x00, 0x41]).unwrap();
-        fs::write(config.join("nul.txt"), b"a\0b").unwrap();
+        fs::write(config.join("zero-byte.txt"), b"a\0b").unwrap();
         fs::write(config.join("big.txt"), vec![b'a'; TEXT_MAX as usize + 1]).unwrap();
         assert_eq!(read_text(&config.join("data.bin")).unwrap_err().code, "not-text");
-        assert_eq!(read_text(&config.join("nul.txt")).unwrap_err().code, "not-text");
+        assert_eq!(read_text(&config.join("zero-byte.txt")).unwrap_err().code, "not-text");
         assert_eq!(read_text(&config.join("big.txt")).unwrap_err().code, "too-large");
         assert_eq!(read_text(&config.join("sub")).unwrap_err().code, "invalid");
         assert_eq!(read_text(&config.join("gone.txt")).unwrap_err().code, "not-found");
