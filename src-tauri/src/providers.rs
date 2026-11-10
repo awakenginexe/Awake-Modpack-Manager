@@ -51,7 +51,7 @@ pub fn agent(timeout: u64) -> ureq::Agent {
     ureq::Agent::config_builder().tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).root_certs(ureq::tls::RootCerts::PlatformVerifier).build()).timeout_global(Some(Duration::from_secs(timeout))).max_redirects(6).http_status_as_error(false).user_agent(USER_AGENT).build().into()
 }
 
-fn status_error<T>(host: &str, status: u16) -> HostResult<T> {
+pub(crate) fn status_error<T>(host: &str, status: u16) -> HostResult<T> {
     match status {
         429 => err("rate-limited", format!("{host} is rate limiting requests. Try again in a minute.")),
         401 | 403 | 451 => err("restricted", format!("{host} refused this request (HTTP {status}).")),
@@ -59,7 +59,7 @@ fn status_error<T>(host: &str, status: u16) -> HostResult<T> {
         _ => err("network", format!("{host} request failed (HTTP {status}).")),
     }
 }
-fn host_of(url: &str) -> String {
+pub(crate) fn host_of(url: &str) -> String {
     url.split("://").nth(1).and_then(|r| r.split('/').next()).unwrap_or(url).to_string()
 }
 
@@ -78,7 +78,7 @@ pub fn get_json(url: &str) -> HostResult<Value> {
 fn cf_key() -> HostResult<String> {
     curseforge_key().ok_or(HostError { code: "curseforge-disabled", message: "This build has no authorized CurseForge access.".into() })
 }
-fn cf_get(path: &str) -> HostResult<Value> {
+pub(crate) fn cf_get(path: &str) -> HostResult<Value> {
     let url = format!("{CURSEFORGE}{path}");
     let response = agent(45).get(&url).header("x-api-key", &cf_key()?).header("Accept", "application/json").call().or_else(|e| err("network", format!("CurseForge: {e}")))?;
     read_json(&url, response)
@@ -93,14 +93,14 @@ pub fn cf_post(path: &str, body: &Value) -> HostResult<Value> {
     let response = agent(60).post(&url).header("x-api-key", &cf_key()?).header("Accept", "application/json").send_json(body).or_else(|e| err("network", format!("CurseForge: {e}")))?;
     read_json(&url, response)
 }
-fn encode(v: &str) -> String {
+pub(crate) fn encode(v: &str) -> String {
     v.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
-fn s<'a>(v: &'a Value, k: &str) -> &'a str {
+pub(crate) fn s<'a>(v: &'a Value, k: &str) -> &'a str {
     v[k].as_str().unwrap_or("")
 }
 /// A pack ID goes into a URL path: allow only what providers actually issue.
-fn safe_id(id: &str) -> HostResult<&str> {
+pub(crate) fn safe_id(id: &str) -> HostResult<&str> {
     if !id.is_empty() && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.+ ".contains(&b)) { Ok(id) } else { err("invalid", "This pack identifier is not valid.") }
 }
 
@@ -153,7 +153,7 @@ fn cf_loader(n: i64) -> Option<String> {
     }
     .map(str::to_string)
 }
-fn release_name(n: i64) -> Option<String> {
+pub(crate) fn release_name(n: i64) -> Option<String> {
     match n {
         1 => Some("release"),
         2 => Some("beta"),
@@ -406,7 +406,7 @@ pub fn pack_providers() -> Vec<PackProvider> {
     }).collect()
 }
 
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> HostResult<T> + Send + 'static) -> HostResult<T> {
+pub(crate) async fn blocking<T: Send + 'static>(f: impl FnOnce() -> HostResult<T> + Send + 'static) -> HostResult<T> {
     tauri::async_runtime::spawn_blocking(f).await.unwrap_or_else(|e| err("internal", e.to_string()))
 }
 
@@ -463,7 +463,7 @@ struct Progress {
     total: u64,
 }
 
-struct Job {
+pub(crate) struct Job {
     app: tauri::AppHandle,
     id: String,
     cancel: Arc<AtomicBool>,
@@ -500,7 +500,7 @@ pub fn hex(bytes: &[u8]) -> String {
 }
 
 /// Download `url` to `to`, enforcing a size limit and cancellation.
-fn download(job: Option<&Job>, url: &str, headers: &[(&str, String)], to: &Path, limit: u64, mut progress: impl FnMut(u64)) -> HostResult<()> {
+pub(crate) fn download(job: Option<&Job>, url: &str, headers: &[(&str, String)], to: &Path, limit: u64, mut progress: impl FnMut(u64)) -> HostResult<()> {
     // Provider file URLs often contain raw spaces or brackets.
     let url = &url.replace(' ', "%20").replace('[', "%5B").replace(']', "%5D");
     let mut last = None;

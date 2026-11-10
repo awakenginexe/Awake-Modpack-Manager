@@ -2,11 +2,13 @@
 //!
 //! The host is deliberately thin: it discovers Launcher data profiles, opens the Launcher's
 //! integration named pipe, starts and verifies the Manager's own native helper, and moves
-//! length-prefixed frames. All protocol semantics live in TypeScript (`src/backend`). It never reads
-//! or writes instance files: its only writes are a user-chosen export file and the Manager's
-//! project store (`files.rs`). The one change to a Launcher folder is its Windows permissions, when
-//! the user confirms it (`profile_access.rs`).
+//! length-prefixed frames. All protocol semantics live in TypeScript (`src/backend`). It never changes
+//! mods: those belong to the helper. Its writes are a user-chosen export file, the Manager's
+//! project store (`files.rs`), and non-mod content the user edits, adds or installs on the Files and
+//! Browse pages (`desktop.rs`, `content.rs`). The one other change to a Launcher folder is its
+//! Windows permissions, when the user confirms it (`profile_access.rs`).
 
+mod content;
 mod desktop;
 mod discovery;
 mod files;
@@ -105,6 +107,12 @@ pub fn run() {
             export::export_instance,
             desktop::workspace_list,
             desktop::workspace_recycle,
+            desktop::workspace_read_text,
+            desktop::workspace_write_text,
+            desktop::workspace_add_files,
+            content::content_search,
+            content::content_versions,
+            content::content_install,
             desktop::workspace_forget_missing,
             desktop::workspace_open,
             desktop::open_url,

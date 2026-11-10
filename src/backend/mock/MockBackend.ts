@@ -1,4 +1,4 @@
-import type { ExportFileMatch, ExportRestriction, InstanceZipResult, ProviderId, WorkspaceExportItem, WorkspaceSnapshot } from '../contract';
+import type { AddedContent, ContentHit, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, ExportFileMatch, ExportRestriction, InstalledContent, InstanceZipResult, ProviderId, WorkspaceExportItem, WorkspaceSnapshot } from '../contract';
 import {
   ALL_CAPABILITIES, BackendError, TERMINAL_STATES,
   type Accepted, type ApplyRequest, type Capability, type ContentArea, type ContentEntry, type CreateInstanceRequest,
@@ -9,7 +9,11 @@ import {
   type PackSearchPage, type PackSearchQuery, type PackVersion,
 } from '../contract';
 import type { ConnectionState, ManagerBackend } from '../ManagerBackend';
-import { buildCatalog, buildInstances, buildInventory, buildPackCatalog, type CatalogProject } from './fixtures';
+import { buildCatalog, buildContentCatalog, buildInstances, buildInventory, buildPackCatalog, type CatalogProject } from './fixtures';
+
+/** A demo file: text when it can be edited, otherwise only a size. */
+interface DemoFile { text?: string; size: number; modifiedMs: number }
+const FOLDER_OF: Record<ContentKind, ContentArea> = { resourcepack: 'resourcepacks', shader: 'shaderpacks' };
 
 export interface MockOptions {
   /** Delay between simulated operation steps. 0 in tests (with fake timers). */
@@ -72,6 +76,9 @@ export class MockBackend implements ManagerBackend {
   private byIdempotency = new Map<string, string>();
   private watchers = new Map<string, Set<(s: OperationStatus) => void>>();
   private seq = 0;
+  private content = buildContentCatalog();
+  /** Demo content per instance, keyed `area/path`. Built on first use. */
+  private files = new Map<string, Map<string, DemoFile>>();
 
   constructor(options: MockOptions = {}) {
     this.opts = { stepMs: 450, latencyMs: 120, driftOnPrepare: false, failApply: false, ...options };
@@ -464,12 +471,113 @@ export class MockBackend implements ManagerBackend {
 
   /* ----- files & export ----- */
 
-  listContent(instanceId: string, area: ContentArea): Promise<ContentEntry[]> {
+  private filesOf(instanceId: string): Map<string, DemoFile> {
+    let files = this.files.get(instanceId);
+    if (files) return files;
+    files = new Map();
+    const at = Date.UTC(2026, 9, 30, 12);
+    const text = (path: string, body: string) => files!.set(path, { text: body, size: body.length, modifiedMs: at });
+    const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    for (const [i, m] of (this.inventories.get(instanceId) ?? []).slice(0, 40).entries()) {
+      const body = `# ${m.name}\n[general]\nenabled = true\nupdateCheck = false\nlimit = ${16 + i}\n`;
+      text(`config/${i % 7 === 3 ? `${slug(m.name)}/` : ''}${slug(m.name)}-common.toml`, body);
+      if (i < 6) text(`defaultconfigs/${slug(m.name)}-server.toml`, body);
+    }
+    text('config/fml.toml', 'maxThreads = -1\r\nversionCheck = true\r\n');
+    text('kubejs/startup_scripts/items.js', "StartupEvents.registry('item', (event) => {\n  event.create('demo_gear')\n})\n");
+    text('kubejs/server_scripts/recipes.js', "ServerEvents.recipes((event) => {\n  event.remove({ output: 'minecraft:stick' })\n})\n");
+    text('scripts/ores.zs', 'import crafttweaker.api.item.IItemStack;\n');
+    files.set('resourcepacks/Faithful 32x - Demo.zip', { size: 18_400_000, modifiedMs: at });
+    files.set('shaderpacks/ComplementaryReimagined_demo.zip', { size: 6_300_000, modifiedMs: at });
+    this.files.set(instanceId, files);
+    return files;
+  }
+
+  listContent(instanceId: string, area: ContentArea, folder = ''): Promise<ContentEntry[]> {
     return this.call(() => {
-      const mods = (this.inventories.get(instanceId) ?? []).slice(0, area === 'config' ? 40 : 6);
-      const ext: Record<ContentArea, string> = { config: '.toml', defaultconfigs: '.toml', kubejs: '.js', scripts: '.zs', resourcepacks: '.zip', shaderpacks: '.zip' };
-      return mods.map((m, i) => ({ path: `${area}/${m.name.toLowerCase().replace(/\s+/g, '_')}${ext[area]}`, kind: 'file' as const, sizeBytes: 800 + i * 137, modifiedAt: '2026-10-30T12:00:00Z' }));
+      const prefix = `${area}/${folder ? `${folder}/` : ''}`;
+      const rows = new Map<string, ContentEntry>();
+      for (const [key, file] of this.filesOf(instanceId)) {
+        if (!key.startsWith(prefix)) continue;
+        const [name, ...deeper] = key.slice(prefix.length).split('/');
+        const path = `${folder ? `${folder}/` : ''}${name}`;
+        rows.set(path, deeper.length ? { path, kind: 'directory' } : { path, kind: 'file', sizeBytes: file.size, modifiedAt: new Date(file.modifiedMs).toISOString() });
+      }
+      return [...rows.values()].sort((a, b) => Number(a.kind === 'file') - Number(b.kind === 'file') || a.path.toLowerCase().localeCompare(b.path.toLowerCase()));
     });
+  }
+  readContentText(instanceId: string, area: ContentArea, path: string): Promise<ContentTextFile> {
+    return this.call(() => {
+      const file = this.filesOf(instanceId).get(`${area}/${path}`);
+      if (!file) throw new BackendError('rejected', 'This file is not there any more.', 'not-found');
+      if (file.text === undefined) throw new BackendError('rejected', 'This is not a text file, so it cannot be edited here.', 'not-text');
+      return { text: file.text, modifiedMs: file.modifiedMs };
+    });
+  }
+  writeContentText(instanceId: string, area: ContentArea, path: string, text: string, expectedModifiedMs: number): Promise<number> {
+    return this.call(() => {
+      const file = this.filesOf(instanceId).get(`${area}/${path}`);
+      if (!file || file.text === undefined) throw new BackendError('rejected', 'This file is not there any more.', 'not-found');
+      if (file.modifiedMs !== expectedModifiedMs) throw new BackendError('stale-revision', 'This file changed on disk after you opened it. Open it again to see the new version.', 'conflict');
+      Object.assign(file, { text, size: text.length, modifiedMs: Math.max(Date.now(), file.modifiedMs + 1) });
+      return file.modifiedMs;
+    });
+  }
+  /** Simulates the game rewriting a config while the editor is open. */
+  touchContent(instanceId: string, area: ContentArea, path: string) {
+    const file = this.filesOf(instanceId).get(`${area}/${path}`);
+    if (file) file.modifiedMs += 1000;
+  }
+  addContentFiles(instanceId: string, area: ContentArea, folder: string): Promise<AddedContent | null> {
+    return this.call(() => {
+      const name = area === 'resourcepacks' || area === 'shaderpacks' ? 'Added demo pack.zip' : 'added-demo.toml';
+      const key = `${area}/${folder ? `${folder}/` : ''}${name}`;
+      const files = this.filesOf(instanceId);
+      if (files.has(key)) return { added: [], skipped: [name] };
+      files.set(key, name.endsWith('.zip') ? { size: 2_400_000, modifiedMs: Date.now() } : { text: '# added\n', size: 8, modifiedMs: Date.now() });
+      return { added: [name], skipped: [] };
+    });
+  }
+  recycleContent(instanceId: string, area: ContentArea, paths: string[]): Promise<void> {
+    return this.call(() => {
+      const files = this.filesOf(instanceId);
+      for (const path of paths) for (const key of [...files.keys()]) if (key === `${area}/${path}` || key.startsWith(`${area}/${path}/`)) files.delete(key);
+    });
+  }
+  async openFolder(): Promise<void> { /* nothing to open for demo data */ }
+
+  /* ----- resource packs & shaders ----- */
+
+  async contentProviders(): Promise<ProviderInfo[]> { return this.opts.providers ?? DEFAULT_PROVIDERS; }
+  searchContent(q: ContentSearchQuery): Promise<ContentSearchPage> {
+    return this.call(() => {
+      const info = (this.opts.providers ?? DEFAULT_PROVIDERS).find((p) => p.id === q.provider);
+      if (!info?.available) throw new BackendError('unsupported', info?.unavailableReason ?? 'Provider unavailable');
+      const text = q.text.trim().toLowerCase();
+      const hits = this.content
+        .filter((p) => p.kind === q.kind && p.provider === q.provider && (!text || p.name.toLowerCase().includes(text) || p.summary.toLowerCase().includes(text))
+          && (!q.minecraftVersion || p.versions.some((v) => v.gameVersions.includes(q.minecraftVersion))))
+        .sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0));
+      return { total: hits.length, hits: hits.slice(q.offset, q.offset + q.limit).map(({ versions: _v, kind: _k, ...hit }): ContentHit => hit) };
+    });
+  }
+  contentVersions(provider: ProviderId, projectId: string, minecraftVersion: string): Promise<ContentVersion[]> {
+    return this.call(() => {
+      const project = this.content.find((p) => p.provider === provider && p.projectId === projectId);
+      if (!project) throw new BackendError('rejected', 'Unknown project');
+      return project.versions.filter((v) => !minecraftVersion || v.gameVersions.includes(minecraftVersion));
+    });
+  }
+  async installContent(instanceId: string, kind: ContentKind, provider: ProviderId, projectId: string, versionId: string, onProgress?: (done: number, total: number) => void): Promise<InstalledContent> {
+    const version = this.content.find((p) => p.kind === kind && p.provider === provider && p.projectId === projectId)?.versions.find((v) => v.id === versionId);
+    if (!version) throw new BackendError('rejected', 'Unknown version');
+    const total = version.sizeBytes ?? 1;
+    for (const part of [0.3, 0.7, 1]) { await this.delay(this.opts.stepMs); onProgress?.(Math.round(total * part), total); }
+    const files = this.filesOf(instanceId);
+    const key = `${FOLDER_OF[kind]}/${version.fileName}`;
+    const replaced = files.has(key);
+    files.set(key, { size: total, modifiedMs: Date.now() });
+    return { fileName: version.fileName, replaced };
   }
 
   async exportMatches(_instanceId: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]> {

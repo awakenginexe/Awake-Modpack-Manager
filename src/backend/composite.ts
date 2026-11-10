@@ -150,7 +150,15 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     discardPlan: async (id) => { await byInstance(id).backend.discardPlan?.(id); },
     projectDetail: (provider, projectId) => (helper.projectDetail ? helper.projectDetail(provider, projectId) : noHelper()),
     recycleContent: async (id, area, paths) => { await byInstance(id).backend.recycleContent?.(id, area, paths); },
-    openFolder: async (id, area) => { await byInstance(id).backend.openFolder?.(id, area); },
+    openFolder: async (id, area, folder) => { await byInstance(id).backend.openFolder?.(id, area, folder); },
+    readContentText: (id, area, path) => { const b = byInstance(id).backend; return b.readContentText ? b.readContentText(id, area, path) : noHelper(); },
+    writeContentText: (id, area, path, text, expected) => { const b = byInstance(id).backend; return b.writeContentText ? b.writeContentText(id, area, path, text, expected) : noHelper(); },
+    addContentFiles: (id, area, folder) => { const b = byInstance(id).backend; return b.addContentFiles ? b.addContentFiles(id, area, folder) : noHelper(); },
+    // Resource packs and shaders are found by the Manager's own side, whichever list is on screen.
+    contentProviders: () => (helper.contentProviders ? helper.contentProviders() : Promise.resolve([])),
+    searchContent: (q) => (helper.searchContent ? helper.searchContent(q) : noHelper()),
+    contentVersions: (provider, projectId, mc) => (helper.contentVersions ? helper.contentVersions(provider, projectId, mc) : noHelper()),
+    installContent: (id, kind, provider, projectId, versionId, onProgress) => { const b = byInstance(id).backend; return b.installContent ? b.installContent(id, kind, provider, projectId, versionId, onProgress) : noHelper(); },
 
     async validateDraft(d, resolutions) {
       const p = byInstance(d.instanceId);
@@ -174,7 +182,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     watchOperation: (id, l) => byOp(id).backend.watchOperation(id, l),
     cancelOperation: (id) => byOp(id).backend.cancelOperation(id),
     getRecoveryStatus: (id) => byInstance(id).backend.getRecoveryStatus(id),
-    listContent: (id, area) => byInstance(id).backend.listContent(id, area),
+    listContent: (id, area, folder) => byInstance(id).backend.listContent(id, area, folder),
     checkExport: (id, f) => byInstance(id).backend.checkExport(id, f),
     startExport: async (r) => own(byInstance(r.instanceId), await byInstance(r.instanceId).backend.startExport(r)),
     versionCatalog: (q) => current.backend.versionCatalog ? current.backend.versionCatalog(q) : Promise.reject(new BackendError('unsupported', 'No version catalog here.')),
