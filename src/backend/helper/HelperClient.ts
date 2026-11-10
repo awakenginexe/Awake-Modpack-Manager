@@ -1025,6 +1025,10 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       if (!options.host) return notYet('removing files');
       await options.host.workspaceRecycle(workspaceOf(instanceId).workspaceId, area, paths);
     },
+    async forgetMissingMods(instanceId) {
+      if (!options.host) return notYet('cleaning up');
+      return options.host.workspaceForgetMissing(workspaceOf(instanceId).workspaceId);
+    },
     async openFolder(instanceId, area) {
       await options.host?.workspaceOpen(workspaceOf(instanceId).workspaceId, area);
     },

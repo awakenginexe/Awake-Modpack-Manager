@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import {
   ArrowDown, ArrowUp, ArrowUpCircle, Ban, Boxes, CircleAlert, CircleCheck, CircleHelp, FileQuestion, Info, ListChecks,
-  BellOff, BellRing, Copy, ExternalLink, History, Lock, Pin, PinOff, Power, PowerOff, RefreshCw, Search, Trash2, TriangleAlert, Undo2, X,
+  BellOff, BellRing, Copy, ExternalLink, History, Lock, Pin, PinOff, Power, PowerOff, RefreshCw, RotateCw, Search, Trash2, TriangleAlert, Undo2, X,
 } from '@lucide/vue';
 import { copyText, openMenu, separator, toast, type MenuItem } from '../ui/desktop';
 import { openExternal } from '../state/appUpdate';
@@ -202,6 +202,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
       <div class="toolbar">
         <button v-if="counts.updates" class="btn" type="button" @click="updateAll"><ArrowUpCircle :size="16" />{{ t('updateAll', { count: counts.updates }) }}</button>
         <button v-if="session.can('mods.updates')" class="btn" type="button" :disabled="state.updatesChecking" :title="state.updatesCheckedAt ? t('updatesCheckedAt', { time: formatDate(new Date(state.updatesCheckedAt).toISOString()) }) : undefined" @click="checkNow"><RefreshCw :size="16" :class="{ spin: state.updatesChecking }" />{{ state.updatesChecking ? t('updatesChecking') : t('updatesCheck') }}</button>
+        <button v-if="session.can('mods.inventory')" class="btn" type="button" :disabled="state.inventoryLoading" :title="t('refreshModsHint')" @click="session.loadInventory()"><RotateCw :size="16" :class="{ spin: state.inventoryLoading }" />{{ t('refresh') }}</button>
         <button class="btn" type="button" @click="emit('navigate', 'browse')"><Search :size="16" />{{ t('browseMods') }}</button>
         <button class="btn btn-primary" type="button" :disabled="!session.draft.value?.changes.length" @click="emit('navigate', 'review')">
           <ListChecks :size="16" />{{ t('reviewChanges') }}<span v-if="session.draft.value?.changes.length" class="pill-count">{{ session.draft.value.changes.length }}</span>

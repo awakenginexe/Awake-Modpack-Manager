@@ -109,6 +109,20 @@ describe('session', () => {
     expect(session.review.phase).toBe('reviewed');
   });
 
+  it('offers to forget a tracked mod whose file is gone, then checks again', async () => {
+    const { session, backend } = await ready();
+    draftUpdates(session);
+    const forget = vi.fn(async () => ['gone.jar']);
+    Object.assign(backend, { forgetMissingMods: forget });
+    vi.spyOn(backend, 'validateDraft').mockRejectedValueOnce(new BackendError('rejected', 'A tracked file is missing. Repair the discrepancy before preparing changes.', 'POLICY_CONFLICT'));
+    await session.validate();
+    expect(session.missingTracked.value).toBe(true);
+    expect(await session.forgetMissingMods()).toEqual(['gone.jar']);
+    expect(forget).toHaveBeenCalledWith('inst-atlas');
+    expect(session.review.phase).toBe('reviewed');
+    expect(session.missingTracked.value).toBe(false);
+  });
+
   it('recovers a lost Apply reply by resending the same request, which the coordinator de-duplicates', async () => {
     const { session, backend } = await ready({ stepMs: 5 });
     const original = backend.applyPlan.bind(backend);

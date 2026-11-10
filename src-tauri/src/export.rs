@@ -18,7 +18,7 @@ const INCLUDED: [&str; 7] = ["mods", "config", "defaultconfigs", "kubejs", "scri
 const MATCH_MAX: usize = 5_000;
 
 /// The game folder of a project, or of a Launcher instance managed here, as the helper recorded it.
-fn game_folder(workspace: &str) -> HostResult<PathBuf> {
+pub(crate) fn game_folder(workspace: &str) -> HostResult<PathBuf> {
     if !is_uuid(workspace) {
         return err("invalid", "Unknown project.");
     }

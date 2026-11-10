@@ -25,6 +25,8 @@ export interface HostApi {
   workspaceList(workspace: string, area: string): Promise<(ContentEntry & { modifiedMs?: number })[]>;
   workspaceRecycle(workspace: string, area: string, paths: string[]): Promise<void>;
   workspaceOpen(workspace: string, area?: string): Promise<void>;
+  /** Drop the helper's records of mods whose file is gone. Resolves with the file names forgotten. */
+  workspaceForgetMissing(workspace: string): Promise<string[]>;
   exportMatch(workspace: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]>;
   exportInstance(workspace: string, meta: { fileName: string; name: string; version: string; minecraft: string; loader: string }, onProgress?: (written: number, total: number) => void): Promise<InstanceZipResult | null>;
 }
@@ -62,6 +64,7 @@ export function createHostApi(): HostApi {
     modUpdates: (items, minecraftVersion, loader) => hostInvoke('mod_updates', { items, minecraftVersion, loader }),
     workspaceList: (workspace, area) => hostInvoke('workspace_list', { workspace, area }),
     workspaceRecycle: (workspace, area, paths) => hostInvoke('workspace_recycle', { workspace, area, paths }),
+    workspaceForgetMissing: (workspace) => hostInvoke('workspace_forget_missing', { workspace }),
     workspaceOpen: (workspace, area) => hostInvoke('workspace_open', { workspace, area: area ?? null }),
     exportMatch: (workspace, target, fileNames) => hostInvoke('export_match', { workspace, target, fileNames }),
     async exportInstance(workspace, meta, onProgress) {

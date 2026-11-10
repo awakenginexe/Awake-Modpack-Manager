@@ -105,6 +105,7 @@ pub fn run() {
             export::export_instance,
             desktop::workspace_list,
             desktop::workspace_recycle,
+            desktop::workspace_forget_missing,
             desktop::workspace_open,
             desktop::open_url,
             desktop::app_info,

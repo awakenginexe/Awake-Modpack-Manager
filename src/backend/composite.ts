@@ -221,6 +221,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
       return plan;
     },
     discardImport: (token) => (helper.discardImport ? helper.discardImport(token) : noHelper()),
+    forgetMissingMods: (id) => { const b = byInstance(id).backend; return b.forgetMissingMods ? b.forgetMissingMods(id) : noHelper(); },
     exportMatches: (id, target, names) => { const b = byInstance(id).backend; return b.exportMatches ? b.exportMatches(id, target, names) : noHelper(); },
     exportRestricted: (id, ids) => { const b = byInstance(id).backend; return b.exportRestricted ? b.exportRestricted(id, ids) : noHelper(); },
     prepareExport: (id, format, entries, onProgress) => { const b = byInstance(id).backend; return b.prepareExport ? b.prepareExport(id, format, entries, onProgress) : noHelper(); },

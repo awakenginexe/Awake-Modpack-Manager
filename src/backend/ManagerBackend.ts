@@ -118,6 +118,8 @@ export interface ManagerBackend {
   /** Move non-mod project content to the Recycle Bin. */
   recycleContent?(instanceId: string, area: ContentArea, paths: string[]): Promise<void>;
   openFolder?(instanceId: string, area?: ContentArea): Promise<void>;
+  /** Forget tracked mods whose file was deleted outside the Manager; the helper refuses every plan until then. Resolves with their file names. */
+  forgetMissingMods?(instanceId: string): Promise<string[]>;
 
   /** Helper: connect a Launcher instance in place, keeping its files where they are. Resolves once finished. */
   adoptInstance?(path: string): Promise<void>;

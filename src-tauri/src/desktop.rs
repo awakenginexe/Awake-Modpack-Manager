@@ -6,6 +6,8 @@
 use crate::helper::manager_data_dir;
 use crate::providers::{err, HostResult};
 use serde::Serialize;
+use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -116,6 +118,45 @@ pub async fn workspace_recycle(workspace: String, area: String, paths: Vec<Strin
     .unwrap_or_else(|e| err("internal", e.to_string()))
 }
 
+/// Forget mods the helper still tracks whose file is gone: it refuses every plan while one is listed.
+/// Only the record changes, after a copy to `backup`; no mod file is touched. Returns the names forgotten.
+pub fn forget_missing(game: &Path, backup: &Path) -> HostResult<Vec<String>> {
+    let path = game.parent().unwrap_or(game).join(".awake-integration").join("policies.json");
+    fn io<T>(e: std::io::Error) -> HostResult<T> {
+        err("io", e.to_string())
+    }
+    let mut doc: Value = serde_json::from_str(&fs::read_to_string(&path).or_else(io)?).or_else(|_| err("invalid", "This project's mod records are damaged."))?;
+    // An unreadable mods folder must fail here, never read as "every mod is missing".
+    let on_disk: HashSet<String> = fs::read_dir(game.join("mods")).or_else(io)?.flatten().map(|e| e.file_name().to_string_lossy().to_lowercase().trim_end_matches(".disabled").to_string()).collect();
+    let Some(projects) = doc["projects"].as_object_mut() else { return err("invalid", "This project's mod records are damaged.") };
+    let mut gone = vec![];
+    projects.retain(|_, entry| {
+        let name = entry["fileName"].as_str().unwrap_or_default();
+        let keep = name.is_empty() || on_disk.contains(&name.to_lowercase());
+        if !keep {
+            gone.push(name.to_string());
+        }
+        keep
+    });
+    if !gone.is_empty() {
+        fs::create_dir_all(backup.parent().unwrap_or(backup)).or_else(io)?;
+        fs::copy(&path, backup).or_else(io)?;
+        crate::files::write_atomic(&path, doc.to_string().as_bytes(), false).or_else(|m| err("io", m))?;
+    }
+    Ok(gone)
+}
+
+#[tauri::command]
+pub async fn workspace_forget_missing(workspace: String) -> HostResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let game = crate::export::game_folder(&workspace)?;
+        let backup = manager_data_dir().or_else(|m| err("io", m))?.join("policy-backups").join(format!("{workspace}.json"));
+        forget_missing(&game, &backup)
+    })
+    .await
+    .unwrap_or_else(|e| err("internal", e.to_string()))
+}
+
 #[cfg(windows)]
 fn shell_open(target: &str) -> HostResult<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -185,6 +226,27 @@ mod tests {
         }
         assert!(content_path(game, "mods", "a.jar").is_err(), "mods belong to the helper");
         assert!(content_path(game, "saves", "w").is_err());
+    }
+
+    #[test]
+    fn forgetting_missing_mods_drops_only_records_without_a_file() {
+        let root = std::env::temp_dir().join(format!("awake-mm-forget-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (game, policies, backup) = (root.join("minecraft"), root.join(".awake-integration").join("policies.json"), root.join("backups").join("b.json"));
+        fs::create_dir_all(policies.parent().unwrap()).unwrap();
+        let before = r#"{"format":1,"projects":{"a":{"fileName":"A.jar"},"b":{"fileName":"b.jar"},"c":{"fileName":"c.jar"}}}"#;
+        fs::write(&policies, before).unwrap();
+        assert!(forget_missing(&game, &backup).is_err(), "no mods folder");
+        assert_eq!(fs::read_to_string(&policies).unwrap(), before);
+        fs::create_dir_all(game.join("mods")).unwrap();
+        fs::write(game.join("mods").join("a.jar"), "").unwrap();
+        fs::write(game.join("mods").join("b.jar.disabled"), "").unwrap();
+        assert_eq!(forget_missing(&game, &backup).unwrap(), ["c.jar"]);
+        let after: Value = serde_json::from_str(&fs::read_to_string(&policies).unwrap()).unwrap();
+        assert_eq!(after, serde_json::json!({"format": 1, "projects": {"a": {"fileName": "A.jar"}, "b": {"fileName": "b.jar"}}}));
+        assert_eq!(fs::read_to_string(&backup).unwrap(), before);
+        assert!(forget_missing(&game, &backup).unwrap().is_empty());
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

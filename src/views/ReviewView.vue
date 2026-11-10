@@ -4,6 +4,7 @@ import type { DraftChange, OptionalSuggestion, PlanAction, PlanItem } from '../b
 import { addChange, isStale, removeChange } from '../domain/draft';
 import { t, type MessageKey } from '../i18n';
 import { useSession } from '../state/session';
+import { toast } from '../ui/desktop';
 import { opStateKey, opStateTone, planActionKey, sourceLabel } from '../ui/labels';
 import {
   ArrowRight, ArrowUpCircle, Check, CircleAlert, CircleCheck, Download, FileCog, FileArchive, Info, ListChecks, Loader, Pin, Power, PowerOff,
@@ -68,6 +69,10 @@ function addOptional(o: OptionalSuggestion) {
   if (draft.value) session.setDraft(addChange(draft.value, { kind: 'install', provider: o.provider, projectId: o.projectId, name: o.name }));
 }
 const refreshDraft = () => void session.rebaseDraft();
+async function cleanMissing() {
+  const gone = await session.forgetMissingMods();
+  if (gone.length) toast(t('cleanMissingDone', { names: gone.join(', ') }), 'ok');
+}
 function discard() { session.discardDraft(); confirmDiscard.value = false; }
 function reasonText(i: PlanItem) {
   if (i.reason === 'required-dependency') return t('reasonRequired', { names: (i.requiredBy ?? []).join(', ') });
@@ -227,8 +232,10 @@ function reasonText(i: PlanItem) {
           <CircleAlert :size="18" />
           <div class="grow">
             <strong>{{ t('applyFailed') }}</strong>
+            <p v-if="session.missingTracked.value" class="small">{{ t('cleanMissingHint') }}</p>
             <details v-if="review.error"><summary class="small">{{ t('technicalDetails') }}</summary><code class="small">{{ review.error.code }}: {{ review.error.message }}</code></details>
           </div>
+          <button v-if="session.missingTracked.value" class="btn btn-small" type="button" @click="cleanMissing">{{ t('cleanMissing') }}</button>
         </div>
 
         <div v-if="plan" class="apply-bar">

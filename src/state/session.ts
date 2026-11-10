@@ -304,6 +304,26 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     resetReview();
   }
 
+  /**
+   * A tracked mod's file was deleted outside the Manager, and the helper refuses every check until its record is gone.
+   * shortcut: recognised by the helper's wording, as it has no code of its own for this; switch to the code when it gets one.
+   */
+  const missingTracked = computed(() => review.phase === 'failed' && !!backend.forgetMissingMods && review.error?.detail === 'POLICY_CONFLICT' && /tracked file is missing/i.test(review.error.message));
+  /** Forget those records, then check the draft again. Resolves with the file names forgotten. */
+  async function forgetMissingMods() {
+    const id = state.instanceId;
+    if (!id || !backend.forgetMissingMods) return [];
+    review.phase = 'resolving';
+    try {
+      const gone = await backend.forgetMissingMods(id);
+      await validate();
+      return gone;
+    } catch (e) {
+      Object.assign(review, { phase: 'failed', error: asError(e) });
+      return [];
+    }
+  }
+
   /** The policy a mod will have after the draft: its pending policy change, else what the helper reports. */
   function policyOf(key: string) {
     const c = draft.value?.changes.find((x) => x.kind === 'policy' && x.modKey === key);
@@ -621,7 +641,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     can, instance, draft, pinned, planOutdated, policies, policyOf, packHandshake,
     connect, refreshInstances, selectInstance, loadInventory, checkUpdates, deleteInstance, renameInstance, preparePackUpdate,
     setDraft, discardDraft, rebaseDraft, setPinned, setExcluded, prepareImport,
-    validate, apply, acceptChangedPlan, resetReview,
+    validate, apply, acceptChangedPlan, resetReview, missingTracked, forgetMissingMods,
     refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher, makeProfilePrivate,
   };
 }
