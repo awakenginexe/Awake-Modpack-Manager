@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue';
-import { Boxes, Download, FolderKanban, FolderOpen, History, LayoutGrid, ListChecks, Loader, PackageSearch, Search, Settings, Upload } from '@lucide/vue';
+import { Boxes, Download, FolderKanban, FolderOpen, History, Image, LayoutGrid, ListChecks, Loader, PackageSearch, Search, Settings, Sun, Upload } from '@lucide/vue';
 import Avatar from './components/Avatar.vue';
 import { isRunning } from './domain/operation';
 import { t, type MessageKey } from './i18n';
@@ -17,6 +17,8 @@ import LibraryView from './views/LibraryView.vue';
 import ModsView from './views/ModsView.vue';
 import PacksView from './views/PacksView.vue';
 import BrowseView from './views/BrowseView.vue';
+import ContentBrowseView from './views/ContentBrowseView.vue';
+import { browseKind, leaveGuard, type BrowseKind } from './state/nav';
 import ReviewView from './views/ReviewView.vue';
 import FilesView from './views/FilesView.vue';
 import HistoryView from './views/HistoryView.vue';
@@ -57,6 +59,18 @@ const instanceNav: NavItem[] = [
   { id: 'export', label: 'navExport', icon: Upload },
 ];
 
+/** Browse has three shelves: mods go through a reviewed plan, the other two install directly. */
+const browseNav: { id: BrowseKind; label: MessageKey; icon: Component }[] = [
+  { id: 'mod', label: 'navMods', icon: Boxes },
+  { id: 'resourcepack', label: 'browseResourcepacks', icon: Image },
+  { id: 'shader', label: 'browseShaders', icon: Sun },
+];
+async function openBrowse(kind: BrowseKind) {
+  if (view.value !== 'browse' && !await canLeave()) return;
+  browseKind.value = kind;
+  void open('browse');
+}
+
 const draftCount = computed(() => session.draft.value?.changes.length ?? 0);
 const activeOps = computed(() => state.operations.filter(isRunning).length);
 const connectionText = computed(() => {
@@ -78,14 +92,17 @@ const connectionTone = computed(() => {
 /* Back and forward through screens, by toolbar, Alt+arrows or the mouse's side buttons. */
 const back = ref<ViewId[]>([]);
 const forward = ref<ViewId[]>([]);
-function open(id: ViewId) {
-  if (id === view.value) return;
+/** A screen with unsaved work gets to ask before it is replaced. */
+const canLeave = async () => !leaveGuard.value || await leaveGuard.value();
+async function open(id: ViewId) {
+  if (id === view.value || !await canLeave()) return;
   back.value = [...back.value.slice(-49), view.value];
   forward.value = [];
   view.value = id;
 }
 const usable = (id: ViewId) => ['library', 'packs', 'projects'].includes(id) || !!session.instance.value;
-function goBack() {
+async function goBack() {
+  if (!await canLeave()) return;
   const list = [...back.value];
   while (list.length) {
     const id = list.pop()!;
@@ -93,7 +110,8 @@ function goBack() {
   }
   back.value = [];
 }
-function goForward() {
+async function goForward() {
+  if (!await canLeave()) return;
   const list = [...forward.value];
   while (list.length) {
     const id = list.pop()!;
@@ -102,8 +120,8 @@ function goForward() {
   forward.value = [];
 }
 function onMouseButton(e: MouseEvent) {
-  if (e.button === 3) { e.preventDefault(); goBack(); }
-  if (e.button === 4) { e.preventDefault(); goForward(); }
+  if (e.button === 3) { e.preventDefault(); void goBack(); }
+  if (e.button === 4) { e.preventDefault(); void goForward(); }
 }
 
 /* A desktop app has no page to reload, print or inspect, and no browser menu. */
@@ -116,8 +134,8 @@ function onKey(e: KeyboardEvent) {
   const ctrl = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
   if (e.key === 'F5' || (ctrl && key === 'r')) { e.preventDefault(); refreshAll(); return; }
-  if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); goBack(); return; }
-  if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); goForward(); return; }
+  if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); void goBack(); return; }
+  if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); void goForward(); return; }
   if (ctrl && key === 'f') {
     const field = document.querySelector<HTMLInputElement>('.stage input[type=search]');
     if (field) { e.preventDefault(); field.focus(); field.select(); }
@@ -136,9 +154,10 @@ onBeforeUnmount(() => { removeEventListener('keydown', onKey); removeEventListen
 const views: Record<ViewId, Component> = { library: LibraryView, packs: PacksView, projects: ProjectsView, mods: ModsView, browse: BrowseView, review: ReviewView, files: FilesView, history: HistoryView, export: ExportView };
 const needsInstance = computed(() => !['library', 'packs', 'projects'].includes(view.value));
 const projectCount = computed(() => useProjects().projects.value.length);
-const shownView = computed(() => (needsInstance.value && !session.instance.value ? null : views[view.value]));
+const contentKind = computed(() => (view.value === 'browse' && browseKind.value !== 'mod' ? browseKind.value : null));
+const shownView = computed(() => (needsInstance.value && !session.instance.value ? null : contentKind.value ? ContentBrowseView : views[view.value]));
 // Instance screens re-enter when the instance changes, so the switch reads as a new page.
-const viewKey = computed(() => (needsInstance.value ? `${view.value}:${state.instanceId}` : view.value));
+const viewKey = computed(() => (needsInstance.value ? `${view.value}:${contentKind.value ?? ''}:${state.instanceId}` : view.value));
 
 /* Sliding highlight behind the active nav item. */
 const sidebar = ref<HTMLElement | null>(null);
@@ -156,7 +175,7 @@ onMounted(() => {
   if (typeof ResizeObserver !== 'undefined' && sidebar.value) { resize = new ResizeObserver(placeIndicator); resize.observe(sidebar.value); }
 });
 onBeforeUnmount(() => resize?.disconnect());
-watch([view, () => session.instance.value?.id, () => state.connection], () => void nextTick(placeIndicator));
+watch([view, browseKind, () => session.instance.value?.id, () => state.connection], () => void nextTick(placeIndicator));
 </script>
 
 <template>
@@ -204,16 +223,29 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
           <span>{{ t('noInstance') }}</span>
         </button>
         </Transition>
-        <button
-          v-for="item in instanceNav" :key="item.id" type="button" class="nav-item"
-          :class="{ active: view === item.id }" :aria-current="view === item.id ? 'page' : undefined"
-          :disabled="!session.instance.value" @click="open(item.id)"
-        >
-          <component :is="item.icon" :size="18" aria-hidden="true" />
-          <span class="nav-text">{{ t(item.label) }}</span>
-          <span v-if="item.id === 'review' && draftCount" :key="draftCount" class="badge info pop">{{ draftCount }}</span>
-          <span v-if="item.id === 'history' && activeOps" :key="activeOps" class="badge info pop"><span class="dot pulse"></span>{{ activeOps }}</span>
-        </button>
+        <template v-for="item in instanceNav" :key="item.id">
+          <!-- Browse is a heading for its three shelves: the open shelf carries the highlight. -->
+          <button
+            type="button" class="nav-item"
+            :class="{ active: view === item.id && item.id !== 'browse', parent: view === 'browse' && item.id === 'browse' }" :aria-current="view === item.id && item.id !== 'browse' ? 'page' : undefined"
+            :disabled="!session.instance.value" @click="open(item.id)"
+          >
+            <component :is="item.icon" :size="18" aria-hidden="true" />
+            <span class="nav-text">{{ t(item.label) }}</span>
+            <span v-if="item.id === 'review' && draftCount" :key="draftCount" class="badge info pop">{{ draftCount }}</span>
+            <span v-if="item.id === 'history' && activeOps" :key="activeOps" class="badge info pop"><span class="dot pulse"></span>{{ activeOps }}</span>
+          </button>
+          <div v-if="item.id === 'browse'" class="nav-sub" role="group" :aria-label="t('navBrowse')">
+            <button
+              v-for="shelf in browseNav" :key="shelf.id" type="button" class="nav-item sub"
+              :class="{ active: view === 'browse' && browseKind === shelf.id }" :aria-current="view === 'browse' && browseKind === shelf.id ? 'page' : undefined"
+              :disabled="!session.instance.value" @click="openBrowse(shelf.id)"
+            >
+              <component :is="shelf.icon" :size="16" aria-hidden="true" />
+              <span class="nav-text">{{ t(shelf.label) }}</span>
+            </button>
+          </div>
+        </template>
       </div>
 
       <footer class="sidebar-footer">
@@ -241,7 +273,7 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
       </div>
       <Transition name="page" :mode="motionOff ? 'default' : 'out-in'" :css="!motionOff">
         <component
-          :is="shownView" v-if="shownView" :key="viewKey"
+          :is="shownView" v-if="shownView" :key="viewKey" v-bind="contentKind ? { kind: contentKind } : {}"
           @manage="open('mods')" @get-pack="open('packs')" @navigate="open"
         />
         <div v-else key="empty" class="empty glass">
@@ -289,7 +321,9 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
 .nav-text { flex: 1; }
 .nav-item:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); }
 .nav-item { position: relative; z-index: 1; }
-.nav-item.active { color: #fff; }
+.nav-item.active, .nav-item.parent { color: #fff; }
+.nav-sub { display: flex; flex-direction: column; gap: 2px; margin-left: 21px; padding-left: 8px; border-left: 1px solid var(--border-subtle); }
+.nav-item.sub { padding: 6px 10px; font-size: 0.9rem; }
 /* Active highlight lives on one element that slides between items. */
 .nav-indicator {
   position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; border-radius: var(--radius-control);
@@ -319,6 +353,7 @@ watch([view, () => session.instance.value?.id, () => state.connection], () => vo
   .sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .nav-group { flex-direction: row; flex-wrap: wrap; }
   .nav-label, .current-instance { display: none; }
+  .nav-sub { flex-direction: row; margin-left: 0; padding-left: 0; border-left: none; }
   .sidebar-footer { margin-top: 0; }
 }
 </style>

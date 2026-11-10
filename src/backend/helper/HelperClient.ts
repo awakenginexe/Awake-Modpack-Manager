@@ -612,7 +612,7 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     if (caps.includes('plan.apply') && ext('policies.v1', true)) caps.push('mods.policies');
     if (caps.includes('plan.apply') && canImport()) caps.push('packs.import');
     if (options.host) {
-      caps.push('files.read', 'mods.updates');
+      caps.push('files.read', 'files.write', 'content.browse', 'mods.updates');
       if (has('providers.search')) caps.push('packs.search');
       if (caps.includes('packs.import') && ext('imports.packAuthoritative.v1', true) && caps.includes('instances.create')) caps.push('packs.install');
     }
@@ -1029,13 +1029,46 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       if (!options.host) return notYet('cleaning up');
       return options.host.workspaceForgetMissing(workspaceOf(instanceId).workspaceId);
     },
-    async openFolder(instanceId, area) {
-      await options.host?.workspaceOpen(workspaceOf(instanceId).workspaceId, area);
+    async openFolder(instanceId, area, folder) {
+      await options.host?.workspaceOpen(workspaceOf(instanceId).workspaceId, area, folder);
     },
 
-    async listContent(instanceId, area: ContentArea) {
-      if (!options.host || workspaceOf(instanceId).sharedRoot) return notYet('file listing');
-      return (await options.host.workspaceList(workspaceOf(instanceId).workspaceId, area)).map(({ modifiedMs, ...e }) => ({ ...e, ...(modifiedMs ? { modifiedAt: new Date(modifiedMs).toISOString() } : {}) }));
+    // Non-mod content is the desktop host's: the helper only ever changes mods.
+    async listContent(instanceId, area: ContentArea, folder) {
+      if (!options.host) return notYet('file listing');
+      return (await options.host.workspaceList(workspaceOf(instanceId).workspaceId, area, folder)).map(({ modifiedMs, ...e }) => ({ ...e, ...(modifiedMs ? { modifiedAt: new Date(modifiedMs).toISOString() } : {}) }));
+    },
+    async readContentText(instanceId, area, path) {
+      if (!options.host) return notYet('editing files');
+      return options.host.workspaceReadText(workspaceOf(instanceId).workspaceId, area, path);
+    },
+    async writeContentText(instanceId, area, path, text, expectedModifiedMs) {
+      if (!options.host) return notYet('editing files');
+      return options.host.workspaceWriteText(workspaceOf(instanceId).workspaceId, area, path, text, expectedModifiedMs);
+    },
+    async addContentFiles(instanceId, area, folder) {
+      if (!options.host) return notYet('adding files');
+      return options.host.workspaceAddFiles(workspaceOf(instanceId).workspaceId, area, folder);
+    },
+    async contentProviders() {
+      // Same two sites as mods, asked by the host; CurseForge needs this build's key.
+      const packs = options.host ? await options.host.packProviders().catch((): PackProviderInfo[] => []) : [];
+      return (['modrinth', 'curseforge'] as const).map((id) => {
+        const p = packs.find((x) => x.id === id);
+        return { id, available: !!p?.available, unavailableReason: p?.available ? undefined : id === 'curseforge' ? 'curseforge-disabled' : 'helper-pending' };
+      });
+    },
+    async searchContent(q) {
+      if (!options.host) return notYet('resource pack and shader search');
+      return options.host.contentSearch(q);
+    },
+    async contentVersions(provider, projectId, minecraftVersion) {
+      if (!options.host) return notYet('resource pack and shader search');
+      return options.host.contentVersions(provider, projectId, minecraftVersion);
+    },
+    async installContent(instanceId, kind, provider, projectId, versionId, onProgress) {
+      if (!options.host) return notYet('installing resource packs and shaders');
+      return options.host.contentInstall(workspaceOf(instanceId).workspaceId, kind, provider, projectId, versionId, onProgress);
     },
     // Export is built in the Manager from snapshotWorkspace; these are the Launcher's own export path.
     checkExport: () => notYet('export'), startExport: () => notYet('export'),

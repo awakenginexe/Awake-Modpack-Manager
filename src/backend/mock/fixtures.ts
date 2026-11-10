@@ -1,4 +1,40 @@
-import type { DependencyRef, InstalledMod, InstanceSummary, LoaderKind, PackHit, PackProviderId, PackVersion, ProviderId, ReleaseType, SearchHit, VersionRef } from '../contract';
+import type { ContentHit, ContentKind, ContentVersion, DependencyRef, InstalledMod, InstanceSummary, LoaderKind, PackHit, PackProviderId, PackVersion, ProviderId, ReleaseType, SearchHit, VersionRef } from '../contract';
+
+export interface CatalogContent extends ContentHit { kind: ContentKind; versions: ContentVersion[] }
+
+const CONTENT_NAMES: Record<ContentKind, string[]> = {
+  resourcepack: ['Faithful', 'Fresh Animations', 'Bare Bones', 'Stay True', 'Dramatic Skys', 'Mizuno Craft', 'Default Dark Mode', 'Better Leaves', 'Xali Enhanced', 'Low Fire', 'Round Trees', 'Visual Enchants'],
+  shader: ['Complementary Reimagined', 'BSL', 'Sildurs Vibrant', 'MakeUp Ultra Fast', 'Photon', 'Rethinking Voxels', 'Bliss', 'Solas', 'Super Duper Vanilla', 'Insanity', 'Kappa', 'Nostalgia'],
+};
+
+/** Demo resource packs and shaders, with versions for the demo instances' Minecraft versions. */
+export function buildContentCatalog(seed = 47): CatalogContent[] {
+  const rand = seeded(seed);
+  const out: CatalogContent[] = [];
+  for (const kind of ['resourcepack', 'shader'] as const) {
+    for (const provider of ['modrinth', 'curseforge'] as const) {
+      CONTENT_NAMES[kind].forEach((base, i) => {
+        const name = provider === 'curseforge' ? `${base} CF` : base;
+        const projectId = `${provider}-${kind}-${i}`;
+        const games = i % 5 === 4 ? ['1.20.1'] : i % 5 === 3 ? ['1.21.1'] : ['1.21.1', '1.20.1', '1.12.2'];
+        const major = 1 + Math.floor(rand() * 8);
+        const versions: ContentVersion[] = Array.from({ length: 2 + Math.floor(rand() * 4) }, (_, v) => ({
+          id: `${projectId}-v${v}`, name: `${name} ${major}.${6 - v}`, versionNumber: `${major}.${6 - v}`,
+          releaseType: v === 0 && rand() > 0.75 ? 'beta' : 'release',
+          publishedAt: new Date(Date.UTC(2026, 9 - v, 2 + i)).toISOString(),
+          fileName: `${name.replace(/\s+/g, '')}_${major}.${6 - v}.zip`, sizeBytes: Math.floor((kind === 'shader' ? 400_000 : 4_000_000) * (1 + rand() * 9)),
+          gameVersions: games, loaders: kind === 'shader' ? (i % 3 === 0 ? ['iris'] : ['iris', 'optifine']) : [],
+        }));
+        out.push({
+          kind, provider, projectId, name, author: ['EminGT', 'FreshLX', 'capttatsu', 'vanilla_tweaks', 'lumen'][i % 5]!,
+          summary: kind === 'shader' ? `${base} adds soft shadows, better water and atmospheric lighting.` : `${base} retextures the game while keeping its familiar look.`,
+          downloads: Math.floor(rand() * 60_000_000), versions,
+        });
+      });
+    }
+  }
+  return out;
+}
 
 const PACK_WORDS = ['Skyward', 'Ember', 'Northern', 'Arcane', 'Hollow', 'Starfall', 'Iron', 'Verdant', 'Tidal', 'Clockwork', 'Frontier', 'Echo'];
 const PACK_KINDS = ['Odyssey', 'Engineers', 'Survival', 'Kingdoms', 'Quest', 'Expedition', 'Tech', 'Magic'];

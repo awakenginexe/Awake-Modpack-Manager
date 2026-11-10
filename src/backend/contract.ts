@@ -23,6 +23,10 @@ export type Capability =
   | 'operations.reconnect'
   | 'recovery.status'
   | 'files.read'
+  /** Edit, add and recycle non-mod content (configs, scripts, resource packs, shaders). */
+  | 'files.write'
+  /** Search and install resource packs and shaders. */
+  | 'content.browse'
   | 'export.mrpack'
   | 'export.curseforge'
   | 'launch.request'
@@ -42,7 +46,7 @@ export type Capability =
 export const ALL_CAPABILITIES: Capability[] = [
   'installations.discover', 'instances.list', 'instances.create', 'mods.inventory', 'providers.search',
   'plan.validate', 'plan.prepare', 'plan.apply', 'operations.watch', 'operations.cancel', 'operations.reconnect',
-  'recovery.status', 'files.read', 'export.mrpack', 'export.curseforge', 'launch.request', 'packs.search', 'packs.install',
+  'recovery.status', 'files.read', 'files.write', 'content.browse', 'export.mrpack', 'export.curseforge', 'launch.request', 'packs.search', 'packs.install',
   'mods.policies', 'packs.import', 'instances.delete', 'instances.rename', 'mods.updates',
 ];
 
@@ -483,11 +487,55 @@ export interface RecoveryStatus {
 export type ContentArea = 'config' | 'defaultconfigs' | 'kubejs' | 'scripts' | 'resourcepacks' | 'shaderpacks';
 
 export interface ContentEntry {
+  /** Relative to the area's folder, with forward slashes. */
   path: string;
   kind: 'file' | 'directory';
   sizeBytes?: number;
   modifiedAt?: string;
 }
+
+/** A file opened in the editor. `modifiedMs` goes back with the save, so a newer file on disk is never overwritten. */
+export interface ContentTextFile { text: string; modifiedMs: number }
+export interface AddedContent { added: string[]; skipped: string[] }
+
+/* ---------- Resource packs & shaders (installed straight into their folder, never through a plan) ---------- */
+
+export type ContentKind = 'resourcepack' | 'shader';
+export const contentArea: Record<ContentKind, ContentArea> = { resourcepack: 'resourcepacks', shader: 'shaderpacks' };
+
+export interface ContentSearchQuery {
+  kind: ContentKind;
+  provider: ProviderId;
+  text: string;
+  /** Only projects with a version for this Minecraft version; empty for all. */
+  minecraftVersion: string;
+  offset: number;
+  limit: number;
+}
+export interface ContentHit {
+  provider: ProviderId;
+  projectId: string;
+  name: string;
+  author: string;
+  summary: string;
+  iconUrl?: string;
+  downloads?: number;
+  pageUrl?: string;
+}
+export interface ContentSearchPage { hits: ContentHit[]; total: number }
+export interface ContentVersion {
+  id: string;
+  name: string;
+  versionNumber: string;
+  releaseType?: ReleaseType;
+  publishedAt?: string;
+  fileName: string;
+  sizeBytes?: number;
+  gameVersions: string[];
+  /** What can load it, as the provider tags it (Iris, OptiFine...). Empty for resource packs. */
+  loaders: string[];
+}
+export interface InstalledContent { fileName: string; replaced: boolean }
 
 export type ExportFormat = 'mrpack' | 'curseforge';
 

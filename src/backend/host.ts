@@ -1,4 +1,4 @@
-import { BackendError, type ContentEntry, type ExportFileMatch, type InstanceZipResult, type PackHit, type PackProviderId, type PackProviderInfo, type PackVersion, type ProviderId } from './contract';
+import { BackendError, type AddedContent, type ContentEntry, type ContentKind, type ContentSearchPage, type ContentSearchQuery, type ContentTextFile, type ContentVersion, type InstalledContent, type ExportFileMatch, type InstanceZipResult, type PackHit, type PackProviderId, type PackProviderInfo, type PackVersion, type ProviderId } from './contract';
 
 /** A pack the desktop host downloaded and verified, ready to upload to the helper. */
 export interface FetchedPack { token: string; format: 'mrpack' | 'curseforge'; size: number; sha256: string; notes: string[] }
@@ -22,9 +22,15 @@ export interface HostApi {
   projectMeta(items: ProjectRef[]): Promise<ProjectMeta[]>;
   projectDetail(provider: ProviderId, projectId: string): Promise<ProjectDetail>;
   modUpdates(items: ProjectRef[], minecraftVersion: string, loader: string): Promise<ModUpdate[]>;
-  workspaceList(workspace: string, area: string): Promise<(ContentEntry & { modifiedMs?: number })[]>;
+  workspaceList(workspace: string, area: string, folder?: string): Promise<(ContentEntry & { modifiedMs?: number })[]>;
   workspaceRecycle(workspace: string, area: string, paths: string[]): Promise<void>;
-  workspaceOpen(workspace: string, area?: string): Promise<void>;
+  workspaceOpen(workspace: string, area?: string, folder?: string): Promise<void>;
+  workspaceReadText(workspace: string, area: string, path: string): Promise<ContentTextFile>;
+  workspaceWriteText(workspace: string, area: string, path: string, text: string, expectedModifiedMs: number): Promise<number>;
+  workspaceAddFiles(workspace: string, area: string, folder: string): Promise<AddedContent | null>;
+  contentSearch(query: ContentSearchQuery): Promise<ContentSearchPage>;
+  contentVersions(provider: ProviderId, projectId: string, minecraftVersion: string): Promise<ContentVersion[]>;
+  contentInstall(workspace: string, kind: ContentKind, provider: ProviderId, projectId: string, versionId: string, onProgress?: (done: number, total: number) => void): Promise<InstalledContent>;
   /** Drop the helper's records of mods whose file is gone. Resolves with the file names forgotten. */
   workspaceForgetMissing(workspace: string): Promise<string[]>;
   exportMatch(workspace: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]>;
@@ -35,7 +41,7 @@ export interface HostApi {
 function asBackendError(e: unknown): BackendError {
   if (e && typeof e === 'object' && 'code' in e && 'message' in e) {
     const { code, message } = e as { code: string; message: string };
-    const mapped = code === 'restricted' || code === 'manual-download' || code === 'curseforge-disabled' ? 'provider-restricted' : code === 'unsupported' ? 'unsupported' : code === 'network' || code === 'rate-limited' ? 'disconnected' : 'rejected';
+    const mapped = code === 'restricted' || code === 'manual-download' || code === 'curseforge-disabled' ? 'provider-restricted' : code === 'unsupported' ? 'unsupported' : code === 'network' || code === 'rate-limited' ? 'disconnected' : code === 'conflict' ? 'stale-revision' : 'rejected';
     return new BackendError(mapped, String(message), code);
   }
   return new BackendError('protocol', e instanceof Error ? e.message : String(e));
@@ -62,10 +68,21 @@ export function createHostApi(): HostApi {
     projectMeta: (items) => hostInvoke('project_meta', { items }),
     projectDetail: (provider, projectId) => hostInvoke('project_detail', { provider, projectId }),
     modUpdates: (items, minecraftVersion, loader) => hostInvoke('mod_updates', { items, minecraftVersion, loader }),
-    workspaceList: (workspace, area) => hostInvoke('workspace_list', { workspace, area }),
+    workspaceList: (workspace, area, folder) => hostInvoke('workspace_list', { workspace, area, folder: folder || null }),
+    workspaceReadText: (workspace, area, path) => hostInvoke('workspace_read_text', { workspace, area, path }),
+    workspaceWriteText: (workspace, area, path, text, expectedModifiedMs) => hostInvoke('workspace_write_text', { workspace, area, path, text, expectedModifiedMs }),
+    workspaceAddFiles: (workspace, area, folder) => hostInvoke('workspace_add_files', { workspace, area, folder }),
+    contentSearch: ({ provider, kind, text, minecraftVersion, offset, limit }) => hostInvoke('content_search', { provider, kind, text, minecraftVersion, offset, limit }),
+    contentVersions: (provider, projectId, minecraftVersion) => hostInvoke('content_versions', { provider, projectId, minecraftVersion }),
+    async contentInstall(workspace, kind, provider, projectId, versionId, onProgress) {
+      const { listen } = await import('@tauri-apps/api/event');
+      const job = crypto.randomUUID();
+      const stop = await listen<{ job: string; done: number; total: number }>('content-progress', (e) => { if (e.payload.job === job) onProgress?.(e.payload.done, e.payload.total); });
+      try { return await hostInvoke('content_install', { workspace, provider, kind, projectId, versionId, job }); } finally { stop(); }
+    },
     workspaceRecycle: (workspace, area, paths) => hostInvoke('workspace_recycle', { workspace, area, paths }),
     workspaceForgetMissing: (workspace) => hostInvoke('workspace_forget_missing', { workspace }),
-    workspaceOpen: (workspace, area) => hostInvoke('workspace_open', { workspace, area: area ?? null }),
+    workspaceOpen: (workspace, area, folder) => hostInvoke('workspace_open', { workspace, area: area ?? null, folder: folder || null }),
     exportMatch: (workspace, target, fileNames) => hostInvoke('export_match', { workspace, target, fileNames }),
     async exportInstance(workspace, meta, onProgress) {
       const { listen } = await import('@tauri-apps/api/event');

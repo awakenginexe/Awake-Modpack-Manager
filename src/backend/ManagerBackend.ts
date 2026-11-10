@@ -1,7 +1,8 @@
 import type {
   Accepted, ImportInspection, LoaderKind, WorkspaceSnapshot, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
-  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution, VersionRef, WorkspaceExportItem, ExportFileMatch, ExportRestriction, InstanceZipResult } from './contract';
+  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution, VersionRef, WorkspaceExportItem, ExportFileMatch, ExportRestriction, InstanceZipResult,
+  AddedContent, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, InstalledContent, ProviderInfo } from './contract';
 import type { LauncherProfile } from './launcher/transport';
 import type { ProjectDetail } from './host';
 
@@ -62,7 +63,19 @@ export interface ManagerBackend {
   cancelOperation(operationId: string): Promise<void>;
   getRecoveryStatus(instanceId: string): Promise<RecoveryStatus>;
 
-  listContent(instanceId: string, area: ContentArea): Promise<ContentEntry[]>;
+  /** What is directly inside a content folder (`folder` is relative to the area; its top when absent). */
+  listContent(instanceId: string, area: ContentArea, folder?: string): Promise<ContentEntry[]>;
+  readContentText?(instanceId: string, area: ContentArea, path: string): Promise<ContentTextFile>;
+  /** Save over the file that was read. Rejects if it changed on disk since. Resolves to its new `modifiedMs`. */
+  writeContentText?(instanceId: string, area: ContentArea, path: string, text: string, expectedModifiedMs: number): Promise<number>;
+  /** Let the user pick files to copy into a content folder. Null when they cancel; nothing is overwritten. */
+  addContentFiles?(instanceId: string, area: ContentArea, folder: string): Promise<AddedContent | null>;
+
+  /** Resource packs and shaders. They install straight into their folder: no loader, no dependencies, no plan. */
+  contentProviders?(): Promise<ProviderInfo[]>;
+  searchContent?(query: ContentSearchQuery): Promise<ContentSearchPage>;
+  contentVersions?(provider: ProviderId, projectId: string, minecraftVersion: string): Promise<ContentVersion[]>;
+  installContent?(instanceId: string, kind: ContentKind, provider: ProviderId, projectId: string, versionId: string, onProgress?: (done: number, total: number) => void): Promise<InstalledContent>;
   checkExport(instanceId: string, format: ExportFormat): Promise<ExportReport>;
   startExport(request: ExportRequest): Promise<Accepted>;
 
@@ -117,7 +130,7 @@ export interface ManagerBackend {
   resumeHelper?(): void;
   /** Move non-mod project content to the Recycle Bin. */
   recycleContent?(instanceId: string, area: ContentArea, paths: string[]): Promise<void>;
-  openFolder?(instanceId: string, area?: ContentArea): Promise<void>;
+  openFolder?(instanceId: string, area?: ContentArea, folder?: string): Promise<void>;
   /** Forget tracked mods whose file was deleted outside the Manager; the helper refuses every plan until then. Resolves with their file names. */
   forgetMissingMods?(instanceId: string): Promise<string[]>;
 
