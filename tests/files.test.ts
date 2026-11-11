@@ -34,6 +34,7 @@ describe('files of a Launcher instance managed here', () => {
       packProviders: async () => [{ id: 'modrinth', available: true }, { id: 'curseforge', available: false }],
       workspaceList: vi.fn(async () => [{ path: 'jei', kind: 'directory' as const }, { path: 'fml.toml', kind: 'file' as const, sizeBytes: 9, modifiedMs: 1_700_000_000_000 }]),
       workspaceReadText: vi.fn(async () => ({ text: 'a = 1', modifiedMs: 5 })),
+      workspaceReadImage: vi.fn(async () => ({ dataUrl: 'data:image/png;base64,AA==', sizeBytes: 1 })),
       workspaceWriteText: vi.fn(async () => 6),
       contentInstall: vi.fn(async () => ({ fileName: 'BSL.zip', replaced: false })),
     } as unknown as HostApi;
@@ -49,6 +50,8 @@ describe('files of a Launcher instance managed here', () => {
     expect(list).toEqual([{ path: 'jei', kind: 'directory' }, { path: 'fml.toml', kind: 'file', sizeBytes: 9, modifiedAt: new Date(1_700_000_000_000).toISOString() }]);
 
     expect(await client.readContentText!(instance.id, 'config', 'fml.toml')).toEqual({ text: 'a = 1', modifiedMs: 5 });
+    expect(await client.readContentImage!(instance.id, 'kubejs', 'assets/icon.png')).toEqual({ dataUrl: 'data:image/png;base64,AA==', sizeBytes: 1 });
+    expect(host.workspaceReadImage).toHaveBeenCalledExactlyOnceWith(id, 'kubejs', 'assets/icon.png');
     expect(await client.writeContentText!(instance.id, 'config', 'fml.toml', 'a = 2', 5)).toBe(6);
     expect(host.workspaceWriteText).toHaveBeenCalledExactlyOnceWith(id, 'config', 'fml.toml', 'a = 2', 5);
     await client.installContent!(instance.id, 'shader', 'modrinth', 'proj', 'ver');
@@ -141,6 +144,39 @@ describe('Files page', () => {
     expect(wrapper.find('.editor .notice.error').exists()).toBe(true);
     expect((await backend.readContentText('inst-atlas', 'config', 'fml.toml')).text).toContain('maxThreads = -1');
     expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('mine');
+    wrapper.unmount();
+  });
+
+  it('shows an image in the viewer instead of the editor', async () => {
+    const { backend, provide } = await demo();
+    filesArea.value = 'kubejs';
+    const wrapper = mount(FilesView, provide);
+    await settle();
+    // kubejs/assets/demo/textures/item: the first row is the next folder each time.
+    for (let depth = 0; depth < 4; depth++) { await wrapper.find('.entries .open').trigger('click'); await settle(); }
+    expect(names(wrapper)).toEqual(['demo_gear.png']);
+    expect(wrapper.find('.entries .open').attributes('title')).toBe('View');
+    const read = vi.spyOn(backend, 'readContentText');
+    await wrapper.find('.entries .open').trigger('click');
+    await settle();
+    expect(read).not.toHaveBeenCalled();
+    expect(wrapper.find('textarea').exists()).toBe(false);
+    const img = wrapper.find('.viewer img');
+    expect(img.attributes('src')).toMatch(/^data:image\/png;base64,/);
+    expect(img.attributes('alt')).toBe('demo_gear.png');
+    expect(wrapper.find('.viewer .count').text()).toBe('164 B');
+
+    // A picture that will not decode says so instead of showing a broken frame.
+    await img.trigger('error');
+    expect(wrapper.find('.viewer .notice.error').exists()).toBe(true);
+    expect(wrapper.find('.viewer img').exists()).toBe(false);
+
+    // Nothing to save, so going back never asks.
+    await wrapper.find('.viewer .icon-btn').trigger('click');
+    await settle();
+    expect(dialog.value).toBeNull();
+    expect(wrapper.find('.viewer').exists()).toBe(false);
+    expect(names(wrapper)).toEqual(['demo_gear.png']);
     wrapper.unmount();
   });
 

@@ -1042,6 +1042,10 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       if (!options.host) return notYet('editing files');
       return options.host.workspaceReadText(workspaceOf(instanceId).workspaceId, area, path);
     },
+    async readContentImage(instanceId, area, path) {
+      if (!options.host) return notYet('viewing images');
+      return options.host.workspaceReadImage(workspaceOf(instanceId).workspaceId, area, path);
+    },
     async writeContentText(instanceId, area, path, text, expectedModifiedMs) {
       if (!options.host) return notYet('editing files');
       return options.host.workspaceWriteText(workspaceOf(instanceId).workspaceId, area, path, text, expectedModifiedMs);

@@ -24,6 +24,7 @@ function fakeHost(over: Partial<HostApi> = {}): HostApi {
     workspaceRecycle: async () => undefined,
     workspaceOpen: async () => undefined,
     workspaceReadText: async () => ({ text: '', modifiedMs: 0 }),
+    workspaceReadImage: async () => ({ dataUrl: '', sizeBytes: 0 }),
     workspaceWriteText: async () => 0,
     workspaceAddFiles: async () => null,
     contentSearch: async () => ({ hits: [], total: 0 }),

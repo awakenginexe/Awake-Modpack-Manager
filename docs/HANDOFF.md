@@ -1,10 +1,10 @@
-# Development checkpoint: Manager 1.3.0 and Native Core 0.4.2
+# Development checkpoint: Manager 1.3.1 and Native Core 0.4.2
 
-Unreleased until the owner approves the pull request and tags `v1.3.0`.
+Unreleased until the owner approves the pull request and tags `v1.3.1`.
 
 ## Where things are
 
-- Manager: branch `release/1.3.0`. `npm ci`, then `npm test`, `npm run typecheck`, `cargo test --manifest-path src-tauri/Cargo.toml --lib`.
+- Manager: branch `release/1.3.1`. `npm ci`, then `npm test`, `npm run typecheck`, `cargo test --manifest-path src-tauri/Cargo.toml --lib`.
 - Native Core: Awake Launcher branch `release/3.2.2`. `.github/workflows/native-core-package.yml` builds it with the recorded toolchain and commits a delivery under `native-core/redistribution/<commit12>/`. `scripts/helper-pin.json` pins that delivery.
 - Release: pushing a version tag runs `.github/workflows/awake-beta.yml`, which builds, verifies, assembles every asset and publishes the release. `SHA256SUMS.txt` is required by in-app updates.
 
@@ -12,7 +12,7 @@ Unreleased until the owner approves the pull request and tags `v1.3.0`.
 
 - `src-tauri/src/providers.rs`: five modpack catalogs, pack downloads, batched project metadata and update lookups. The CurseForge key stays in the host and the helper's environment.
 - `src-tauri/src/updater.rs`: GitHub release check and checksum-verified installer run.
-- `src-tauri/src/desktop.rs`: content folders of a project or managed Launcher instance (list a folder, edit a text file, add files, Recycle Bin), shell open. Mods are never touched here.
+- `src-tauri/src/desktop.rs`: content folders of a project or managed Launcher instance (list a folder, edit a text file, view an image (1.3.1), add files, Recycle Bin), shell open. Mods are never touched here.
 - `src-tauri/src/content.rs` (1.3.0): resource pack and shader search, versions and direct, checksum-verified install into `resourcepacks` / `shaderpacks`.
 - `HelperClient.installPack`: one local operation over fetch, upload, create, prepare and apply. A failure removes the created project.
 - FTB versions become a generated `.mrpack` manifest; ATLauncher and Technic become a CurseForge-format archive of overrides.

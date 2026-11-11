@@ -18,6 +18,8 @@ const AREAS: [&str; 6] = ["config", "defaultconfigs", "kubejs", "scripts", "reso
 const LIST_MAX: usize = 20_000;
 /// The largest text file the built-in editor opens or saves.
 const TEXT_MAX: u64 = 2 << 20;
+/// The largest picture the built-in viewer shows.
+const IMAGE_MAX: u64 = 16 << 20;
 
 pub fn is_uuid(id: &str) -> bool {
     id.len() == 36 && id.bytes().enumerate().all(|(i, b)| if [8, 13, 18, 23].contains(&i) { b == b'-' } else { b.is_ascii_hexdigit() })
@@ -161,6 +163,57 @@ pub async fn workspace_write_text(workspace: String, area: String, path: String,
     })
     .await
     .unwrap_or_else(|e| err("internal", e.to_string()))
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageFile {
+    /// `data:image/...;base64,...`, the only form the page's content policy lets an `<img>` load from disk.
+    data_url: String,
+    size_bytes: u64,
+}
+
+/// The picture formats the web view draws, told by their first bytes and never by the file name.
+pub fn image_mime(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, ..] => Some("image/png"),
+        [0xff, 0xd8, 0xff, ..] => Some("image/jpeg"),
+        [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => Some("image/gif"),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("image/webp"),
+        [b'B', b'M', ..] => Some("image/bmp"),
+        [0, 0, 1, 0, ..] => Some("image/x-icon"),
+        _ => None,
+    }
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = u32::from(chunk[0]) << 16 | u32::from(*chunk.get(1).unwrap_or(&0)) << 8 | u32::from(*chunk.get(2).unwrap_or(&0));
+        for i in 0..4 {
+            out.push(if i <= chunk.len() { ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
+}
+
+/// A picture for the built-in viewer. Only read, never changed; anything that is not one is refused.
+pub fn read_image(path: &Path) -> HostResult<ImageFile> {
+    let meta = regular_file(path)?;
+    if meta.len() > IMAGE_MAX {
+        return err("too-large", "This image is too large to show here (16 MB at most). Open its folder to see it in another program.");
+    }
+    let bytes = fs::read(path).or_else(|e| err("io", e.to_string()))?;
+    let Some(mime) = image_mime(&bytes) else { return err("not-image", "This is not an image the Manager can show.") };
+    Ok(ImageFile { data_url: format!("data:{mime};base64,{}", base64(&bytes)), size_bytes: bytes.len() as u64 })
+}
+
+#[tauri::command]
+pub async fn workspace_read_image(workspace: String, area: String, path: String) -> HostResult<ImageFile> {
+    tauri::async_runtime::spawn_blocking(move || read_image(&checked_path(&game_dir(&workspace)?, &area, &path)?))
+        .await
+        .unwrap_or_else(|e| err("internal", e.to_string()))
 }
 
 #[derive(Serialize, Debug, Default, PartialEq)]
@@ -430,6 +483,33 @@ mod tests {
         assert_eq!(write_text(&config.join("gone.txt"), "x", 0).unwrap_err().code, "not-found");
         assert_eq!(write_text(&config.join("sub"), "x", 0).unwrap_err().code, "invalid");
         assert!(!config.join("gone.txt").exists());
+        fs::remove_dir_all(&game).unwrap();
+    }
+
+    #[test]
+    fn the_viewer_shows_pictures_and_refuses_everything_else() {
+        let game = scratch("image");
+        let config = game.join("config");
+        fs::create_dir_all(config.join("sub")).unwrap();
+        let png = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 1, 2];
+        fs::write(config.join("icon.png"), png).unwrap();
+        let shown = read_image(&config.join("icon.png")).unwrap();
+        assert_eq!(shown.data_url, "data:image/png;base64,iVBORw0KGgoBAg==");
+        assert_eq!(shown.size_bytes, 10);
+        // The first bytes decide, not the name: a script renamed to .png is not handed to the page as a picture.
+        fs::write(config.join("fake.png"), "<svg onload=alert(1)>").unwrap();
+        assert_eq!(read_image(&config.join("fake.png")).unwrap_err().code, "not-image");
+        fs::write(config.join("empty.png"), "").unwrap();
+        assert_eq!(read_image(&config.join("empty.png")).unwrap_err().code, "not-image");
+        fs::write(config.join("big.png"), vec![0u8; IMAGE_MAX as usize + 1]).unwrap();
+        assert_eq!(read_image(&config.join("big.png")).unwrap_err().code, "too-large");
+        assert_eq!(read_image(&config.join("sub")).unwrap_err().code, "invalid");
+        assert_eq!(read_image(&config.join("gone.png")).unwrap_err().code, "not-found");
+        assert_eq!(image_mime(&[0xff, 0xd8, 0xff, 0xe0]), Some("image/jpeg"));
+        assert_eq!(image_mime(b"GIF89a.."), Some("image/gif"));
+        assert_eq!(image_mime(b"RIFF\x10\0\0\0WEBPVP8 "), Some("image/webp"));
+        assert_eq!(image_mime(b"RIFF\x10\0\0\0WAVEfmt "), None);
+        assert_eq!((base64(b""), base64(b"f"), base64(b"fo"), base64(b"foo"), base64(b"foob")), ("".into(), "Zg==".into(), "Zm8=".into(), "Zm9v".into(), "Zm9vYg==".into()));
         fs::remove_dir_all(&game).unwrap();
     }
 
