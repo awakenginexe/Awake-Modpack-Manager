@@ -496,6 +496,8 @@ export interface ContentEntry {
 
 /** A file opened in the editor. `modifiedMs` goes back with the save, so a newer file on disk is never overwritten. */
 export interface ContentTextFile { text: string; modifiedMs: number }
+/** A picture to show: `dataUrl` is `data:image/...;base64,...`, checked by the side that read the file. */
+export interface ContentImage { dataUrl: string; sizeBytes: number }
 export interface AddedContent { added: string[]; skipped: string[] }
 
 /* ---------- Resource packs & shaders (installed straight into their folder, never through a plan) ---------- */

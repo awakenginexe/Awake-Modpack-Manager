@@ -1,4 +1,4 @@
-import type { AddedContent, ContentHit, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, ExportFileMatch, ExportRestriction, InstalledContent, InstanceZipResult, ProviderId, WorkspaceExportItem, WorkspaceSnapshot } from '../contract';
+import type { AddedContent, ContentHit, ContentImage, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, ExportFileMatch, ExportRestriction, InstalledContent, InstanceZipResult, ProviderId, WorkspaceExportItem, WorkspaceSnapshot } from '../contract';
 import {
   ALL_CAPABILITIES, BackendError, TERMINAL_STATES,
   type Accepted, type ApplyRequest, type Capability, type ContentArea, type ContentEntry, type CreateInstanceRequest,
@@ -12,7 +12,9 @@ import type { ConnectionState, ManagerBackend } from '../ManagerBackend';
 import { buildCatalog, buildContentCatalog, buildInstances, buildInventory, buildPackCatalog, type CatalogProject } from './fixtures';
 
 /** A demo file: text when it can be edited, otherwise only a size. */
-interface DemoFile { text?: string; size: number; modifiedMs: number }
+interface DemoFile { text?: string; image?: string; size: number; modifiedMs: number }
+/** A 16 x 16 item texture, so the demo has a picture to show. */
+const DEMO_TEXTURE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAa0lEQVR42mNgwAHcQzP/Y2MzEKthyuIdYIzOxmogTBGIhrEfvfiAgtHlcRqCrhGXQQQ1w2yDYbyGoBsA4ls3fUPByIagGECMZoKG4DIAJobLALgXKDKAKl6gKBCpEo1US0gUJ2WyMxMl2RkAv0AgR3utPPUAAAAASUVORK5CYII=';
 const FOLDER_OF: Record<ContentKind, ContentArea> = { resourcepack: 'resourcepacks', shader: 'shaderpacks' };
 
 export interface MockOptions {
@@ -486,6 +488,7 @@ export class MockBackend implements ManagerBackend {
     text('config/fml.toml', 'maxThreads = -1\r\nversionCheck = true\r\n');
     text('kubejs/startup_scripts/items.js', "StartupEvents.registry('item', (event) => {\n  event.create('demo_gear')\n})\n");
     text('kubejs/server_scripts/recipes.js', "ServerEvents.recipes((event) => {\n  event.remove({ output: 'minecraft:stick' })\n})\n");
+    files.set('kubejs/assets/demo/textures/item/demo_gear.png', { image: DEMO_TEXTURE, size: 164, modifiedMs: at });
     text('scripts/ores.zs', 'import crafttweaker.api.item.IItemStack;\n');
     files.set('resourcepacks/Faithful 32x - Demo.zip', { size: 18_400_000, modifiedMs: at });
     files.set('shaderpacks/ComplementaryReimagined_demo.zip', { size: 6_300_000, modifiedMs: at });
@@ -512,6 +515,14 @@ export class MockBackend implements ManagerBackend {
       if (!file) throw new BackendError('rejected', 'This file is not there any more.', 'not-found');
       if (file.text === undefined) throw new BackendError('rejected', 'This is not a text file, so it cannot be edited here.', 'not-text');
       return { text: file.text, modifiedMs: file.modifiedMs };
+    });
+  }
+  readContentImage(instanceId: string, area: ContentArea, path: string): Promise<ContentImage> {
+    return this.call(() => {
+      const file = this.filesOf(instanceId).get(`${area}/${path}`);
+      if (!file) throw new BackendError('rejected', 'This file is not there any more.', 'not-found');
+      if (!file.image) throw new BackendError('rejected', 'This is not an image the Manager can show.', 'not-image');
+      return { dataUrl: file.image, sizeBytes: file.size };
     });
   }
   writeContentText(instanceId: string, area: ContentArea, path: string, text: string, expectedModifiedMs: number): Promise<number> {

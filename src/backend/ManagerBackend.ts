@@ -2,7 +2,7 @@ import type {
   Accepted, ImportInspection, LoaderKind, WorkspaceSnapshot, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
   OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution, VersionRef, WorkspaceExportItem, ExportFileMatch, ExportRestriction, InstanceZipResult,
-  AddedContent, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, InstalledContent, ProviderInfo } from './contract';
+  AddedContent, ContentImage, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, InstalledContent, ProviderInfo } from './contract';
 import type { LauncherProfile } from './launcher/transport';
 import type { ProjectDetail } from './host';
 
@@ -66,6 +66,8 @@ export interface ManagerBackend {
   /** What is directly inside a content folder (`folder` is relative to the area; its top when absent). */
   listContent(instanceId: string, area: ContentArea, folder?: string): Promise<ContentEntry[]>;
   readContentText?(instanceId: string, area: ContentArea, path: string): Promise<ContentTextFile>;
+  /** A picture for the built-in viewer. Rejects for anything that is not one. */
+  readContentImage?(instanceId: string, area: ContentArea, path: string): Promise<ContentImage>;
   /** Save over the file that was read. Rejects if it changed on disk since. Resolves to its new `modifiedMs`. */
   writeContentText?(instanceId: string, area: ContentArea, path: string, text: string, expectedModifiedMs: number): Promise<number>;
   /** Let the user pick files to copy into a content folder. Null when they cancel; nothing is overwritten. */

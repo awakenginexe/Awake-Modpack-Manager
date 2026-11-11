@@ -1,4 +1,4 @@
-import { BackendError, type AddedContent, type ContentEntry, type ContentKind, type ContentSearchPage, type ContentSearchQuery, type ContentTextFile, type ContentVersion, type InstalledContent, type ExportFileMatch, type InstanceZipResult, type PackHit, type PackProviderId, type PackProviderInfo, type PackVersion, type ProviderId } from './contract';
+import { BackendError, type AddedContent, type ContentEntry, type ContentImage, type ContentKind, type ContentSearchPage, type ContentSearchQuery, type ContentTextFile, type ContentVersion, type InstalledContent, type ExportFileMatch, type InstanceZipResult, type PackHit, type PackProviderId, type PackProviderInfo, type PackVersion, type ProviderId } from './contract';
 
 /** A pack the desktop host downloaded and verified, ready to upload to the helper. */
 export interface FetchedPack { token: string; format: 'mrpack' | 'curseforge'; size: number; sha256: string; notes: string[] }
@@ -26,6 +26,7 @@ export interface HostApi {
   workspaceRecycle(workspace: string, area: string, paths: string[]): Promise<void>;
   workspaceOpen(workspace: string, area?: string, folder?: string): Promise<void>;
   workspaceReadText(workspace: string, area: string, path: string): Promise<ContentTextFile>;
+  workspaceReadImage(workspace: string, area: string, path: string): Promise<ContentImage>;
   workspaceWriteText(workspace: string, area: string, path: string, text: string, expectedModifiedMs: number): Promise<number>;
   workspaceAddFiles(workspace: string, area: string, folder: string): Promise<AddedContent | null>;
   contentSearch(query: ContentSearchQuery): Promise<ContentSearchPage>;
@@ -70,6 +71,7 @@ export function createHostApi(): HostApi {
     modUpdates: (items, minecraftVersion, loader) => hostInvoke('mod_updates', { items, minecraftVersion, loader }),
     workspaceList: (workspace, area, folder) => hostInvoke('workspace_list', { workspace, area, folder: folder || null }),
     workspaceReadText: (workspace, area, path) => hostInvoke('workspace_read_text', { workspace, area, path }),
+    workspaceReadImage: (workspace, area, path) => hostInvoke('workspace_read_image', { workspace, area, path }),
     workspaceWriteText: (workspace, area, path, text, expectedModifiedMs) => hostInvoke('workspace_write_text', { workspace, area, path, text, expectedModifiedMs }),
     workspaceAddFiles: (workspace, area, folder) => hostInvoke('workspace_add_files', { workspace, area, folder }),
     contentSearch: ({ provider, kind, text, minecraftVersion, offset, limit }) => hostInvoke('content_search', { provider, kind, text, minecraftVersion, offset, limit }),

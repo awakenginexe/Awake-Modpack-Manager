@@ -70,11 +70,27 @@ const saving = ref(false);
 const saveError = ref('');
 const opening = ref('');
 const editor = ref<HTMLTextAreaElement | null>(null);
+/** The picture on screen instead of the editor. Pictures are only shown, never changed. */
+const viewing = ref<{ area: ContentArea; path: string; dataUrl: string; sizeBytes: number } | null>(null);
+const pixels = ref<{ width: number; height: number } | null>(null);
+const broken = ref(false);
+// SVG is text: it opens in the editor like any other.
+const isImage = (path: string) => /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(path);
+/** Textures are tiny: show them enlarged, in whole steps so every pixel stays square. */
+const zoom = computed(() => {
+  const longest = pixels.value ? Math.max(pixels.value.width, pixels.value.height) : 0;
+  return longest > 0 && longest <= 256 ? Math.max(1, Math.min(8, Math.floor(384 / longest))) : 1;
+});
+function imageLoaded(e: Event) {
+  const img = e.target as HTMLImageElement;
+  pixels.value = { width: img.naturalWidth, height: img.naturalHeight };
+}
 // A text box always hands back plain line breaks, so compare like with like.
 const dirty = computed(() => !!editing.value && draft.value !== editing.value.original.replace(/\r\n/g, '\n'));
 
 /** True when there is nothing unsaved, or the user agreed to lose it. */
 async function leaveEditor(): Promise<boolean> {
+  viewing.value = null;
   if (!editing.value) return true;
   if (dirty.value && !await confirmDialog({ title: t('filesDiscardTitle', { name: nameOf(editing.value.path) }), body: t('filesDiscardBody'), confirm: t('filesDiscard'), cancel: t('cancel'), danger: true })) return false;
   editing.value = null;
@@ -85,16 +101,26 @@ async function leaveEditor(): Promise<boolean> {
 onMounted(() => { leaveGuard.value = leaveEditor; });
 onBeforeUnmount(() => { if (leaveGuard.value === leaveEditor) leaveGuard.value = null; });
 async function openFile(e: ContentEntry) {
-  if (!id.value || !session.backend.readContentText || opening.value) return;
+  if (!id.value || opening.value) return;
+  const asImage = isImage(e.path) && !!session.backend.readContentImage;
+  if (!asImage && !session.backend.readContentText) return;
   opening.value = e.path;
   try {
+    if (asImage) {
+      const image = await session.backend.readContentImage!(id.value, area.value, e.path);
+      pixels.value = null;
+      broken.value = false;
+      viewing.value = { area: area.value, path: e.path, ...image };
+      return;
+    }
+    if (!session.backend.readContentText) return;
     const file = await session.backend.readContentText(id.value, area.value, e.path);
     editing.value = { area: area.value, path: e.path, modifiedMs: file.modifiedMs, original: file.text };
     draft.value = file.text.replace(/\r\n/g, '\n');
     saveError.value = '';
     void nextTick(() => editor.value?.focus());
   } catch (err) {
-    toast(asError(err).message, asError(err).detail === 'not-text' || asError(err).detail === 'too-large' ? 'info' : 'error');
+    toast(asError(err).message, ['not-text', 'not-image', 'too-large'].includes(asError(err).detail ?? '') ? 'info' : 'error');
   } finally {
     opening.value = '';
   }
@@ -165,7 +191,7 @@ async function recycle(e: ContentEntry) {
 const openFolder = () => session.backend.openFolder?.(id.value!, area.value, folder.value).catch((e) => toast(asError(e).message, 'error'));
 function entryMenu(event: MouseEvent, e: ContentEntry) {
   openMenu(event, [
-    e.kind === 'directory' ? { label: t('filesOpen'), icon: FolderOpen, action: () => go(e.path) } : { label: t('filesEdit'), icon: Pencil, disabled: !session.backend.readContentText, action: () => openFile(e) },
+    e.kind === 'directory' ? { label: t('filesOpen'), icon: FolderOpen, action: () => go(e.path) } : isImage(e.path) && session.backend.readContentImage ? { label: t('filesView'), icon: Image, action: () => openFile(e) } : { label: t('filesEdit'), icon: Pencil, disabled: !session.backend.readContentText, action: () => openFile(e) },
     { label: t('copyPath'), icon: Copy, action: () => copyText(`${area.value}/${e.path}`) },
     separator,
     { label: t('recycleAction'), icon: Trash2, danger: true, disabled: !canWrite.value || !session.backend.recycleContent, action: () => recycle(e) },
@@ -213,6 +239,21 @@ function entryMenu(event: MouseEvent, e: ContentEntry) {
         ></textarea>
       </section>
 
+      <section v-else-if="viewing" class="card panel viewer" :aria-label="t('filesImage')">
+        <div class="panel-head">
+          <button class="icon-btn" type="button" :aria-label="t('filesBack')" :title="t('filesBack')" @click="leaveEditor"><ArrowLeft :size="18" /></button>
+          <h2 class="panel-title file-title"><Image :size="18" /><span class="path" :title="`${viewing.area}/${viewing.path}`">{{ viewing.path }}</span></h2>
+          <span class="muted small count"><template v-if="pixels">{{ pixels.width }} × {{ pixels.height }} · </template>{{ formatBytes(viewing.sizeBytes) }}</span>
+        </div>
+        <p v-if="broken" class="notice error" role="alert"><CircleAlert :size="18" />{{ t('filesImageBroken') }}</p>
+        <div v-else class="stage">
+          <img
+            :src="viewing.dataUrl" :alt="nameOf(viewing.path)" :class="{ pixelated: zoom > 1 }" draggable="false"
+            :style="zoom > 1 && pixels ? { width: `${pixels.width * zoom}px` } : undefined" @load="imageLoaded" @error="broken = true"
+          />
+        </div>
+      </section>
+
       <section v-else class="card panel">
         <div class="panel-head">
           <nav class="crumbs" :aria-label="t('filesFolder')">
@@ -238,8 +279,8 @@ function entryMenu(event: MouseEvent, e: ContentEntry) {
         <div v-else-if="!shown.length" class="empty"><span class="empty-icon"><FolderOpen :size="26" /></span><p>{{ entries.length ? t('filesNoMatch') : t('filesEmpty') }}</p></div>
         <ul v-else class="entries">
           <li v-for="(e, i) in shown" :key="e.path" class="rise" :class="{ on: included.has(`${area}/${e.path}`), busy: opening === e.path }" :style="{ '--i': i % 30 }" @contextmenu="entryMenu($event, e)">
-            <button type="button" class="open" :title="e.kind === 'directory' ? t('filesOpen') : t('filesEdit')" @click="activate(e)">
-              <component :is="e.kind === 'directory' ? Folder : FileText" :size="16" :class="e.kind === 'directory' ? 'folder-icon' : 'muted'" />
+            <button type="button" class="open" :title="e.kind === 'directory' ? t('filesOpen') : isImage(e.path) ? t('filesView') : t('filesEdit')" @click="activate(e)">
+              <component :is="e.kind === 'directory' ? Folder : isImage(e.path) ? Image : FileText" :size="16" :class="e.kind === 'directory' ? 'folder-icon' : 'muted'" />
               <span class="path">{{ nameOf(e.path) }}</span>
             </button>
             <span v-if="e.modifiedAt" class="muted small when">{{ formatDate(e.modifiedAt) }}</span>
@@ -287,6 +328,14 @@ function entryMenu(event: MouseEvent, e: ContentEntry) {
   border: 1px solid var(--control-border); background: rgba(3, 8, 16, 0.5); color: var(--text);
   font-family: ui-monospace, Consolas, monospace; font-size: 0.86rem; line-height: 1.55; tab-size: 4;
 }
+.viewer { overflow: hidden; }
+/* A quiet checkerboard, so transparent parts of a texture read as transparent. */
+.stage {
+  position: relative; flex: 1; min-height: 240px; border-radius: var(--radius-control); border: 1px solid var(--control-border);
+  background: repeating-conic-gradient(rgba(255, 255, 255, 0.045) 0% 25%, rgba(3, 8, 16, 0.5) 0% 50%) 0 0 / 20px 20px;
+}
+.stage img { position: absolute; inset: 0; margin: auto; max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; }
+.stage img.pixelated { image-rendering: pixelated; }
 .code:focus { border-color: rgba(147, 197, 253, 0.78); outline: none; box-shadow: 0 0 0 3px var(--accent-subtle); }
 @media (max-width: 800px) { .columns { grid-template-columns: 1fr; } .areas { flex-direction: row; flex-wrap: wrap; } .when { display: none; } }
 </style>

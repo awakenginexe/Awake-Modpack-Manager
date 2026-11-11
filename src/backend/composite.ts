@@ -152,6 +152,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     recycleContent: async (id, area, paths) => { await byInstance(id).backend.recycleContent?.(id, area, paths); },
     openFolder: async (id, area, folder) => { await byInstance(id).backend.openFolder?.(id, area, folder); },
     readContentText: (id, area, path) => { const b = byInstance(id).backend; return b.readContentText ? b.readContentText(id, area, path) : noHelper(); },
+    readContentImage: (id, area, path) => { const b = byInstance(id).backend; return b.readContentImage ? b.readContentImage(id, area, path) : noHelper(); },
     writeContentText: (id, area, path, text, expected) => { const b = byInstance(id).backend; return b.writeContentText ? b.writeContentText(id, area, path, text, expected) : noHelper(); },
     addContentFiles: (id, area, folder) => { const b = byInstance(id).backend; return b.addContentFiles ? b.addContentFiles(id, area, folder) : noHelper(); },
     // Resource packs and shaders are found by the Manager's own side, whichever list is on screen.

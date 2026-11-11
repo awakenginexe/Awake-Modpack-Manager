@@ -108,6 +108,7 @@ pub fn run() {
             desktop::workspace_list,
             desktop::workspace_recycle,
             desktop::workspace_read_text,
+            desktop::workspace_read_image,
             desktop::workspace_write_text,
             desktop::workspace_add_files,
             content::content_search,
