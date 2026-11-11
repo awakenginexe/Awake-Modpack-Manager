@@ -1,4 +1,4 @@
-import { BackendError, type AddedContent, type ContentEntry, type ContentImage, type ContentKind, type ContentSearchPage, type ContentSearchQuery, type ContentTextFile, type ContentVersion, type InstalledContent, type ExportFileMatch, type InstanceZipResult, type PackHit, type PackProviderId, type PackProviderInfo, type PackVersion, type ProviderId } from './contract';
+import { BackendError, type AddedContent, type ContentEntry, type ContentImage, type ContentKind, type ContentSearchPage, type ContentSearchQuery, type ContentTextFile, type ContentVersion, type InstalledContent, type ExportFileMatch, type InstanceZipResult, type ManualDownload, type PackHit, type PackProviderId, type PackProviderInfo, type PackVersion, type ProviderId } from './contract';
 
 /** A pack the desktop host downloaded and verified, ready to upload to the helper. */
 export interface FetchedPack { token: string; format: 'mrpack' | 'curseforge'; size: number; sha256: string; notes: string[] }
@@ -35,6 +35,8 @@ export interface HostApi {
   /** Drop the helper's records of mods whose file is gone. Resolves with the file names forgotten. */
   workspaceForgetMissing(workspace: string): Promise<string[]>;
   exportMatch(workspace: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]>;
+  manualSources(items: { projectId: string; versionId?: string }[], minecraftVersion: string, loader: string): Promise<ManualDownload[]>;
+  manualClaim(workspace: string, wanted: ManualDownload[], pick: boolean): Promise<string[] | null>;
   exportInstance(workspace: string, meta: { fileName: string; name: string; version: string; minecraft: string; loader: string }, onProgress?: (written: number, total: number) => void): Promise<InstanceZipResult | null>;
 }
 
@@ -86,6 +88,8 @@ export function createHostApi(): HostApi {
     workspaceForgetMissing: (workspace) => hostInvoke('workspace_forget_missing', { workspace }),
     workspaceOpen: (workspace, area, folder) => hostInvoke('workspace_open', { workspace, area: area ?? null, folder: folder || null }),
     exportMatch: (workspace, target, fileNames) => hostInvoke('export_match', { workspace, target, fileNames }),
+    manualSources: (items, minecraftVersion, loader) => hostInvoke('manual_sources', { items, minecraftVersion, loader }),
+    manualClaim: (workspace, wanted, pick) => hostInvoke('manual_claim', { workspace, wanted, pick }),
     async exportInstance(workspace, meta, onProgress) {
       const { listen } = await import('@tauri-apps/api/event');
       const stop = await listen<{ done: number; total: number }>('export-progress', (e) => onProgress?.(e.payload.done, e.payload.total));

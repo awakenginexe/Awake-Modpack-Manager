@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue';
 import Avatar from '../components/Avatar.vue';
 import DependencyConflicts from '../components/DependencyConflicts.vue';
+import ManualDownloads from '../components/ManualDownloads.vue';
 import { mergeResolutions } from '../domain/conflicts';
 import type { DependencyResolution } from '../backend/contract';
 import VirtualList from '../components/VirtualList.vue';
@@ -22,6 +23,8 @@ const session = useSession();
 const { review, inventory } = session;
 const acknowledged = ref(false);
 const confirmDiscard = ref(false);
+/** Restricted CurseForge files still waited for; their panel replaces the bare "not applied" error. */
+const manualPending = ref(0);
 
 const draft = computed(() => session.draft.value);
 const changes = computed(() => draft.value?.changes ?? []);
@@ -228,7 +231,8 @@ function reasonText(i: PlanItem) {
         <p v-if="review.phase === 'applying' && !review.operation" class="notice small" role="status"><Loader :size="16" class="spin" />{{ t('applyAccepted') }}</p>
         <p v-if="review.phase === 'unconfirmed'" class="notice warn small" role="status"><Loader :size="16" class="spin" />{{ t('applyLostReply') }}</p>
         <DependencyConflicts v-if="review.phase === 'failed' && review.error?.code === 'dependency-conflict'" :error="review.error" :can-resolve="canResolve" :busy="busy" @retry="retryWithDecisions" />
-        <div v-else-if="review.phase === 'failed'" class="notice error" role="alert">
+        <ManualDownloads v-if="!fromImport" v-model:pending="manualPending" />
+        <div v-if="review.phase === 'failed' && review.error?.code !== 'dependency-conflict' && !manualPending" class="notice error" role="alert">
           <CircleAlert :size="18" />
           <div class="grow">
             <strong>{{ t('applyFailed') }}</strong>

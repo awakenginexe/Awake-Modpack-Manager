@@ -473,6 +473,8 @@ export type WorkspaceExportItem =
   | { kind: 'replaced'; fileName: string; provider: ProviderId; projectId: string; versionId: string; name: string };
 /** A CurseForge mod whose author turned off third-party distribution. */
 export interface ExportRestriction { projectId: string; name: string; pageUrl?: string }
+/** One restricted CurseForge file the user downloads in their browser; `url` is its download page. */
+export interface ManualDownload { projectId: string; name: string; fileName: string; sha1: string; size: number; url: string }
 export interface InstanceZipResult { path: string; files: number; bytes: number }
 
 export interface RecoveryStatus {
