@@ -718,6 +718,7 @@ export const zhTW: Catalog = {
   shareBusyShort: "處理中…",
   shareManagedNotice: "你正在此處管理此整合包，因此 Awake Launcher 無法變更其模組。",
   launcherOwnedHint: "屬於 Awake Launcher，請在其中管理。",
+  renameInLauncherHint: "請在 Awake Launcher 中重新命名，新名稱會顯示在這裡。",
   renameProject: "重新命名…",
   renameConfirm: "重新命名",
   renamedProject: "已重新命名為 {name}",

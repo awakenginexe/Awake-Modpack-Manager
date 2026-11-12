@@ -716,6 +716,7 @@ export const en = {
   shareBusyShort: "Working…",
   shareManagedNotice: "You're managing this pack here, so Awake Launcher can't change its mods.",
   launcherOwnedHint: "Owned by Awake Launcher. Manage it there.",
+  renameInLauncherHint: "Rename it in Awake Launcher. The new name shows here.",
   renameProject: "Rename…",
   renameConfirm: "Rename",
   renamedProject: "Renamed to {name}",

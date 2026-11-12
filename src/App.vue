@@ -148,6 +148,10 @@ function onKey(e: KeyboardEvent) {
 }
 function onNativeMenu(e: MouseEvent) { if (!isField(e.target)) e.preventDefault(); }
 function onDrop(e: DragEvent) { e.preventDefault(); }
+/** Coming back from Awake Launcher: pick up instances it renamed, added or removed meanwhile. */
+function onFocus() { if (!session.state.instancesLoading) void session.refreshInstances().catch(() => undefined); }
+onMounted(() => addEventListener('focus', onFocus));
+onBeforeUnmount(() => removeEventListener('focus', onFocus));
 onMounted(() => { addEventListener('keydown', onKey); addEventListener('contextmenu', onNativeMenu); addEventListener('dragover', onDrop); addEventListener('drop', onDrop); });
 onBeforeUnmount(() => { removeEventListener('keydown', onKey); removeEventListener('contextmenu', onNativeMenu); removeEventListener('dragover', onDrop); removeEventListener('drop', onDrop); });
 

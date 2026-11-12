@@ -163,7 +163,7 @@ function instanceMenu(inst: InstanceSummary): MenuItem[] {
     separator,
     { label: t('openFolder'), icon: FolderOpen, disabled: !helper.value, action: () => session.backend.openFolder?.(inst.id) },
     ...(inst.path ? [{ label: t('copyPath'), icon: Copy, action: () => copyText(inst.path!) }] : []),
-    { label: t('renameProject'), icon: Pencil, disabled: !helper.value || !session.can('instances.rename'), hint: helper.value ? undefined : t('launcherOwnedHint'), action: () => rename(inst) },
+    { label: t('renameProject'), icon: Pencil, disabled: !helper.value || !session.can('instances.rename'), hint: helper.value ? undefined : t('renameInLauncherHint'), action: () => rename(inst) },
     separator,
     { label: t('deleteProject'), icon: Trash2, danger: true, disabled: !canDelete, hint: canDelete ? undefined : t('launcherOwnedHint'), action: () => removeInstances([inst]) },
   ];

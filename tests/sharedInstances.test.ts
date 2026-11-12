@@ -62,6 +62,12 @@ describe('connected Launcher instances', () => {
     expect(list[0]).toMatchObject({ shared: true, modCount: 392, iconUrl: 'data:image/png;base64,AA==', path: 'E:/launcher/instances/Pack' });
   });
 
+  it('shows the name the Launcher has now, not the one saved when it was connected', async () => {
+    const { composite, launcher } = await connected();
+    launcher.listInstances = async () => [summary({ id: 'launcher-pack', name: 'Pack 1.3.0', path: 'E:/launcher/instances/Pack' })];
+    expect((await listOn(composite, 'launcher'))[0]).toMatchObject({ id: 'helper-pack', name: 'Pack 1.3.0' });
+  });
+
   it('keeps connected instances off the Manager projects list', async () => {
     const { composite } = await connected();
     expect((await listOn(composite, 'helper')).map((i) => i.id)).toEqual(['project']);

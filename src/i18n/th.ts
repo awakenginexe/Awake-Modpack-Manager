@@ -718,6 +718,7 @@ export const th: Catalog = {
   shareBusyShort: "กำลังดำเนินการ…",
   shareManagedNotice: "คุณกำลังจัดการแพ็กนี้จากที่นี่ Awake Launcher จึงเปลี่ยนม็อดของแพ็กนี้ไม่ได้",
   launcherOwnedHint: "เป็นของ Awake Launcher จัดการได้ที่นั่น",
+  renameInLauncherHint: "เปลี่ยนชื่อใน Awake Launcher แล้วชื่อใหม่จะแสดงที่นี่",
   renameProject: "เปลี่ยนชื่อ…",
   renameConfirm: "เปลี่ยนชื่อ",
   renamedProject: "เปลี่ยนชื่อเป็น {name} แล้ว",
