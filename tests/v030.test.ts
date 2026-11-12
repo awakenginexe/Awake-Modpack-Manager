@@ -31,6 +31,7 @@ function fakeHost(over: Partial<HostApi> = {}): HostApi {
     contentVersions: async () => [],
     contentInstall: async () => ({ fileName: 'pack.zip', replaced: false }),
     workspaceForgetMissing: async () => [],
+    workspaceFixModified: async () => [],
     exportMatch: async () => [],
     manualSources: async () => [],
     manualClaim: async () => [],

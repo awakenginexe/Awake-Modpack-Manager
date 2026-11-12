@@ -142,6 +142,8 @@ export interface ManagerBackend {
   openFolder?(instanceId: string, area?: ContentArea, folder?: string): Promise<void>;
   /** Forget tracked mods whose file was deleted outside the Manager; the helper refuses every plan until then. Resolves with their file names. */
   forgetMissingMods?(instanceId: string): Promise<string[]>;
+  /** Mods changed outside the Manager make the helper roll back every apply: put back their recorded file, or stop tracking them. Resolves with their file names. */
+  fixModifiedMods?(instanceId: string, fileNames: string[], restore: boolean): Promise<string[]>;
 
   /** Helper: connect a Launcher instance in place, keeping its files where they are. Resolves once finished. */
   adoptInstance?(path: string): Promise<void>;

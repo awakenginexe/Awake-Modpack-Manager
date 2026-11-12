@@ -36,6 +36,16 @@ describe('session', () => {
     expect(session.inventory.value?.mods.length).toBeGreaterThanOrEqual(280);
   });
 
+  it('lists mods changed outside the Manager and clears them once fixed', async () => {
+    const { session } = await ready();
+    const changed = session.inventory.value!.mods.filter((m) => m.locallyModified);
+    expect(changed.length).toBeGreaterThan(0);
+    expect(session.modifiedMods.value.map((m) => m.key)).toEqual(changed.map((m) => m.key));
+    expect((await session.fixModifiedMods(true)).sort()).toEqual(changed.map((m) => m.fileName).sort());
+    expect(session.modifiedMods.value).toEqual([]);
+    expect(await session.fixModifiedMods(false)).toEqual([]);
+  });
+
   it('reviews then applies exactly the reviewed plan and clears the draft', async () => {
     const { session } = await ready();
     draftUpdates(session);
@@ -46,6 +56,11 @@ describe('session', () => {
     await until(() => session.review.phase === 'done');
     expect(session.review.operation?.planHash).toBe(hash);
     expect(session.draft.value?.changes).toHaveLength(0);
+    // History keeps which mods this apply changed, by its operation id, across restarts.
+    const recorded = session.opChanges.value[session.review.operation!.operationId];
+    expect(recorded?.length).toBe(3);
+    expect(recorded!.every((c) => c.action === 'update' && c.name && c.to)).toBe(true);
+    expect(createSession(session.backend, { pollMs: 5 }).opChanges.value[session.review.operation!.operationId]).toEqual(recorded);
   });
 
   it('marks the plan outdated when the draft changes after review', async () => {

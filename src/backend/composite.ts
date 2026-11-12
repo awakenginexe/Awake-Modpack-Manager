@@ -231,6 +231,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     },
     discardImport: (token) => (helper.discardImport ? helper.discardImport(token) : noHelper()),
     forgetMissingMods: (id) => { const b = byInstance(id).backend; return b.forgetMissingMods ? b.forgetMissingMods(id) : noHelper(); },
+    fixModifiedMods: (id, names, restore) => { const b = byInstance(id).backend; return b.fixModifiedMods ? b.fixModifiedMods(id, names, restore) : noHelper(); },
     exportMatches: (id, target, names) => { const b = byInstance(id).backend; return b.exportMatches ? b.exportMatches(id, target, names) : noHelper(); },
     exportRestricted: (id, ids) => { const b = byInstance(id).backend; return b.exportRestricted ? b.exportRestricted(id, ids) : noHelper(); },
     manualDownloads: async (id, items) => byInstance(id).backend.manualDownloads?.(id, items) ?? [],

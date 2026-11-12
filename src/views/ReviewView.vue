@@ -3,7 +3,7 @@ import { computed, ref, watch, type Component } from 'vue';
 import type { DraftChange, OptionalSuggestion, PlanAction, PlanItem } from '../backend/contract';
 import { addChange, isStale, removeChange } from '../domain/draft';
 import { t, type MessageKey } from '../i18n';
-import { useSession } from '../state/session';
+import { asError, useSession } from '../state/session';
 import { toast } from '../ui/desktop';
 import { opStateKey, opStateTone, planActionKey, sourceLabel } from '../ui/labels';
 import {
@@ -76,6 +76,18 @@ async function cleanMissing() {
   const gone = await session.forgetMissingMods();
   if (gone.length) toast(t('cleanMissingDone', { names: gone.join(', ') }), 'ok');
 }
+const fixing = ref(false);
+async function fixModified(restore: boolean) {
+  fixing.value = true;
+  try {
+    const fixed = await session.fixModifiedMods(restore);
+    if (fixed.length) toast(t(restore ? 'modifiedModsRestored' : 'modifiedModsKept', { names: fixed.join(', ') }), 'ok');
+  } catch (e) {
+    toast(asError(e).message, 'error');
+  } finally {
+    fixing.value = false;
+  }
+}
 function discard() { session.discardDraft(); confirmDiscard.value = false; }
 function reasonText(i: PlanItem) {
   if (i.reason === 'required-dependency') return t('reasonRequired', { names: (i.requiredBy ?? []).join(', ') });
@@ -110,6 +122,16 @@ function reasonText(i: PlanItem) {
     <div v-if="review.phase === 'done'" class="notice success" role="status">
       <CircleCheck :size="20" /><strong class="grow">{{ t('applyDone') }}</strong>
       <button class="btn btn-small btn-primary" type="button" @click="session.resetReview(); emit('navigate', 'mods')">{{ t('navMods') }}<ArrowRight :size="15" /></button>
+    </div>
+
+    <div v-if="session.modifiedMods.value.length && !busy" class="notice warn" role="alert">
+      <TriangleAlert :size="18" />
+      <div class="grow">
+        <strong>{{ t('modifiedModsTitle', { count: session.modifiedMods.value.length }) }}</strong>
+        <p class="small">{{ t('modifiedModsHint', { names: session.modifiedMods.value.map((m) => m.name).join(', ') }) }}</p>
+      </div>
+      <button class="btn btn-small btn-primary" type="button" :disabled="fixing" @click="fixModified(true)"><Loader v-if="fixing" :size="15" class="spin" />{{ t('modifiedModsRestore') }}</button>
+      <button class="btn btn-small" type="button" :disabled="fixing" :title="t('modifiedModsKeepHint')" @click="fixModified(false)">{{ t('modifiedModsKeep') }}</button>
     </div>
 
     <div v-if="fromImport && review.phase !== 'done'" class="notice" role="status">

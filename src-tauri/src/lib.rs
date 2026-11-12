@@ -118,6 +118,7 @@ pub fn run() {
             manual::manual_sources,
             manual::manual_claim,
             desktop::workspace_forget_missing,
+            desktop::workspace_fix_modified,
             desktop::workspace_open,
             desktop::open_url,
             desktop::app_info,

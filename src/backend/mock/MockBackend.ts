@@ -570,6 +570,14 @@ export class MockBackend implements ManagerBackend {
     });
   }
   async openFolder(): Promise<void> { /* nothing to open for demo data */ }
+  fixModifiedMods(instanceId: string, fileNames: string[], restore: boolean): Promise<string[]> {
+    return this.call(() => {
+      const mods = (this.inventories.get(instanceId) ?? []).filter((m) => m.locallyModified && fileNames.includes(m.fileName));
+      // Restoring puts the recorded file back; keeping it leaves the file as a manual, untracked mod.
+      for (const m of mods) Object.assign(m, restore ? { locallyModified: false } : { locallyModified: false, source: 'manual', projectId: undefined });
+      return mods.map((m) => m.fileName);
+    });
+  }
 
   /* ----- resource packs & shaders ----- */
 

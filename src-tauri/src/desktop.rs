@@ -1,12 +1,13 @@
 //! Desktop integration: opening folders and links with the shell, and managing the non-mod content
 //! (config, scripts, resource packs, shaders...) of a project or of a Launcher instance managed here.
 //!
-//! Mods are never touched here: they belong to the native helper's reviewed transactions. Everything
+//! Mods are never changed here: they belong to the native helper's reviewed transactions. The one exception,
+//! `fix_modified`, only puts back the exact file the helper recorded, after the user asked for it. Everything
 //! else stays inside one of the content folders below, never follows a link out of it, and is only
 //! ever removed to the Recycle Bin.
 
 use crate::helper::manager_data_dir;
-use crate::providers::{err, HostResult};
+use crate::providers::{err, HostError, HostResult};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -344,6 +345,77 @@ pub async fn workspace_forget_missing(workspace: String) -> HostResult<Vec<Strin
     .unwrap_or_else(|e| err("internal", e.to_string()))
 }
 
+fn file_hash<D: sha2::Digest + std::io::Write>(path: &Path) -> HostResult<String> {
+    let mut digest = D::new();
+    std::io::copy(&mut fs::File::open(path).or_else(|e| err("io", e.to_string()))?, &mut digest).or_else(|e| err("io", e.to_string()))?;
+    Ok(crate::providers::hex(&digest.finalize()))
+}
+
+/// Tracked mods whose bytes no longer match the helper's record, which makes the helper roll back every apply.
+/// `restore` puts back the recorded file, only once a fresh download hashes exactly as recorded, after copying the
+/// changed file to `backup_dir`. Otherwise the record is dropped and the changed file stays as an untracked mod.
+/// Returns the file names fixed; a file that matches its record already is left alone.
+pub fn fix_modified(game: &Path, backup_dir: &Path, files: &[String], restore: bool, fetch: impl Fn(&str, &Path, u64) -> HostResult<()>) -> HostResult<Vec<String>> {
+    use sha2::{Sha256, Sha512};
+    let path = game.parent().unwrap_or(game).join(".awake-integration").join("policies.json");
+    let io = |e: std::io::Error| HostError { code: "io", message: e.to_string() };
+    let mut doc: Value = serde_json::from_str(&fs::read_to_string(&path).map_err(io)?).or_else(|_| err("invalid", "This project's mod records are damaged."))?;
+    let before = doc.clone();
+    let mods = game.join("mods");
+    let wanted: HashSet<String> = files.iter().map(|f| f.to_lowercase().trim_end_matches(".disabled").to_string()).collect();
+    let Some(projects) = doc["projects"].as_object_mut() else { return err("invalid", "This project's mod records are damaged.") };
+    let keys: Vec<String> = projects.iter().filter(|(_, e)| wanted.contains(&e["fileName"].as_str().unwrap_or_default().to_lowercase())).map(|(k, _)| k.clone()).collect();
+    let mut fixed = vec![];
+    for key in keys {
+        let entry = projects[&key].clone();
+        let name = entry["fileName"].as_str().unwrap_or_default().to_string();
+        let Some(jar) = [name.clone(), format!("{name}.disabled")].into_iter().map(|n| mods.join(n)).find(|p| p.is_file()) else { continue };
+        let recorded = entry["sha256"].as_str().unwrap_or_default();
+        if file_hash::<Sha256>(&jar)? == recorded {
+            continue;
+        }
+        if restore {
+            let artifact = &entry["version"]["files"][0];
+            let (Some(url), Some(sha512)) = (artifact["url"].as_str(), artifact["sha512"].as_str()) else {
+                return err("unsupported", format!("{name} cannot be downloaded again here. Keep your file instead."));
+            };
+            let size = artifact["size"].as_u64().or_else(|| artifact["size"].as_str()?.parse().ok()).unwrap_or(1 << 30);
+            let tmp = mods.join(format!(".{name}.awake-restore"));
+            let checked = fetch(url, &tmp, size).and_then(|_| {
+                if file_hash::<Sha512>(&tmp)? == sha512 && file_hash::<Sha256>(&tmp)? == recorded { Ok(()) } else { err("integrity", format!("The download of {name} did not match its record; nothing was changed.")) }
+            });
+            if let Err(e) = checked {
+                let _ = fs::remove_file(&tmp);
+                return Err(e);
+            }
+            fs::create_dir_all(backup_dir).map_err(io)?;
+            fs::copy(&jar, backup_dir.join(jar.file_name().unwrap_or_default())).map_err(io)?;
+            fs::rename(&tmp, &jar).map_err(io)?;
+        } else {
+            projects.remove(&key);
+        }
+        fixed.push(name);
+    }
+    if !restore && !fixed.is_empty() {
+        fs::create_dir_all(backup_dir).map_err(io)?;
+        fs::write(backup_dir.join("policies.json"), before.to_string()).map_err(io)?;
+        crate::files::write_atomic(&path, doc.to_string().as_bytes(), false).or_else(|m| err("io", m))?;
+    }
+    Ok(fixed)
+}
+
+#[tauri::command]
+pub async fn workspace_fix_modified(workspace: String, files: Vec<String>, restore: bool) -> HostResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let game = crate::export::game_folder(&workspace)?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let backup = manager_data_dir().or_else(|m| err("io", m))?.join("policy-backups").join(format!("{workspace}-{stamp}"));
+        fix_modified(&game, &backup, &files, restore, |url, to, limit| crate::providers::download(None, url, &[], to, limit, |_| {}))
+    })
+    .await
+    .unwrap_or_else(|e| err("internal", e.to_string()))
+}
+
 #[cfg(windows)]
 fn shell_open(target: &str) -> HostResult<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -571,6 +643,45 @@ mod tests {
         assert_eq!(after, serde_json::json!({"format": 1, "projects": {"a": {"fileName": "A.jar"}, "b": {"fileName": "b.jar"}}}));
         assert_eq!(fs::read_to_string(&backup).unwrap(), before);
         assert!(forget_missing(&game, &backup).unwrap().is_empty());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn fixing_modified_mods_restores_only_a_verified_download_or_forgets_the_record() {
+        use sha2::{Digest, Sha256, Sha512};
+        let root = std::env::temp_dir().join(format!("awake-mm-fixmod-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (game, policies, backup) = (root.join("minecraft"), root.join(".awake-integration").join("policies.json"), root.join("backups"));
+        fs::create_dir_all(game.join("mods")).unwrap();
+        fs::create_dir_all(policies.parent().unwrap()).unwrap();
+        let good = b"original jar";
+        let h = |b: &[u8]| (crate::providers::hex(&Sha256::digest(b)), crate::providers::hex(&Sha512::digest(b)));
+        let (s256, s512) = h(good);
+        let entry = |file: &str| serde_json::json!({"fileName": file, "sha256": s256, "version": {"files": [{"url": "https://x/a", "sha512": s512, "size": good.len()}]}});
+        let doc = serde_json::json!({"projects": {"a": entry("a.jar"), "b": entry("b.jar"), "ok": entry("ok.jar")}});
+        fs::write(&policies, doc.to_string()).unwrap();
+        fs::write(game.join("mods").join("a.jar"), "changed").unwrap();
+        fs::write(game.join("mods").join("b.jar.disabled"), "changed").unwrap();
+        fs::write(game.join("mods").join("ok.jar"), good).unwrap();
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
+        // A download that does not hash as recorded changes nothing and leaves no temp file.
+        let bad = |_: &str, to: &Path, _: u64| { fs::write(to, "tampered").unwrap(); Ok(()) };
+        assert!(fix_modified(&game, &backup, &names(&["a.jar"]), true, bad).is_err());
+        assert_eq!(fs::read(game.join("mods").join("a.jar")).unwrap(), b"changed");
+        assert_eq!(fs::read_dir(game.join("mods")).unwrap().count(), 3);
+
+        let fetch = |_: &str, to: &Path, _: u64| { fs::write(to, good).unwrap(); Ok(()) };
+        assert_eq!(fix_modified(&game, &backup, &names(&["a.jar", "ok.jar"]), true, fetch).unwrap(), ["a.jar"]);
+        assert_eq!(fs::read(game.join("mods").join("a.jar")).unwrap(), good);
+        assert_eq!(fs::read(backup.join("a.jar")).unwrap(), b"changed");
+
+        // Keeping the changed file drops only its record; the file stays.
+        assert_eq!(fix_modified(&game, &backup, &names(&["b.jar.disabled"]), false, fetch).unwrap(), ["b.jar"]);
+        let after: Value = serde_json::from_str(&fs::read_to_string(&policies).unwrap()).unwrap();
+        assert!(after["projects"].get("b").is_none() && after["projects"].get("a").is_some());
+        assert_eq!(fs::read(game.join("mods").join("b.jar.disabled")).unwrap(), b"changed");
+        assert_eq!(serde_json::from_str::<Value>(&fs::read_to_string(backup.join("policies.json")).unwrap()).unwrap(), doc);
         fs::remove_dir_all(&root).unwrap();
     }
 

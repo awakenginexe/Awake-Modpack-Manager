@@ -1038,6 +1038,10 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       if (!options.host) return notYet('cleaning up');
       return options.host.workspaceForgetMissing(workspaceOf(instanceId).workspaceId);
     },
+    async fixModifiedMods(instanceId, fileNames, restore) {
+      if (!options.host) return notYet('fixing changed mods');
+      return options.host.workspaceFixModified(workspaceOf(instanceId).workspaceId, fileNames, restore);
+    },
     async openFolder(instanceId, area, folder) {
       await options.host?.workspaceOpen(workspaceOf(instanceId).workspaceId, area, folder);
     },

@@ -34,6 +34,8 @@ export interface HostApi {
   contentInstall(workspace: string, kind: ContentKind, provider: ProviderId, projectId: string, versionId: string, onProgress?: (done: number, total: number) => void): Promise<InstalledContent>;
   /** Drop the helper's records of mods whose file is gone. Resolves with the file names forgotten. */
   workspaceForgetMissing(workspace: string): Promise<string[]>;
+  /** Put back the recorded file of mods changed outside the Manager (`restore`), or stop tracking them. Resolves with the file names fixed. */
+  workspaceFixModified(workspace: string, files: string[], restore: boolean): Promise<string[]>;
   exportMatch(workspace: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]>;
   manualSources(items: { projectId: string; versionId?: string }[], minecraftVersion: string, loader: string): Promise<ManualDownload[]>;
   manualClaim(workspace: string, wanted: ManualDownload[], pick: boolean): Promise<string[] | null>;
@@ -86,6 +88,7 @@ export function createHostApi(): HostApi {
     },
     workspaceRecycle: (workspace, area, paths) => hostInvoke('workspace_recycle', { workspace, area, paths }),
     workspaceForgetMissing: (workspace) => hostInvoke('workspace_forget_missing', { workspace }),
+    workspaceFixModified: (workspace, files, restore) => hostInvoke('workspace_fix_modified', { workspace, files, restore }),
     workspaceOpen: (workspace, area, folder) => hostInvoke('workspace_open', { workspace, area: area ?? null, folder: folder || null }),
     exportMatch: (workspace, target, fileNames) => hostInvoke('export_match', { workspace, target, fileNames }),
     manualSources: (items, minecraftVersion, loader) => hostInvoke('manual_sources', { items, minecraftVersion, loader }),
