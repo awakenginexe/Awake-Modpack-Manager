@@ -66,7 +66,8 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
       if (!w) return i;
       owners.instance.set(w.id, parts.helper);
       sharedOf.set(w.id, i.id);
-      return { ...w, path: i.path, iconUrl: i.iconUrl, shared: true, launcher: i.launcher, status: i.status === 'ready' ? w.status : i.status };
+      // The Launcher owns the name: it can rename the instance, and the helper keeps the name from when it was connected.
+      return { ...w, name: i.name, path: i.path, iconUrl: i.iconUrl, shared: true, launcher: i.launcher, status: i.status === 'ready' ? w.status : i.status };
     });
   }
   const byInstance = (id: string) => owners.instance.get(id) ?? current;

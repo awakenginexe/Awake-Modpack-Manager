@@ -1,10 +1,10 @@
-# Development checkpoint: Manager 1.3.3 and Native Core 0.4.2
+# Development checkpoint: Manager 1.3.4 and Native Core 0.4.2
 
-Unreleased until the owner approves the pull request and tags `v1.3.3`.
+Unreleased until the owner approves the pull request and tags `v1.3.4`.
 
 ## Where things are
 
-- Manager: branch `release/1.3.3`. `npm ci`, then `npm test`, `npm run typecheck`, `cargo test --manifest-path src-tauri/Cargo.toml --lib`.
+- Manager: branch `release/1.3.4`. `npm ci`, then `npm test`, `npm run typecheck`, `cargo test --manifest-path src-tauri/Cargo.toml --lib`.
 - Native Core: Awake Launcher branch `release/3.2.2`. `.github/workflows/native-core-package.yml` builds it with the recorded toolchain and commits a delivery under `native-core/redistribution/<commit12>/`. `scripts/helper-pin.json` pins that delivery.
 - Release: pushing a version tag runs `.github/workflows/awake-beta.yml`, which builds, verifies, assembles every asset and publishes the release. `SHA256SUMS.txt` is required by in-app updates.
 

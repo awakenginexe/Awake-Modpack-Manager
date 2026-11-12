@@ -718,6 +718,7 @@ export const zhCN: Catalog = {
   shareBusyShort: "处理中…",
   shareManagedNotice: "你正在此处管理此整合包，因此 Awake Launcher 无法更改其模组。",
   launcherOwnedHint: "归 Awake Launcher 所有，请在其中管理。",
+  renameInLauncherHint: "请在 Awake Launcher 中重命名，新名称会显示在这里。",
   renameProject: "重命名…",
   renameConfirm: "重命名",
   renamedProject: "已重命名为 {name}",
