@@ -264,4 +264,24 @@ describe('ReviewView', () => {
     await wrapper.find('.plan-panel label.check input').setValue(true);
     expect(apply.attributes('disabled')).toBeUndefined();
   });
+  it('offers a restricted CurseForge mod as a manual download and takes it out of the draft once the file is added', async () => {
+    const { wrapper, session } = await mounted(ReviewView);
+    const install = (n: number) => ({ kind: 'install' as const, provider: 'curseforge' as const, projectId: `cf-${n}`, name: `Mod ${n}` });
+    session.setDraft({ ...session.draft.value!, changes: [install(13), install(39), install(999)] });
+    await session.validate();
+    await flushPromises();
+    expect(session.review.error?.code).toBe('provider-restricted');
+    const panel = () => wrapper.find('.manual');
+    expect(panel().findAll('.files li')).toHaveLength(2);
+    expect(wrapper.find('.notice.error').exists()).toBe(false);
+    const buttons = panel().findAll('.toolbar button');
+    expect(buttons).toHaveLength(2); // Open all (more than one) and Choose downloaded file
+    await buttons[1]!.trigger('click');
+    await flushPromises();
+    await new Promise((r) => setTimeout(r, 30));
+    await flushPromises();
+    expect(panel().exists()).toBe(false);
+    expect(session.draft.value!.changes.map((c) => c.kind === 'install' && c.projectId)).toEqual(['cf-999']);
+    wrapper.unmount();
+  });
 });

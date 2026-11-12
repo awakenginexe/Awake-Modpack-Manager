@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue';
-import { Archive, ArrowRight, Ban, CircleAlert, CircleCheck, Download, FolderOpen, History, Hourglass, LifeBuoy, Loader, PackagePlus, Play, RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, Upload, Wrench, X, Trash2 } from '@lucide/vue';
+import {
+  Archive, ArrowRight, ArrowUpCircle, Ban, Check, CircleAlert, CircleCheck, Download, FileCog, FolderOpen, History, Hourglass, LifeBuoy, Loader, Minus, PackagePlus, Pin, Play, Plus, Power, PowerOff,
+  RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, Upload, Wrench, X, Trash2,
+} from '@lucide/vue';
 import type { OperationKind, OperationStatus, RecoveryStatus } from '../backend/contract';
 import { isRunning, isSettled, isWaitingForUser } from '../domain/operation';
 import { formatDate, t } from '../i18n';
-import { asError, useSession } from '../state/session';
-import { opKindKey, opStateKey, opStateTone } from '../ui/labels';
+import { asError, useSession, type OpChange } from '../state/session';
+import { opKindKey, opStateKey, opStateTone, planActionKey } from '../ui/labels';
 import type { ViewId } from '../App.vue';
 
 const emit = defineEmits<{ navigate: [ViewId] }>();
@@ -15,7 +18,11 @@ const { state } = session;
 const recovery = ref<RecoveryStatus | null>(null);
 const error = ref('');
 
-const ops = computed(() => state.operations.filter((o) => !o.instanceId || o.instanceId === state.instanceId));
+const ops = computed(() => state.operations.filter((o) => !o.instanceId || o.instanceId === state.instanceId).sort((a, b) => b.startedAt.localeCompare(a.startedAt)));
+const changeIcon: Record<OpChange['action'], Component> = { install: Plus, update: ArrowUpCircle, remove: Minus, enable: Power, disable: PowerOff, keep: Check, policy: Pin, override: FileCog };
+/** Long lists start folded so one big pack install doesn't push everything else away. */
+const FOLD = 8;
+const changesOf = (op: OperationStatus) => session.opChanges.value[op.operationId] ?? [];
 
 async function refresh() {
   error.value = '';
@@ -91,6 +98,18 @@ function stateIcon(op: OperationStatus): Component {
                   @click="rollBack(op)"
                 ><RotateCcw :size="14" />{{ recovering === op.operationId ? t('rollingBack') : t('rollBack') }}</button>
               </div>
+              <details v-if="changesOf(op).length" class="changes" :open="changesOf(op).length <= FOLD">
+                <summary class="small muted">{{ t(isSettled(op) && op.state !== 'completed' ? 'historyTried' : 'historyChanged', { count: changesOf(op).length }) }}</summary>
+                <ul>
+                  <li v-for="(c, j) in changesOf(op)" :key="j" :class="c.action">
+                    <component :is="changeIcon[c.action]" :size="14" />
+                    <span class="muted">{{ t(planActionKey[c.action]) }}</span>
+                    <strong>{{ c.name }}</strong>
+                    <span v-if="c.from && c.to && c.from !== c.to" class="muted small">{{ c.from }} → {{ c.to }}</span>
+                    <span v-else-if="c.to ?? c.from" class="muted small">{{ c.to ?? c.from }}</span>
+                  </li>
+                </ul>
+              </details>
               <div v-if="isRunning(op)" class="progress"><span :style="{ width: `${Math.round((op.progress ?? 0) * 100)}%` }"></span></div>
               <div v-if="op.error" class="detail error-box">
                 <strong>{{ t('errorDetails') }}</strong>
@@ -140,6 +159,12 @@ function stateIcon(op: OperationStatus): Component {
 .detail { padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); font-size: 0.9rem; }
 .error-box { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); }
 .recovery { display: flex; align-items: center; gap: 6px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); }
+.changes summary { cursor: pointer; }
+.changes ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
+.changes li { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.changes li.install svg { color: #6ee7b7; }
+.changes li.remove svg { color: #fca5a5; }
+.changes li.update svg { color: #93c5fd; }
 .path { display: flex; align-items: center; gap: 6px; word-break: break-all; }
 .ok-line { display: flex; align-items: center; gap: 6px; color: #6ee7b7; }
 .backups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

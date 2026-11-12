@@ -13,6 +13,7 @@ mod desktop;
 mod discovery;
 mod files;
 mod helper;
+mod manual;
 mod pipe;
 mod profile_access;
 mod providers;
@@ -114,7 +115,10 @@ pub fn run() {
             content::content_search,
             content::content_versions,
             content::content_install,
+            manual::manual_sources,
+            manual::manual_claim,
             desktop::workspace_forget_missing,
+            desktop::workspace_fix_modified,
             desktop::workspace_open,
             desktop::open_url,
             desktop::app_info,

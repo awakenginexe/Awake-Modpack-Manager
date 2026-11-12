@@ -1,4 +1,4 @@
-import type { AddedContent, ContentHit, ContentImage, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, ExportFileMatch, ExportRestriction, InstalledContent, InstanceZipResult, ProviderId, WorkspaceExportItem, WorkspaceSnapshot } from '../contract';
+import type { AddedContent, ContentHit, ContentImage, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, ExportFileMatch, ExportRestriction, InstalledContent, InstanceZipResult, ManualDownload, ProviderId, WorkspaceExportItem, WorkspaceSnapshot } from '../contract';
 import {
   ALL_CAPABILITIES, BackendError, TERMINAL_STATES,
   type Accepted, type ApplyRequest, type Capability, type ContentArea, type ContentEntry, type CreateInstanceRequest,
@@ -234,10 +234,24 @@ export class MockBackend implements ManagerBackend {
       const inst = this.instance(draft.instanceId);
       if (inst.revision !== draft.baseRevision) throw new BackendError('stale-revision', 'The instance changed since this draft was made.');
       if (!inst.manageable) throw new BackendError('instance-busy', inst.blockedReason ?? 'Instance cannot be managed now.');
+      if (this.restrictedIn(draft.changes).length) throw new BackendError('provider-restricted', 'CurseForge project does not allow third-party distribution.', 'PROVIDER_RESTRICTED');
       const plan = this.resolve(draft);
       this.plans.set(plan.planId, { plan, draft });
       return plan;
     });
+  }
+
+  /** Demo: every 13th CurseForge project has third-party distribution turned off. */
+  private restrictedIn(changes: { kind: string; provider?: string; projectId?: string }[]) {
+    return changes.flatMap((c) => (c.kind === 'install' && c.provider === 'curseforge' && Number(c.projectId!.split('-')[1]) % 13 === 0 ? [c.projectId!] : []));
+  }
+  async manualDownloads(_instanceId: string, items: { projectId: string }[]): Promise<ManualDownload[]> {
+    return this.restrictedIn(items.map((i) => ({ kind: 'install', provider: 'curseforge', projectId: i.projectId })))
+      .map((id) => ({ projectId: id, name: `Restricted demo mod ${id}`, fileName: `${id}.jar`, sha1: 'a'.repeat(40), size: 1000, url: 'https://www.curseforge.com/minecraft/mc-mods' }));
+  }
+  /** Demo: nothing ever arrives in Downloads; choosing a file "finds" every download. */
+  async claimManualDownloads(_instanceId: string, wanted: ManualDownload[], pick: boolean): Promise<string[] | null> {
+    return pick ? wanted.map((w) => w.projectId) : [];
   }
 
   preparePlan(planId: string): Promise<ResolvedPlan> {
@@ -556,6 +570,14 @@ export class MockBackend implements ManagerBackend {
     });
   }
   async openFolder(): Promise<void> { /* nothing to open for demo data */ }
+  fixModifiedMods(instanceId: string, fileNames: string[], restore: boolean): Promise<string[]> {
+    return this.call(() => {
+      const mods = (this.inventories.get(instanceId) ?? []).filter((m) => m.locallyModified && fileNames.includes(m.fileName));
+      // Restoring puts the recorded file back; keeping it leaves the file as a manual, untracked mod.
+      for (const m of mods) Object.assign(m, restore ? { locallyModified: false } : { locallyModified: false, source: 'manual', projectId: undefined });
+      return mods.map((m) => m.fileName);
+    });
+  }
 
   /* ----- resource packs & shaders ----- */
 

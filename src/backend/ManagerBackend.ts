@@ -1,7 +1,7 @@
 import type {
   Accepted, ImportInspection, LoaderKind, WorkspaceSnapshot, ProjectVersion, ProviderId, VersionCatalog, ApplyRequest, ContentArea, ContentEntry, CreateInstanceRequest, Draft, ExportFormat,
   ExportReport, ExportRequest, Handshake, InstallPackRequest, PackSearchPage, PackSearchQuery, PackVersion, InstanceSummary, InstanceWarning, Installation, ModInventory,
-  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution, VersionRef, WorkspaceExportItem, ExportFileMatch, ExportRestriction, InstanceZipResult,
+  OperationStatus, RecoveryStatus, ResolvedPlan, SearchPage, SearchQuery, DependencyResolution, VersionRef, WorkspaceExportItem, ExportFileMatch, ExportRestriction, InstanceZipResult, ManualDownload,
   AddedContent, ContentImage, ContentKind, ContentSearchPage, ContentSearchQuery, ContentTextFile, ContentVersion, InstalledContent, ProviderInfo } from './contract';
 import type { LauncherProfile } from './launcher/transport';
 import type { ProjectDetail } from './host';
@@ -120,6 +120,13 @@ export interface ManagerBackend {
   exportMatches?(instanceId: string, target: ProviderId, fileNames: string[]): Promise<ExportFileMatch[]>;
   /** Which of these CurseForge projects players must download by hand. */
   exportRestricted?(instanceId: string, projectIds: string[]): Promise<ExportRestriction[]>;
+  /** Which of these CurseForge installs the helper may not download, with the exact file to get by hand. */
+  manualDownloads?(instanceId: string, items: { projectId: string; versionId?: string }[]): Promise<ManualDownload[]>;
+  /**
+   * Move those files, once downloaded, into the instance's mods folder: from Downloads, or (`pick`) from
+   * files the user chooses. Resolves with the project ids now in place; null when the user cancels.
+   */
+  claimManualDownloads?(instanceId: string, wanted: ManualDownload[], pick: boolean): Promise<string[] | null>;
   /** Describe exactly these mods for a provider format, asking the provider only for what that format needs. */
   prepareExport?(instanceId: string, format: 'mrpack' | 'curseforge', entries: WorkspaceExportItem[], onProgress?: (done: number, total: number) => void): Promise<WorkspaceSnapshot>;
   /** Save the whole pack, mod files included, where the user chooses. Null when they cancel. */
@@ -135,6 +142,8 @@ export interface ManagerBackend {
   openFolder?(instanceId: string, area?: ContentArea, folder?: string): Promise<void>;
   /** Forget tracked mods whose file was deleted outside the Manager; the helper refuses every plan until then. Resolves with their file names. */
   forgetMissingMods?(instanceId: string): Promise<string[]>;
+  /** Mods changed outside the Manager make the helper roll back every apply: put back their recorded file, or stop tracking them. Resolves with their file names. */
+  fixModifiedMods?(instanceId: string, fileNames: string[], restore: boolean): Promise<string[]>;
 
   /** Helper: connect a Launcher instance in place, keeping its files where they are. Resolves once finished. */
   adoptInstance?(path: string): Promise<void>;

@@ -854,6 +854,15 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
       const metas = await options.host.projectMeta(projectIds.map((projectId) => ({ provider: 'curseforge' as const, projectId })));
       return metas.filter((m) => m.restricted).map((m) => ({ projectId: m.projectId, name: m.name, pageUrl: m.pageUrl }));
     },
+    async manualDownloads(instanceId, items) {
+      if (!options.host) return [];
+      const w = workspaceOf(instanceId);
+      return options.host.manualSources(items, w.minecraftVersion, w.loader.id);
+    },
+    async claimManualDownloads(instanceId, wanted, pick) {
+      if (!options.host) return [];
+      return options.host.manualClaim(workspaceOf(instanceId).workspaceId, wanted, pick);
+    },
     async prepareExport(instanceId, format, entries, onProgress) {
       if (!has('mods.list')) return notYet('export');
       const w = workspaceOf(instanceId);
@@ -1028,6 +1037,10 @@ export function createHelperClient(options: HelperClientOptions): ManagerBackend
     async forgetMissingMods(instanceId) {
       if (!options.host) return notYet('cleaning up');
       return options.host.workspaceForgetMissing(workspaceOf(instanceId).workspaceId);
+    },
+    async fixModifiedMods(instanceId, fileNames, restore) {
+      if (!options.host) return notYet('fixing changed mods');
+      return options.host.workspaceFixModified(workspaceOf(instanceId).workspaceId, fileNames, restore);
     },
     async openFolder(instanceId, area, folder) {
       await options.host?.workspaceOpen(workspaceOf(instanceId).workspaceId, area, folder);

@@ -1,8 +1,11 @@
 import { computed, inject, reactive, ref, shallowRef, watch, type InjectionKey } from 'vue';
 import {
   BackendError, isLauncherWait, type Capability, type CreateInstanceRequest, type DependencyResolution, type Draft, type ExportRequest, type Handshake,
-  type InstallPackRequest, type InstanceSummary, type InstanceWarning, type Installation, type ModInventory, type OperationStatus, type ResolvedPlan, type VersionRef,
+  type InstallPackRequest, type InstanceSummary, type InstanceWarning, type Installation, type ModInventory, type OperationStatus, type PlanAction, type ResolvedPlan, type VersionRef,
 } from '../backend/contract';
+
+/** One mod an applied plan changed, kept for History. Versions are display names. */
+export interface OpChange { action: PlanAction; name: string; from?: string; to?: string }
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
 import { isComposite } from '../backend/composite';
 import { isStale, newDraft, rebase } from '../domain/draft';
@@ -54,6 +57,16 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
   const drafts = ref<Record<string, Draft>>(load('drafts', {}));
   const pins = ref<Record<string, string[]>>(load('pins', {}));
   const exportIncludes = ref<Record<string, string[]>>(load('exportIncludes', {}));
+  /** What each applied plan changed, by operation id: the helper's history has no mod names. */
+  const opChanges = ref<Record<string, OpChange[]>>(load('opChanges', {}));
+  function recordChanges(ids: string[], plan: ResolvedPlan) {
+    const items = plan.items.filter((i) => i.action !== 'keep').map((i): OpChange => ({ action: i.action, name: i.name, ...(i.from ? { from: i.from.name } : {}), ...(i.to ? { to: i.to.name } : {}) }));
+    const next = { ...opChanges.value };
+    for (const id of ids) next[id] = items;
+    // shortcut: keeps the newest 200 applies so local storage stays small; move to a file if people want a longer log.
+    opChanges.value = Object.fromEntries(Object.entries(next).slice(-200));
+    save('opChanges', opChanges.value);
+  }
   const review = reactive({
     phase: 'idle' as ReviewPhase,
     plan: null as ResolvedPlan | null,
@@ -324,6 +337,18 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     }
   }
 
+  /** Tracked mods whose file was changed outside the Manager: the helper rolls back every apply while one is listed. */
+  const modifiedMods = computed(() => (backend.fixModifiedMods ? (inventory.value?.mods ?? []).filter((m) => m.locallyModified) : []));
+  /** Restore their recorded files (or stop tracking them), reload the mods, then check the draft again if one was checked. */
+  async function fixModifiedMods(restore: boolean) {
+    const id = state.instanceId;
+    if (!id || !backend.fixModifiedMods || !modifiedMods.value.length) return [];
+    const fixed = await backend.fixModifiedMods(id, modifiedMods.value.map((m) => m.fileName), restore);
+    await loadInventory();
+    if (review.plan || review.phase === 'failed') await validate();
+    return fixed;
+  }
+
   /** The policy a mod will have after the draft: its pending policy change, else what the helper reports. */
   function policyOf(key: string) {
     const c = draft.value?.changes.find((x) => x.kind === 'policy' && x.modKey === key);
@@ -410,9 +435,11 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     }
     pending = { key: crypto.randomUUID(), instanceId: prepared.instanceId, planId: prepared.planId, planHash: prepared.planHash, baseRevision: prepared.baseRevision };
     save('pendingApply', pending);
+    recordChanges([prepared.planId], prepared);
     review.phase = 'applying';
     try {
       const { operationId } = await backend.applyPlan(applyRequest(pending));
+      if (operationId !== prepared.planId) recordChanges([operationId], prepared);
       await track(operationId);
     } catch (e) {
       const err = asError(e);
@@ -641,7 +668,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     can, instance, draft, pinned, planOutdated, policies, policyOf, packHandshake,
     connect, refreshInstances, selectInstance, loadInventory, checkUpdates, deleteInstance, renameInstance, preparePackUpdate,
     setDraft, discardDraft, rebaseDraft, setPinned, setExcluded, prepareImport,
-    validate, apply, acceptChangedPlan, resetReview, missingTracked, forgetMissingMods,
+    validate, apply, acceptChangedPlan, resetReview, missingTracked, forgetMissingMods, modifiedMods, fixModifiedMods, opChanges,
     refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher, makeProfilePrivate,
   };
 }

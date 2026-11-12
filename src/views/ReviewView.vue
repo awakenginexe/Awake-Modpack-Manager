@@ -3,7 +3,7 @@ import { computed, ref, watch, type Component } from 'vue';
 import type { DraftChange, OptionalSuggestion, PlanAction, PlanItem } from '../backend/contract';
 import { addChange, isStale, removeChange } from '../domain/draft';
 import { t, type MessageKey } from '../i18n';
-import { useSession } from '../state/session';
+import { asError, useSession } from '../state/session';
 import { toast } from '../ui/desktop';
 import { opStateKey, opStateTone, planActionKey, sourceLabel } from '../ui/labels';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue';
 import Avatar from '../components/Avatar.vue';
 import DependencyConflicts from '../components/DependencyConflicts.vue';
+import ManualDownloads from '../components/ManualDownloads.vue';
 import { mergeResolutions } from '../domain/conflicts';
 import type { DependencyResolution } from '../backend/contract';
 import VirtualList from '../components/VirtualList.vue';
@@ -22,6 +23,8 @@ const session = useSession();
 const { review, inventory } = session;
 const acknowledged = ref(false);
 const confirmDiscard = ref(false);
+/** Restricted CurseForge files still waited for; their panel replaces the bare "not applied" error. */
+const manualPending = ref(0);
 
 const draft = computed(() => session.draft.value);
 const changes = computed(() => draft.value?.changes ?? []);
@@ -73,6 +76,18 @@ async function cleanMissing() {
   const gone = await session.forgetMissingMods();
   if (gone.length) toast(t('cleanMissingDone', { names: gone.join(', ') }), 'ok');
 }
+const fixing = ref(false);
+async function fixModified(restore: boolean) {
+  fixing.value = true;
+  try {
+    const fixed = await session.fixModifiedMods(restore);
+    if (fixed.length) toast(t(restore ? 'modifiedModsRestored' : 'modifiedModsKept', { names: fixed.join(', ') }), 'ok');
+  } catch (e) {
+    toast(asError(e).message, 'error');
+  } finally {
+    fixing.value = false;
+  }
+}
 function discard() { session.discardDraft(); confirmDiscard.value = false; }
 function reasonText(i: PlanItem) {
   if (i.reason === 'required-dependency') return t('reasonRequired', { names: (i.requiredBy ?? []).join(', ') });
@@ -107,6 +122,16 @@ function reasonText(i: PlanItem) {
     <div v-if="review.phase === 'done'" class="notice success" role="status">
       <CircleCheck :size="20" /><strong class="grow">{{ t('applyDone') }}</strong>
       <button class="btn btn-small btn-primary" type="button" @click="session.resetReview(); emit('navigate', 'mods')">{{ t('navMods') }}<ArrowRight :size="15" /></button>
+    </div>
+
+    <div v-if="session.modifiedMods.value.length && !busy" class="notice warn" role="alert">
+      <TriangleAlert :size="18" />
+      <div class="grow">
+        <strong>{{ t('modifiedModsTitle', { count: session.modifiedMods.value.length }) }}</strong>
+        <p class="small">{{ t('modifiedModsHint', { names: session.modifiedMods.value.map((m) => m.name).join(', ') }) }}</p>
+      </div>
+      <button class="btn btn-small btn-primary" type="button" :disabled="fixing" @click="fixModified(true)"><Loader v-if="fixing" :size="15" class="spin" />{{ t('modifiedModsRestore') }}</button>
+      <button class="btn btn-small" type="button" :disabled="fixing" :title="t('modifiedModsKeepHint')" @click="fixModified(false)">{{ t('modifiedModsKeep') }}</button>
     </div>
 
     <div v-if="fromImport && review.phase !== 'done'" class="notice" role="status">
@@ -228,7 +253,8 @@ function reasonText(i: PlanItem) {
         <p v-if="review.phase === 'applying' && !review.operation" class="notice small" role="status"><Loader :size="16" class="spin" />{{ t('applyAccepted') }}</p>
         <p v-if="review.phase === 'unconfirmed'" class="notice warn small" role="status"><Loader :size="16" class="spin" />{{ t('applyLostReply') }}</p>
         <DependencyConflicts v-if="review.phase === 'failed' && review.error?.code === 'dependency-conflict'" :error="review.error" :can-resolve="canResolve" :busy="busy" @retry="retryWithDecisions" />
-        <div v-else-if="review.phase === 'failed'" class="notice error" role="alert">
+        <ManualDownloads v-if="!fromImport" v-model:pending="manualPending" />
+        <div v-if="review.phase === 'failed' && review.error?.code !== 'dependency-conflict' && !manualPending" class="notice error" role="alert">
           <CircleAlert :size="18" />
           <div class="grow">
             <strong>{{ t('applyFailed') }}</strong>
