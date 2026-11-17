@@ -20,6 +20,8 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
   const launcherPaths = new Map<string, string>();
   const samePath = (p: string) => p.replace(/\\/g, '/').toLowerCase();
   let retry: ReturnType<typeof setTimeout> | undefined;
+  /** Why the helper could not say which instances are connected; until it can, none may be connected again. */
+  let sharedError: BackendError | null = null;
 
   const all = [parts.helper, parts.launcher];
   const noHelper = (): Promise<never> => Promise.reject(new BackendError('unsupported', 'Only Manager projects (the Manager helper) support this.'));
@@ -59,7 +61,9 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
   async function withShared(list: InstanceSummary[]): Promise<InstanceSummary[]> {
     for (const i of list) if (i.path) launcherPaths.set(i.id, i.path);
     if (!parts.helper.handshake) return list;
-    const connected = new Map((await helper.listInstances('manager').catch(() => [] as InstanceSummary[])).filter((w) => w.sharedRoot).map((w) => [samePath(w.sharedRoot!), w]));
+    sharedError = null;
+    const mine = await helper.listInstances('manager').catch((e) => { sharedError = e instanceof BackendError ? e : new BackendError('protocol', String(e)); return [] as InstanceSummary[]; });
+    const connected = new Map(mine.filter((w) => w.sharedRoot).map((w) => [samePath(w.sharedRoot!), w]));
     sharedOf.clear();
     return list.map((i) => {
       const w = i.path ? connected.get(samePath(i.path)) : undefined;
@@ -115,7 +119,7 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     startLauncher: async () => { await launcher.startLauncher?.(); scheduleLauncherRetry(); },
     makeProfilePrivate: async () => { await launcher.makeProfilePrivate?.(); clearTimeout(retry); await connectPart(parts.launcher); emit(); scheduleLauncherRetry(); },
     setPreferredProfile: (d) => launcher.setPreferredProfile?.(d),
-    instanceWarnings: () => current.backend.instanceWarnings?.() ?? [],
+    instanceWarnings: () => [...(current.backend.instanceWarnings?.() ?? []), ...(current === parts.launcher && sharedError ? [{ code: sharedError.code, path: sharedError.message }] : [])],
 
     async listInstances(installationId) {
       const p = backend.partFor(installationId);
@@ -197,6 +201,8 @@ export function createCompositeBackend(helper: ManagerBackend, launcher: Manager
     },
     canShareInstances: () => !!parts.helper.handshake && !!parts.launcher.handshake && !!helper.canAdopt?.() && !!launcher.canEnroll?.(),
     async shareInstance(id) {
+      // Without the helper's list an instance it already manages looks unconnected, and connecting it again is refused.
+      if (sharedError) throw sharedError;
       const path = launcherPaths.get(id);
       if (!path || !helper.adoptInstance || !launcher.enrollInstance) throw new BackendError('unsupported', 'Update Awake Launcher to 3.2.0 or newer to manage this instance here.');
       // The Launcher refuses to start the game for this instance until it hears the outcome.

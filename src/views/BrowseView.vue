@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import type { ProjectVersion, ProviderId, ReleaseType, SearchHit } from '../backend/contract';
-import type { ProjectDetail } from '../backend/host';
 import { addChanges } from '../domain/draft';
-import { formatDate, formatNumber, t } from '../i18n';
+import { formatNumber, t } from '../i18n';
 import { asError, useSession } from '../state/session';
 import { loaderLabel } from '../ui/labels';
-import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, Gamepad2, Layers, ListChecks, Loader, Plus, Scale, Search, X } from '@lucide/vue';
+import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, Gamepad2, Layers, ListChecks, Loader, Plus, Search } from '@lucide/vue';
 import { copyText, openMenu, separator, type MenuItem } from '../ui/desktop';
 import { useInfiniteScroll } from '../ui/infiniteScroll';
 import { openExternal } from '../state/appUpdate';
 import Avatar from '../components/Avatar.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
+import ProjectDialog from '../components/ProjectDialog.vue';
 import VersionPicker from '../components/VersionPicker.vue';
 import type { ViewId } from '../App.vue';
 
@@ -69,24 +69,20 @@ function togglePick(hit: SearchHit) {
   if (next.has(hit.projectId)) next.delete(hit.projectId); else next.set(hit.projectId, hit);
   picked.value = next;
 }
-/* Details panel: opens when a card is clicked, as on Get a modpack. */
+/* Details window: opens when a card is clicked. */
 const focused = ref<SearchHit | null>(null);
-const detail = ref<ProjectDetail | null>(null);
 const versions = ref<ProjectVersion[]>([]);
 const versionId = ref('');
 const versionsLoading = ref(false);
 const versionsError = ref('');
-const pageUrl = computed(() => (!focused.value ? '' : detail.value?.pageUrl ?? (focused.value.provider === 'modrinth' ? `https://modrinth.com/mod/${focused.value.projectId}` : `https://www.curseforge.com/projects/${focused.value.projectId}`)));
+const pageUrl = computed(() => (!focused.value ? '' : (focused.value.provider === 'modrinth' ? `https://modrinth.com/mod/${focused.value.projectId}` : `https://www.curseforge.com/projects/${focused.value.projectId}`)));
 const focusedBlocked = computed(() => !focused.value || installed.value.has(focused.value.projectId) || inDraft.value.has(focused.value.projectId) || !focused.value.compatible);
 async function focus(hit: SearchHit) {
-  if (focused.value?.projectId === hit.projectId) { focused.value = null; return; }
   focused.value = hit;
-  detail.value = null;
   versions.value = [];
   versionId.value = '';
   versionsError.value = '';
   versionsLoading.value = true;
-  void session.backend.projectDetail?.(hit.provider, hit.projectId).then((d) => { if (focused.value === hit) detail.value = d; }).catch(() => undefined);
   try {
     const list = canChoose.value ? await session.backend.projectVersions!(inst.value.id, hit.provider, hit.projectId) : [];
     if (focused.value !== hit) return;
@@ -172,7 +168,7 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
     </div>
     <div v-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ t('searchFailed') }} <code class="small">{{ error }}</code></div>
 
-    <div class="columns" :class="{ open: !!focused }">
+    <div class="columns">
     <div class="results-wrap">
     <ul class="results" :aria-busy="loading">
       <template v-if="loading && !hits.length">
@@ -202,7 +198,7 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
         <span v-if="installed.has(hit.projectId)" class="badge ok"><CircleCheck :size="13" />{{ t('alreadyInstalled') }}</span>
         <span v-else-if="inDraft.has(hit.projectId)" class="badge info">{{ t('inDraft') }}</span>
         <template v-else>
-          <button v-if="canChoose && !focused" class="btn btn-small" type="button" :disabled="!hit.compatible" @click.stop="choosing = hit">{{ t('chooseVersion') }}</button>
+          <button v-if="canChoose" class="btn btn-small" type="button" :disabled="!hit.compatible" @click.stop="choosing = hit">{{ t('chooseVersion') }}</button>
           <button class="btn btn-small" type="button" :disabled="!hit.compatible" @click.stop="addToDraft([hit])"><Plus :size="15" />{{ t('addToDraft') }}</button>
         </template>
       </li>
@@ -214,25 +210,9 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
     <div ref="sentinel" class="load-status" aria-hidden="true"><Loader v-if="hasMore && !error" :size="20" class="spin" /></div>
     </div>
 
-    <Transition name="slide">
-      <aside v-if="focused" class="details glass" :aria-label="t('modDetails')" @keydown.esc="focused = null">
-        <button class="icon-btn close" type="button" :aria-label="t('close')" @click="focused = null"><X :size="18" /></button>
-        <div class="details-head">
-          <Avatar :name="focused.name" :src="focused.iconUrl" :size="72" />
-          <div>
-            <h2>{{ focused.name }}</h2>
-            <p v-if="detail?.author || focused.author" class="muted small">{{ t('byAuthor', { author: detail?.author || focused.author }) }}</p>
-            <span class="chip"><ProviderLogo :provider="focused.provider" :size="15" />{{ focused.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }}</span>
-          </div>
-        </div>
-        <p class="description selectable">{{ detail?.summary || focused.summary }}</p>
-        <div class="meta small facts-row">
-          <span v-if="(detail?.downloads ?? focused.downloads) != null"><Download :size="14" />{{ formatNumber((detail?.downloads ?? focused.downloads)!) }}</span>
-          <span v-if="detail?.license"><Scale :size="14" />{{ detail.license }}</span>
-          <span v-if="detail?.updatedAt">{{ t('detailUpdated', { date: formatDate(detail.updatedAt) }) }}</span>
-        </div>
-        <div v-if="detail?.categories.length" class="tags"><span v-for="c in detail.categories.slice(0, 8)" :key="c" class="chip">{{ c }}</span></div>
-
+    </div>
+    <Transition name="modal">
+      <ProjectDialog v-if="focused" :key="focused.projectId" :project="focused" :page-url="pageUrl" @close="focused = null">
         <fieldset v-if="canChoose" class="versions">
           <legend class="field-label">{{ t('packVersionLabel') }}</legend>
           <div v-if="versionsLoading" class="version-list"><span v-for="n in 3" :key="n" class="skeleton" style="height: 44px"></span></div>
@@ -255,10 +235,8 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
         <span v-if="installed.has(focused.projectId)" class="badge ok center-badge"><CircleCheck :size="13" />{{ t('alreadyInstalled') }}</span>
         <span v-else-if="inDraft.has(focused.projectId)" class="badge info center-badge">{{ t('inDraft') }}</span>
         <button v-else class="btn btn-primary btn-large btn-block" type="button" :disabled="focusedBlocked || (canChoose && !versionId)" @click="addFocused"><Plus :size="18" />{{ t('addToDraft') }}</button>
-        <button class="btn btn-block" type="button" @click="openExternal(pageUrl)"><ExternalLink :size="15" />{{ t('openProviderPage') }}</button>
-      </aside>
+      </ProjectDialog>
     </Transition>
-    </div>
     <Transition name="modal">
       <VersionPicker v-if="choosing" :instance-id="inst.id" :provider="choosing.provider" :project-id="choosing.projectId" :name="choosing.name" @pick="(v) => addVersion(choosing!, v)" @close="choosing = null" />
     </Transition>
@@ -272,20 +250,10 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
 .types { display: inline-flex; gap: var(--space-3); border: none; margin: 0; padding: 0; }
 .results { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: var(--space-3); }
 .columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; }
-.columns.open { grid-template-columns: minmax(0, 1fr) 380px; }
 .results-wrap { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-.columns.open .results { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
-.details { position: sticky; top: 0; padding: var(--space-5); border-radius: var(--radius-medium); display: flex; flex-direction: column; gap: var(--space-3); max-height: calc(100vh - 110px); overflow-y: auto; }
-.close { position: absolute; top: 10px; right: 10px; }
-.details-head { display: flex; gap: var(--space-3); align-items: center; padding-right: 28px; }
-.details-head > div { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.details-head h2 { font-size: 1.2rem; overflow-wrap: anywhere; }
-.description { color: var(--text-secondary); font-size: 0.93rem; line-height: 1.55; }
-.facts-row { flex-wrap: wrap; }
-.tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .versions { border: none; margin: 0; padding: 0; min-width: 0; }
 .field-label { font-size: 0.88rem; color: var(--text-secondary); font-weight: 500; margin-bottom: 6px; padding: 0; }
-.version-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.version-list { display: flex; flex-direction: column; gap: 6px; }
 .version { display: flex; align-items: center; gap: var(--space-3); padding: 8px 12px; border-radius: var(--radius-control); border: 1px solid var(--border-subtle); background: rgba(255, 255, 255, 0.03); }
 .version:hover { border-color: rgba(147, 197, 253, 0.3); }
 .version.active { border-color: rgba(96, 165, 250, 0.55); background: rgba(59, 130, 246, 0.12); }
@@ -294,7 +262,6 @@ function addVersion(hit: SearchHit, v: ProjectVersion) {
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .center-badge { align-self: center; }
 .hit.focused { border-color: rgba(96, 165, 250, 0.6); background: rgba(59, 130, 246, 0.1); }
-@media (max-width: 1100px) { .columns.open { grid-template-columns: 1fr; } .details { position: static; max-height: none; } }
 .hit { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
 .hit.dim { opacity: 0.6; }
 .skel { display: flex; gap: var(--space-3); padding: var(--space-4); }

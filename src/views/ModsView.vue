@@ -82,7 +82,7 @@ const counts = computed(() => {
 
 const columns: { label: MessageKey; sort?: SortKey; cls?: string }[] = [
   { label: 'colName', sort: 'name' }, { label: 'colInstalled', sort: 'installed', cls: 'c-installed' }, { label: 'colAvailable' },
-  { label: 'colSource', sort: 'source' }, { label: 'colDeps', sort: 'status' }, { label: 'colState', cls: 'c-state' },
+  { label: 'colSource', sort: 'source' }, { label: 'colDeps', sort: 'status', cls: 'c-deps' }, { label: 'colState', cls: 'c-state' },
 ];
 function sortBy(key: SortKey) {
   if (sortKey.value === key) descending.value = !descending.value;
@@ -125,7 +125,7 @@ function rowMenu(event: MouseEvent, m: InstalledMod) {
     items = [
       ...(hasUpdate(m) && !pinned.value.has(m.key) ? [{ label: t('bulkUpdate'), icon: ArrowUpCircle, action: () => draftWith([{ kind: 'update', modKey: m.key, targetVersionId: m.available!.id }]) }] : []),
       ...(canChoose.value && m.projectId ? [{ label: t('changeVersion'), icon: History, action: () => { choosingFor.value = m; } }] : []),
-      { label: m.enabled ? t('bulkDisable') : t('bulkEnable'), icon: m.enabled ? PowerOff : Power, action: () => draftWith([{ kind: m.enabled ? 'disable' : 'enable', modKey: m.key }]) },
+      { label: m.enabled ? t('bulkDisable') : t('bulkEnable'), icon: m.enabled ? PowerOff : Power, disabled: session.toggling.value.has(m.key), action: () => switchMod(m, !m.enabled) },
       { label: pinnedNow(m) ? t('bulkUnpin') : t('bulkPin'), icon: pinnedNow(m) ? PinOff : Pin, disabled: policies.value && (!m.installed || m.source === 'manual'), action: () => session.setPinned([m.key], !pinnedNow(m)) },
       separator,
       ...(page ? [{ label: t('openProviderPage'), icon: ExternalLink, action: () => openExternal(page) }] : []),
@@ -153,6 +153,19 @@ function chooseVersion(m: InstalledMod, v: ProjectVersion) {
   // A helper policy pins the installed version, so it is set after the update is applied, not with it.
   if (!policies.value) session.setPinned([m.key], true);
   choosingFor.value = null;
+}
+/** The switch: applied at once. While it runs, the row shows where it is going. */
+const switching = ref(new Map<string, boolean>());
+const isOn = (m: InstalledMod) => switching.value.get(m.key) ?? m.enabled;
+async function switchMod(m: InstalledMod, on: boolean) {
+  switching.value = new Map(switching.value).set(m.key, on);
+  try {
+    if (await session.quickToggle(m.key, on) === 'review') toast(t('toggleNeedsReview', { name: m.name }), 'info');
+  } catch (e) {
+    toast(asError(e).message, 'error');
+  } finally {
+    const next = new Map(switching.value); next.delete(m.key); switching.value = next;
+  }
 }
 function draftWith(changes: DraftChange[]) {
   const d = session.draft.value;
@@ -325,14 +338,18 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
                   <span v-else class="muted">{{ t('noVersion') }}</span>
                 </span>
                 <span role="cell"><ProviderLogo :provider="m.source" :size="16" label /></span>
-                <span role="cell">
+                <span role="cell" class="c-deps">
                   <span class="badge" :class="depTone[depState(m)]">
                     <CircleCheck v-if="depState(m) === 'ok'" :size="13" /><CircleHelp v-else-if="depState(m) === 'unknown'" :size="13" /><CircleAlert v-else :size="13" />
                     {{ t(depLabel[depState(m)]) }}
                   </span>
                 </span>
                 <span role="cell" class="c-state">
-                  <span class="state" :class="{ on: m.enabled }"><span class="dot"></span>{{ m.enabled ? t('enabled') : t('disabled') }}</span>
+                  <input
+                    type="checkbox" role="switch" class="switch" :checked="isOn(m)" :disabled="session.toggling.value.has(m.key)"
+                    :aria-label="t(m.enabled ? 'toggleDisable' : 'toggleEnable', { name: m.name })" :title="isOn(m) ? t('enabled') : t('disabled')"
+                    @click.stop @change="switchMod(m, ($event.target as HTMLInputElement).checked)"
+                  />
                 </span>
               </div>
             </template>
@@ -385,7 +402,7 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
           <div class="detail-actions">
             <button v-if="hasUpdate(focused) && !pinned.has(focused.key)" class="btn btn-primary btn-small" type="button" @click="draftWith([{ kind: 'update', modKey: focused.key, targetVersionId: focused.available!.id }])"><ArrowUpCircle :size="15" />{{ t('bulkUpdate') }}</button>
             <button v-if="canChoose && focused.projectId" class="btn btn-small" type="button" @click="choosingFor = focused">{{ t('changeVersion') }}</button>
-            <button class="btn btn-small" type="button" @click="draftWith([{ kind: focused.enabled ? 'disable' : 'enable', modKey: focused.key }])">
+            <button class="btn btn-small" type="button" :disabled="session.toggling.value.has(focused.key)" @click="switchMod(focused, !focused.enabled)">
               <PowerOff v-if="focused.enabled" :size="15" /><Power v-else :size="15" />{{ focused.enabled ? t('bulkDisable') : t('bulkEnable') }}
             </button>
             <button class="btn btn-small" type="button" :disabled="policies && (!focused.installed || focused.source === 'manual')" @click="session.setPinned([focused.key], !pinnedNow(focused))">
@@ -442,16 +459,16 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
 .table-wrap { container-type: inline-size; display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; position: relative; }
 .table { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; outline: none; }
 .row {
-  display: grid; grid-template-columns: 40px minmax(220px, 2.6fr) minmax(90px, 0.9fr) minmax(120px, 1fr) minmax(120px, 0.9fr) 112px 104px;
+  display: grid; grid-template-columns: 40px minmax(220px, 2.6fr) minmax(90px, 0.9fr) minmax(120px, 1fr) minmax(120px, 0.9fr) 112px 64px;
   align-items: center; gap: var(--space-3); height: 56px; padding: 0 var(--space-4); border-bottom: 1px solid var(--border-subtle); font-size: 0.92rem;
 }
 /* Drop lower-priority columns when the table itself is narrow (e.g. details drawer open). */
 @container (max-width: 1000px) {
-  .row { grid-template-columns: 40px minmax(200px, 2.6fr) minmax(90px, 0.9fr) minmax(120px, 1fr) minmax(110px, 0.9fr) 112px; }
-  .c-state { display: none; }
+  .row { grid-template-columns: 40px minmax(200px, 2.6fr) minmax(90px, 0.9fr) minmax(120px, 1fr) minmax(110px, 0.9fr) 64px; }
+  .c-deps { display: none; }
 }
 @container (max-width: 800px) {
-  .row { grid-template-columns: 40px minmax(180px, 2.6fr) minmax(110px, 1fr) 44px 112px; }
+  .row { grid-template-columns: 40px minmax(180px, 2.6fr) minmax(110px, 1fr) 44px 64px; }
   .c-installed { display: none; }
   .row :deep(.provider > span:last-child) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 }
@@ -476,8 +493,6 @@ const depKindLabel: Record<string, MessageKey> = { required: 'depRequired', opti
 .mono { font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.88rem; }
 .update { display: inline-flex; align-items: center; gap: 5px; color: #7dd3fc; font-weight: 600; }
 .uptodate { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); }
-.state { display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: var(--text-muted); }
-.state.on { color: #6ee7b7; }
 .skeleton-rows .row { cursor: default; }
 .load-progress { padding: 8px var(--space-4) 0; }
 .bulkbar { margin: 0 auto; }

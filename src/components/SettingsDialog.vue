@@ -315,11 +315,6 @@ async function removeFolder(folder: string) {
 .picker-option[aria-selected='true'] { color: #fff; font-weight: 600; }
 .tick { color: #60a5fa; }
 
-/* Toggle switch built on a native checkbox (keeps keyboard + screen reader behaviour). */
-.switch { appearance: none; width: 42px !important; height: 24px !important; flex-shrink: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.18); position: relative; cursor: pointer; transition: background-color var(--duration-fast) var(--ease); }
-.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #e2e8f0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: transform var(--duration-fast) var(--ease); }
-.switch:checked { background: var(--accent); border-color: transparent; }
-.switch:checked::after { transform: translateX(18px); background: #fff; }
 
 /* Connection */
 .status-card { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 14px 16px; border-radius: var(--radius-medium); border: 1px solid var(--border); background: rgba(255, 255, 255, 0.03); }

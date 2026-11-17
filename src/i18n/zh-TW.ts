@@ -809,4 +809,10 @@ export const zhTW: Catalog = {
   contentNoVersions: "沒有適用於 Minecraft {version} 的版本。取消版本篩選即可檢視所有版本。",
   contentShowInFiles: "檢視已安裝",
   contentNeedManage: "要安裝資源包和光影，請先在「模組」頁面為此實例開啟「在此管理模組」。",
+  toggleEnable: "啟用 {name}",
+  toggleDisable: "停用 {name}",
+  toggleNeedsReview: "{name} 會影響其他模組，此變更已放入「檢查」等待確認。",
+  detailGallery: "螢幕截圖",
+  detailShot: "螢幕截圖 {n}",
+  detailNoBody: "此專案的頁面上沒有說明。",
 };

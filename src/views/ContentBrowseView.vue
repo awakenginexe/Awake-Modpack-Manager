@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, FolderOpen, Gamepad2, Info, Loader, Lock, Search, X } from '@lucide/vue';
+import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, FolderOpen, Gamepad2, Info, Loader, Lock, Search } from '@lucide/vue';
 import { contentArea, type ContentHit, type ContentKind, type ContentVersion, type ProviderId, type ProviderInfo } from '../backend/contract';
 import { formatDate, formatNumber, t } from '../i18n';
 import { filesArea } from '../state/nav';
@@ -10,6 +10,7 @@ import { useInfiniteScroll } from '../ui/infiniteScroll';
 import { formatBytes } from '../ui/labels';
 import { openExternal } from '../state/appUpdate';
 import Avatar from '../components/Avatar.vue';
+import ProjectDialog from '../components/ProjectDialog.vue';
 import ProviderLogo from '../components/ProviderLogo.vue';
 import type { ViewId } from '../App.vue';
 
@@ -73,7 +74,7 @@ const sentinel = ref<HTMLElement | null>(null);
 const hasMore = computed(() => hits.value.length > 0 && hits.value.length < total.value);
 useInfiniteScroll(sentinel, () => hasMore.value && !loading.value && !error.value, () => search(true));
 
-/* Details panel: versions of the clicked project, as on Browse mods. */
+/* Details window: versions of the clicked project, as on Browse mods. */
 const focused = ref<ContentHit | null>(null);
 const versions = ref<ContentVersion[]>([]);
 const versionId = ref('');
@@ -85,7 +86,6 @@ async function loadVersions(hit: ContentHit): Promise<ContentVersion[]> {
   return session.backend.contentVersions!(hit.provider, hit.projectId, minecraft.value);
 }
 async function focus(hit: ContentHit) {
-  if (focused.value?.projectId === hit.projectId) { focused.value = null; return; }
   focused.value = hit;
   versions.value = [];
   versionId.value = '';
@@ -184,7 +184,7 @@ function hitMenu(event: MouseEvent, hit: ContentHit) {
     </div>
     <div v-if="error" class="notice error" role="alert"><CircleAlert :size="18" />{{ t('searchFailed') }} <code class="small">{{ error }}</code></div>
 
-    <div class="columns" :class="{ open: !!focused }">
+    <div class="columns">
     <div class="results-wrap">
     <ul class="results" :aria-busy="loading">
       <template v-if="loading && !hits.length">
@@ -211,20 +211,9 @@ function hitMenu(event: MouseEvent, hit: ContentHit) {
     <div ref="sentinel" class="load-status" aria-hidden="true"><Loader v-if="hasMore && !error" :size="20" class="spin" /></div>
     </div>
 
-    <Transition name="slide">
-      <aside v-if="focused" class="details glass" :aria-label="focused.name" @keydown.esc="focused = null">
-        <button class="icon-btn close" type="button" :aria-label="t('close')" @click="focused = null"><X :size="18" /></button>
-        <div class="details-head">
-          <Avatar :name="focused.name" :src="focused.iconUrl" :size="72" />
-          <div>
-            <h2>{{ focused.name }}</h2>
-            <p v-if="focused.author" class="muted small">{{ t('byAuthor', { author: focused.author }) }}</p>
-            <span class="chip"><ProviderLogo :provider="focused.provider" :size="15" />{{ focused.provider === 'modrinth' ? 'Modrinth' : 'CurseForge' }}</span>
-          </div>
-        </div>
-        <p class="description selectable">{{ focused.summary }}</p>
-        <div v-if="focused.downloads !== undefined" class="meta small"><span><Download :size="14" />{{ formatNumber(focused.downloads) }}</span></div>
-
+    </div>
+    <Transition name="modal">
+      <ProjectDialog v-if="focused" :key="focused.projectId" :project="focused" :page-url="pageUrl(focused)" @close="focused = null">
         <fieldset class="versions">
           <legend class="field-label">{{ t('packVersionLabel') }}</legend>
           <div v-if="versionsLoading" class="version-list"><span v-for="n in 3" :key="n" class="skeleton" style="height: 44px"></span></div>
@@ -250,10 +239,8 @@ function hitMenu(event: MouseEvent, hit: ContentHit) {
         <button class="btn btn-primary btn-large btn-block" type="button" :disabled="!chosen || !!installing" @click="install(focused, chosen)">
           <Download :size="18" />{{ installing?.projectId === focused.projectId ? t('contentInstalling') : chosen && has(chosen) ? t('contentInstallAgain') : t('contentInstall') }}
         </button>
-        <button class="btn btn-block" type="button" @click="openExternal(pageUrl(focused))"><ExternalLink :size="15" />{{ t('openProviderPage') }}</button>
-      </aside>
+      </ProjectDialog>
     </Transition>
-    </div>
     </template>
   </section>
 </template>
@@ -264,18 +251,10 @@ function hitMenu(event: MouseEvent, hit: ContentHit) {
 .seg.off:not(.active) { opacity: 0.5; }
 .results { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: var(--space-3); }
 .columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; }
-.columns.open { grid-template-columns: minmax(0, 1fr) 380px; }
 .results-wrap { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-.columns.open .results { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
-.details { position: sticky; top: 0; padding: var(--space-5); border-radius: var(--radius-medium); display: flex; flex-direction: column; gap: var(--space-3); max-height: calc(100vh - 110px); overflow-y: auto; }
-.close { position: absolute; top: 10px; right: 10px; }
-.details-head { display: flex; gap: var(--space-3); align-items: center; padding-right: 28px; }
-.details-head > div { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.details-head h2 { font-size: 1.2rem; overflow-wrap: anywhere; }
-.description { color: var(--text-secondary); font-size: 0.93rem; line-height: 1.55; }
 .versions { border: none; margin: 0; padding: 0; min-width: 0; }
 .field-label { font-size: 0.88rem; color: var(--text-secondary); font-weight: 500; margin-bottom: 6px; padding: 0; }
-.version-list { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+.version-list { display: flex; flex-direction: column; gap: 6px; }
 .version { display: flex; align-items: center; gap: var(--space-3); padding: 8px 12px; border-radius: var(--radius-control); border: 1px solid var(--border-subtle); background: rgba(255, 255, 255, 0.03); }
 .version:hover { border-color: rgba(147, 197, 253, 0.3); }
 .version.active { border-color: rgba(96, 165, 250, 0.55); background: rgba(59, 130, 246, 0.12); }
@@ -283,7 +262,6 @@ function hitMenu(event: MouseEvent, hit: ContentHit) {
 .version-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; overflow-wrap: anywhere; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hit.focused { border-color: rgba(96, 165, 250, 0.6); background: rgba(59, 130, 246, 0.1); }
-@media (max-width: 1100px) { .columns.open { grid-template-columns: 1fr; } .details { position: static; max-height: none; } }
 .hit { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
 .skel { display: flex; gap: var(--space-3); padding: var(--space-4); }
 .lines { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }

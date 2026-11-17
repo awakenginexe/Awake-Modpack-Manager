@@ -809,4 +809,10 @@ export const th: Catalog = {
   contentNoVersions: "ไม่มีเวอร์ชันสำหรับ Minecraft {version} ยกเลิกตัวกรองเวอร์ชันเพื่อดูทุกเวอร์ชัน",
   contentShowInFiles: "ดูที่ติดตั้งแล้ว",
   contentNeedManage: "หากต้องการติดตั้งรีซอร์สแพ็กและเชดเดอร์ ให้เปิด “จัดการม็อดที่นี่” ของอินสแตนซ์นี้ที่หน้าม็อดก่อน",
+  toggleEnable: "เปิด {name}",
+  toggleDisable: "ปิด {name}",
+  toggleNeedsReview: "{name} มีผลกับม็อดอื่น การเปลี่ยนแปลงนี้จึงรออยู่ในหน้าตรวจสอบ",
+  detailGallery: "ภาพหน้าจอ",
+  detailShot: "ภาพหน้าจอ {n}",
+  detailNoBody: "โปรเจกต์นี้ไม่มีคำอธิบายบนหน้าเว็บ",
 };
