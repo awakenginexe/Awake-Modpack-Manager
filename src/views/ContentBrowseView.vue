@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { CircleAlert, CircleCheck, Copy, Download, ExternalLink, FolderOpen, Gamepad2, Info, Loader, Lock, Search } from '@lucide/vue';
 import { contentArea, type ContentHit, type ContentKind, type ContentVersion, type ProviderId, type ProviderInfo } from '../backend/contract';
 import { formatDate, formatNumber, t } from '../i18n';
-import { filesArea } from '../state/nav';
+import { browseText, filesArea } from '../state/nav';
 import { asError, useSession } from '../state/session';
 import { copyText, openMenu, separator, toast } from '../ui/desktop';
 import { useInfiniteScroll } from '../ui/infiniteScroll';
@@ -26,7 +26,7 @@ const needsManage = computed(() => !canBrowse.value && session.source.value === 
 const providers = ref<ProviderInfo[]>([]);
 const provider = ref<ProviderId>('modrinth');
 const providerInfo = computed(() => providers.value.find((p) => p.id === provider.value));
-const text = ref('');
+const text = computed({ get: () => browseText[props.kind], set: (v: string) => { browseText[props.kind] = v; } });
 /** Only what has a version for this instance's Minecraft version. */
 const matchVersion = ref(true);
 const minecraft = computed(() => (matchVersion.value ? inst.value.minecraftVersion ?? '' : ''));

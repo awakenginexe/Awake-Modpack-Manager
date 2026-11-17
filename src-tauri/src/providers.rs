@@ -1032,11 +1032,21 @@ pub struct ProjectDetail {
     /// The window renders it through an allowlist; nothing here is trusted.
     body: String,
     body_format: &'static str,
-    gallery: Vec<String>,
+    gallery: Vec<Shot>,
 }
-/// Screenshots, at most 12, and only from https.
-fn gallery(list: &Value, key: &str) -> Vec<String> {
-    list.as_array().map_or(vec![], |g| g.iter().filter_map(|x| x[key].as_str()).filter(|u| u.starts_with("https://")).take(12).map(String::from).collect())
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct Shot {
+    full: String,
+    thumb: String,
+}
+/// Screenshots, at most 12, and only from https: the full image for the big view, the site's small one for the strip.
+fn gallery(list: &Value, full: &str, thumb: &str) -> Vec<Shot> {
+    let https = |v: &Value| v.as_str().filter(|u| u.starts_with("https://")).map(String::from);
+    list.as_array().map_or(vec![], |g| g.iter().filter_map(|x| {
+        let small = https(&x[thumb]);
+        let big = https(&x[full]).or(small.clone())?;
+        Some(Shot { thumb: small.unwrap_or(big.clone()), full: big })
+    }).take(12).collect())
 }
 
 pub fn parse_modrinth_detail(p: &Value, members: &Value) -> ProjectDetail {
@@ -1051,7 +1061,8 @@ pub fn parse_modrinth_detail(p: &Value, members: &Value) -> ProjectDetail {
         page_url: Some(format!("https://modrinth.com/{}/{}", p["project_type"].as_str().filter(|t| ["resourcepack", "shader"].contains(t)).unwrap_or("mod"), s(p, "slug"))),
         body: s(p, "body").into(),
         body_format: "markdown",
-        gallery: gallery(&p["gallery"], "url"),
+        // Modrinth's `url` is a 350px webp; `raw_url` is the uploaded original.
+        gallery: gallery(&p["gallery"], "raw_url", "url"),
     }
 }
 pub fn parse_curseforge_detail(p: &Value, description: &str) -> ProjectDetail {
@@ -1065,7 +1076,7 @@ pub fn parse_curseforge_detail(p: &Value, description: &str) -> ProjectDetail {
         page_url: p["links"]["websiteUrl"].as_str().filter(|u| u.starts_with("https://")).map(Into::into),
         body: description.into(),
         body_format: "html",
-        gallery: gallery(&p["screenshots"], "url"),
+        gallery: gallery(&p["screenshots"], "url", "thumbnailUrl"),
     }
 }
 
@@ -1189,9 +1200,9 @@ mod tests {
 
     #[test]
     fn project_details_read_both_providers() {
-        let m = parse_modrinth_detail(&json!({"slug": "sodium", "description": "Fast", "downloads": 5.0, "updated": "2026-01-01T00:00:00Z", "license": {"id": "LGPL-3.0"}, "categories": ["optimization"], "project_type": "shader", "body": "# Hi", "gallery": [{"url": "https://cdn.modrinth.com/a.png"}, {"url": "http://plain/b.png"}]}), &json!([{"role": "Member", "user": {"username": "b"}}, {"role": "Owner", "user": {"username": "jelly"}}]));
+        let m = parse_modrinth_detail(&json!({"slug": "sodium", "description": "Fast", "downloads": 5.0, "updated": "2026-01-01T00:00:00Z", "license": {"id": "LGPL-3.0"}, "categories": ["optimization"], "project_type": "shader", "body": "# Hi", "gallery": [{"url": "https://cdn.modrinth.com/a_350.webp", "raw_url": "https://cdn.modrinth.com/a.png"}, {"url": "http://plain/b.png"}]}),&json!([{"role": "Member", "user": {"username": "b"}}, {"role": "Owner", "user": {"username": "jelly"}}]));
         assert_eq!((m.author.as_str(), m.license.as_deref(), m.page_url.as_deref()), ("jelly", Some("LGPL-3.0"), Some("https://modrinth.com/shader/sodium")));
-        assert_eq!((m.body.as_str(), m.body_format, m.gallery), ("# Hi", "markdown", vec!["https://cdn.modrinth.com/a.png".to_string()]));
+        assert_eq!((m.body.as_str(), m.body_format, m.gallery), ("# Hi", "markdown", vec![Shot { full: "https://cdn.modrinth.com/a.png".into(), thumb: "https://cdn.modrinth.com/a_350.webp".into() }]));
         let c = parse_curseforge_detail(&json!({"authors": [{"name": "mezz"}], "summary": "Items", "downloadCount": 9.0, "categories": [{"name": "API"}], "links": {"websiteUrl": "https://www.curseforge.com/minecraft/mc-mods/jei"}, "screenshots": [{"url": "https://media.forgecdn.net/s.png"}]}), "<p>Items</p>");
         assert_eq!((c.body.as_str(), c.body_format, c.gallery.len()), ("<p>Items</p>", "html", 1));
         assert_eq!((c.author.as_str(), c.categories.len(), c.downloads), ("mezz", 1, Some(9.0)));

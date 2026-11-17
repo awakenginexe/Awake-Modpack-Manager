@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, toRef, watch } from 'vue';
+import { browseText } from '../state/nav';
 import type { ProjectVersion, ProviderId, ReleaseType, SearchHit } from '../backend/contract';
 import { addChanges } from '../domain/draft';
 import { formatNumber, t } from '../i18n';
@@ -20,7 +21,7 @@ const session = useSession();
 const inst = computed(() => session.instance.value!);
 const providers = computed(() => session.instanceHandshake.value?.providers ?? []);
 
-const text = ref('');
+const text = toRef(browseText, 'mod');
 const provider = ref<ProviderId>(providers.value.find((p) => p.available)?.id ?? 'modrinth');
 const releaseTypes = ref<ReleaseType[]>(['release']);
 const compatibleOnly = ref(true);
