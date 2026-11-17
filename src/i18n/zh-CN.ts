@@ -809,4 +809,10 @@ export const zhCN: Catalog = {
   contentNoVersions: "没有适用于 Minecraft {version} 的版本。取消版本筛选即可查看全部版本。",
   contentShowInFiles: "查看已安装",
   contentNeedManage: "要安装资源包和光影，请先在“模组”页面为此版本开启“在此管理模组”。",
+  toggleEnable: "启用 {name}",
+  toggleDisable: "禁用 {name}",
+  toggleNeedsReview: "{name} 会影响其他模组，此更改已放入“检查”等待确认。",
+  detailGallery: "截图",
+  detailShot: "截图 {n}",
+  detailNoBody: "此项目的页面上没有说明。",
 };

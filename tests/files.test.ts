@@ -233,7 +233,7 @@ describe('Browse resource packs and shaders', () => {
     const versions = wrapper.findAll('.version');
     expect(versions.length).toBeGreaterThan(0);
     const fileName = versions[0]!.find('.ellipsis').text().split(' · ')[0]!;
-    await wrapper.find('.details .btn-primary').trigger('click');
+    await wrapper.find('.project .btn-primary').trigger('click');
     await vi.waitFor(async () => expect((await backend.listContent('inst-atlas', 'shaderpacks')).map((e) => e.path)).toContain(fileName));
     await settle();
     expect(toasts.at(-1)?.message).toBe(`Installed ${fileName}`);

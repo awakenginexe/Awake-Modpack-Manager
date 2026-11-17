@@ -807,6 +807,12 @@ export const en = {
   contentNoVersions: "No version for Minecraft {version}. Untick the version filter to see every version.",
   contentShowInFiles: "Show installed",
   contentNeedManage: "To install resource packs and shaders, turn on “Manage mods here” for this instance on the Mods page.",
+  toggleEnable: "Turn on {name}",
+  toggleDisable: "Turn off {name}",
+  toggleNeedsReview: "{name} affects other mods, so this change is waiting in Review.",
+  detailGallery: "Screenshots",
+  detailShot: "Screenshot {n}",
+  detailNoBody: "This project has no description on its page.",
 } as const;
 
 export type MessageKey = keyof typeof en;

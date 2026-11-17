@@ -1028,6 +1028,15 @@ pub struct ProjectDetail {
     license: Option<String>,
     categories: Vec<String>,
     page_url: Option<String>,
+    /// The project's own long description, as the site stores it: Markdown (Modrinth) or HTML (CurseForge).
+    /// The window renders it through an allowlist; nothing here is trusted.
+    body: String,
+    body_format: &'static str,
+    gallery: Vec<String>,
+}
+/// Screenshots, at most 12, and only from https.
+fn gallery(list: &Value, key: &str) -> Vec<String> {
+    list.as_array().map_or(vec![], |g| g.iter().filter_map(|x| x[key].as_str()).filter(|u| u.starts_with("https://")).take(12).map(String::from).collect())
 }
 
 pub fn parse_modrinth_detail(p: &Value, members: &Value) -> ProjectDetail {
@@ -1039,10 +1048,13 @@ pub fn parse_modrinth_detail(p: &Value, members: &Value) -> ProjectDetail {
         updated_at: p["updated"].as_str().map(Into::into),
         license: p["license"]["id"].as_str().filter(|l| !l.is_empty()).map(Into::into),
         categories: p["categories"].as_array().map_or(vec![], |c| c.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
-        page_url: Some(format!("https://modrinth.com/mod/{}", s(p, "slug"))),
+        page_url: Some(format!("https://modrinth.com/{}/{}", p["project_type"].as_str().filter(|t| ["resourcepack", "shader"].contains(t)).unwrap_or("mod"), s(p, "slug"))),
+        body: s(p, "body").into(),
+        body_format: "markdown",
+        gallery: gallery(&p["gallery"], "url"),
     }
 }
-pub fn parse_curseforge_detail(p: &Value) -> ProjectDetail {
+pub fn parse_curseforge_detail(p: &Value, description: &str) -> ProjectDetail {
     ProjectDetail {
         author: p["authors"][0]["name"].as_str().unwrap_or("").into(),
         summary: s(p, "summary").into(),
@@ -1051,6 +1063,9 @@ pub fn parse_curseforge_detail(p: &Value) -> ProjectDetail {
         license: None,
         categories: p["categories"].as_array().map_or(vec![], |c| c.iter().filter_map(|x| x["name"].as_str().map(String::from)).collect()),
         page_url: p["links"]["websiteUrl"].as_str().filter(|u| u.starts_with("https://")).map(Into::into),
+        body: description.into(),
+        body_format: "html",
+        gallery: gallery(&p["screenshots"], "url"),
     }
 }
 
@@ -1064,7 +1079,12 @@ pub async fn project_detail(provider: String, project_id: String) -> HostResult<
                 let members = get_json(&format!("{MODRINTH}/project/{}/members", encode(id))).unwrap_or(Value::Null);
                 Ok(parse_modrinth_detail(&project, &members))
             }
-            "curseforge" => Ok(parse_curseforge_detail(&cf_get(&format!("/mods/{}", encode(id)))?["data"])),
+            "curseforge" => {
+                let project = cf_get(&format!("/mods/{}", encode(id)))?;
+                // The long description is its own request; the rest of the page is still useful without it.
+                let description = cf_get(&format!("/mods/{}/description", encode(id))).unwrap_or(Value::Null);
+                Ok(parse_curseforge_detail(&project["data"], description["data"].as_str().unwrap_or("")))
+            }
             _ => err("invalid", "Unknown mod provider."),
         }
     })
@@ -1169,9 +1189,11 @@ mod tests {
 
     #[test]
     fn project_details_read_both_providers() {
-        let m = parse_modrinth_detail(&json!({"slug": "sodium", "description": "Fast", "downloads": 5.0, "updated": "2026-01-01T00:00:00Z", "license": {"id": "LGPL-3.0"}, "categories": ["optimization"]}), &json!([{"role": "Member", "user": {"username": "b"}}, {"role": "Owner", "user": {"username": "jelly"}}]));
-        assert_eq!((m.author.as_str(), m.license.as_deref(), m.page_url.as_deref()), ("jelly", Some("LGPL-3.0"), Some("https://modrinth.com/mod/sodium")));
-        let c = parse_curseforge_detail(&json!({"authors": [{"name": "mezz"}], "summary": "Items", "downloadCount": 9.0, "categories": [{"name": "API"}], "links": {"websiteUrl": "https://www.curseforge.com/minecraft/mc-mods/jei"}}));
+        let m = parse_modrinth_detail(&json!({"slug": "sodium", "description": "Fast", "downloads": 5.0, "updated": "2026-01-01T00:00:00Z", "license": {"id": "LGPL-3.0"}, "categories": ["optimization"], "project_type": "shader", "body": "# Hi", "gallery": [{"url": "https://cdn.modrinth.com/a.png"}, {"url": "http://plain/b.png"}]}), &json!([{"role": "Member", "user": {"username": "b"}}, {"role": "Owner", "user": {"username": "jelly"}}]));
+        assert_eq!((m.author.as_str(), m.license.as_deref(), m.page_url.as_deref()), ("jelly", Some("LGPL-3.0"), Some("https://modrinth.com/shader/sodium")));
+        assert_eq!((m.body.as_str(), m.body_format, m.gallery), ("# Hi", "markdown", vec!["https://cdn.modrinth.com/a.png".to_string()]));
+        let c = parse_curseforge_detail(&json!({"authors": [{"name": "mezz"}], "summary": "Items", "downloadCount": 9.0, "categories": [{"name": "API"}], "links": {"websiteUrl": "https://www.curseforge.com/minecraft/mc-mods/jei"}, "screenshots": [{"url": "https://media.forgecdn.net/s.png"}]}), "<p>Items</p>");
+        assert_eq!((c.body.as_str(), c.body_format, c.gallery.len()), ("<p>Items</p>", "html", 1));
         assert_eq!((c.author.as_str(), c.categories.len(), c.downloads), ("mezz", 1, Some(9.0)));
     }
 

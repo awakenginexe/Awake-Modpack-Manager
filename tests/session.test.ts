@@ -221,4 +221,34 @@ describe('session installPack', () => {
     expect(session.instance.value?.pack?.packId).toBe(hit.packId);
     expect(session.inventory.value?.instanceId).toBe(final?.result?.instanceId);
   });
+
+  it('switches a mod off and on at once, without the Review page', async () => {
+    const { session } = await ready();
+    const mod = session.inventory.value!.mods.find((m) => m.enabled && !m.locallyModified && !(m.dependencies ?? []).length)!;
+    const other = session.inventory.value!.mods.find((m) => hasUpdate(m) && !m.locallyModified && m.key !== mod.key)!;
+    session.setDraft(addChanges(session.draft.value!, [{ kind: 'update', modKey: other.key, targetVersionId: other.available!.id }]));
+
+    const run = session.quickToggle(mod.key, false);
+    expect(session.toggling.value.has(mod.key)).toBe(true);
+    expect(await run).toBe('done');
+    expect(session.toggling.value.size).toBe(0);
+    expect(session.inventory.value!.mods.find((m) => m.key === mod.key)!.enabled).toBe(false);
+    // The draft the user was building is kept, moved onto the instance as it is now, and is not part of what was applied.
+    expect(session.draft.value!.changes).toEqual([{ kind: 'update', modKey: other.key, targetVersionId: other.available!.id }]);
+    expect(session.draft.value!.baseRevision).toBe(session.inventory.value!.revision);
+    expect(session.inventory.value!.mods.find((m) => m.key === other.key)!.installed?.id).toBe(other.installed?.id);
+
+    expect(await session.quickToggle(mod.key, true)).toBe('done');
+    expect(session.inventory.value!.mods.find((m) => m.key === mod.key)!.enabled).toBe(true);
+  });
+
+  it('leaves a switch for Review when it cannot be applied on its own', async () => {
+    const { session, backend } = await ready();
+    const mod = session.inventory.value!.mods.find((m) => m.enabled && !m.locallyModified)!;
+    const real = backend.validateDraft.bind(backend);
+    vi.spyOn(backend, 'validateDraft').mockImplementation(async (d) => ({ ...(await real(d)), blocked: true }));
+    expect(await session.quickToggle(mod.key, false)).toBe('review');
+    expect(session.inventory.value!.mods.find((m) => m.key === mod.key)!.enabled).toBe(true);
+    expect(session.draft.value!.changes).toContainEqual({ kind: 'disable', modKey: mod.key });
+  });
 });

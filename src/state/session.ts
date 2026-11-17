@@ -8,7 +8,7 @@ import {
 export interface OpChange { action: PlanAction; name: string; from?: string; to?: string }
 import type { ConnectionState, ManagerBackend } from '../backend/ManagerBackend';
 import { isComposite } from '../backend/composite';
-import { isStale, newDraft, rebase } from '../domain/draft';
+import { addChanges, isStale, newDraft, rebase } from '../domain/draft';
 import { followOperation, isSettled } from '../domain/operation';
 import { load, save } from '../domain/storage';
 import { prune, emptySelection, type Selection } from '../domain/selection';
@@ -456,6 +456,62 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     }
   }
 
+  /* ----- instant enable / disable: one checked and applied change, without the Review page ----- */
+
+  /** Mods whose switch is being applied right now. */
+  const toggling = ref<Set<string>>(new Set());
+  let toggleQueue: Promise<unknown> = Promise.resolve();
+  const canQuickToggle = computed(() => can('plan.validate') && can('plan.prepare') && can('plan.apply'));
+
+  /**
+   * Turn one mod on or off now. It goes through the same check, prepare and apply as a reviewed draft, so the
+   * coordinator's backup and rollback still cover it. Resolves 'done', or 'review' when the change was put in the
+   * draft instead because it is not a one-file change (a conflict, another mod pulled in) or cannot be applied here.
+   */
+  function quickToggle(modKey: string, enabled: boolean): Promise<'done' | 'review'> {
+    toggling.value = new Set(toggling.value).add(modKey);
+    // One at a time: each apply changes the revision the next one is checked against.
+    const run = toggleQueue.then(() => toggleNow(modKey, enabled)).finally(() => {
+      const next = new Set(toggling.value); next.delete(modKey); toggling.value = next;
+    });
+    toggleQueue = run.catch(() => undefined);
+    return run;
+  }
+  async function toggleNow(modKey: string, enabled: boolean, retried = false): Promise<'done' | 'review'> {
+    const id = state.instanceId;
+    if (!id || !inventory.value) throw new BackendError('rejected', 'No instance is open.');
+    const change = { kind: enabled ? 'enable' as const : 'disable' as const, modKey };
+    const toDraft = () => { if (draft.value) setDraft(addChanges(draft.value, [change])); return 'review' as const; };
+    // A draft being checked or applied owns the coordinator's one waiting plan for this instance.
+    if (!canQuickToggle.value || ['resolving', 'preparing', 'applying', 'unconfirmed', 'changed'].includes(review.phase)) return toDraft();
+    let plan: ResolvedPlan;
+    try {
+      plan = await backend.validateDraft({ ...newDraft(id, inventory.value.revision), changes: [change], pinnedKeys: [...pinned.value] });
+    } catch (e) {
+      // Something else changed the instance (a game run, the Launcher): read it again and try once more.
+      if (asError(e).code !== 'stale-revision' || retried) throw e;
+      await loadInventory();
+      return toggleNow(modKey, enabled, true);
+    }
+    const prepared = plan.blocked || plan.items.filter((i) => i.action !== 'keep').length !== 1 ? null : await backend.preparePlan(plan.planId);
+    if (!prepared || prepared.planHash !== plan.planHash) {
+      await backend.discardPlan?.(id).catch(() => undefined);
+      return toDraft();
+    }
+    // shortcut: not saved as a pending apply, so a lost connection mid-switch is not resent; the list is re-read and shows what happened.
+    recordChanges([prepared.planId], prepared);
+    const { operationId } = await backend.applyPlan({ planId: prepared.planId, planHash: prepared.planHash, baseRevision: prepared.baseRevision, idempotencyKey: crypto.randomUUID() });
+    if (operationId !== prepared.planId) recordChanges([operationId], prepared);
+    const final = await track(operationId);
+    await loadInventory();
+    // The user's own draft was made for the list before this switch: carry it over instead of calling it out of date.
+    const mine = drafts.value[id];
+    if (mine && inventory.value && isStale(mine, inventory.value.revision)) setDraft(rebase(mine, inventory.value.revision, inventory.value.mods).draft);
+    if (review.plan || review.phase !== 'idle') resetReview(); // a plan checked before the switch no longer matches
+    if (final && final.state !== 'completed') throw new BackendError('rejected', final.error?.message ?? 'The change was not applied.');
+    return 'done';
+  }
+
   /** User confirmed the changed plan; it becomes the reviewed plan. */
   function acceptChangedPlan() {
     if (review.phase === 'changed') review.phase = 'reviewed';
@@ -667,7 +723,7 @@ export function createSession(backend: ManagerBackend, { pollMs = 1500 } = {}) {
     backend, source, instanceSource, instanceHandshake, canShare, shareInstance, stopSharingInstance, state, inventory, selection, drafts, pins, exportIncludes, review,
     can, instance, draft, pinned, planOutdated, policies, policyOf, packHandshake,
     connect, refreshInstances, selectInstance, loadInventory, checkUpdates, deleteInstance, renameInstance, preparePackUpdate,
-    setDraft, discardDraft, rebaseDraft, setPinned, setExcluded, prepareImport,
+    setDraft, discardDraft, rebaseDraft, setPinned, setExcluded, prepareImport, quickToggle, toggling, canQuickToggle,
     validate, apply, acceptChangedPlan, resetReview, missingTracked, forgetMissingMods, modifiedMods, fixModifiedMods, opChanges,
     refreshOperations, cancelOperation, runRecovery, createInstance, installPack, startExport, launch, startLauncher, makeProfilePrivate,
   };

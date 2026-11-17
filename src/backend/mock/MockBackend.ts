@@ -581,6 +581,21 @@ export class MockBackend implements ManagerBackend {
 
   /* ----- resource packs & shaders ----- */
 
+  /** A made-up project page, so the details window has something to show in the demo. */
+  async projectDetail(provider: ProviderId, projectId: string) {
+    await this.delay(this.opts.latencyMs);
+    const shot = (hue: number) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><rect width="640" height="360" fill="hsl(${hue} 55% 32%)"/><rect y="250" width="640" height="110" fill="hsl(${hue} 45% 20%)"/><circle cx="500" cy="90" r="42" fill="hsl(${(hue + 40) % 360} 80% 70%)"/></svg>`)}`;
+    const seed = [...projectId].reduce((n, c) => n + c.charCodeAt(0), 0);
+    return {
+      author: 'demo-author', summary: '', downloads: null, updatedAt: '2026-11-03T16:30:00Z', license: 'MIT', categories: ['library', 'utility'], pageUrl: null,
+      bodyFormat: provider === 'curseforge' ? 'html' as const : 'markdown' as const,
+      body: provider === 'curseforge'
+        ? '<h2>About</h2><p>A <strong>demo</strong> page written as HTML.</p><ul><li>One thing</li><li>Another</li></ul><script>window.bad = 1</script>'
+        : '# About\n\nA **demo** page written as Markdown, with a [link](https://example.com/).\n\n## Features\n\n- One thing\n- Another\n\n```\n/give @s demo\n```',
+      gallery: [shot(seed % 360), shot((seed + 120) % 360), shot((seed + 240) % 360)],
+    };
+  }
+
   async contentProviders(): Promise<ProviderInfo[]> { return this.opts.providers ?? DEFAULT_PROVIDERS; }
   searchContent(q: ContentSearchQuery): Promise<ContentSearchPage> {
     return this.call(() => {

@@ -102,6 +102,15 @@ describe('connected Launcher instances', () => {
     expect(bad.steps).toEqual(['begin', 'abort']);
   });
 
+  it('says why when the helper cannot list its instances, instead of offering to connect one again', async () => {
+    const { composite, helper, steps } = await connected();
+    helper.listInstances = async () => { throw new BackendError('recovery-required', 'Workspace inventory cannot be verified.'); };
+    expect((await listOn(composite, 'launcher')).map((i) => i.id)).toEqual(['launcher-pack', 'launcher-other']);
+    expect(composite.instanceWarnings!()).toEqual([{ code: 'recovery-required', path: 'Workspace inventory cannot be verified.' }]);
+    await expect(composite.shareInstance!('launcher-pack')).rejects.toThrow('Workspace inventory cannot be verified.');
+    expect(steps).toEqual([]);
+  });
+
   it('holds the Launcher around disconnecting', async () => {
     const { composite, steps } = await connected();
     await listOn(composite, 'launcher');

@@ -4,7 +4,7 @@ import { BackendError, type AddedContent, type ContentEntry, type ContentImage, 
 export interface FetchedPack { token: string; format: 'mrpack' | 'curseforge'; size: number; sha256: string; notes: string[] }
 export interface ProjectMeta { provider: ProviderId; projectId: string; name: string; iconUrl?: string; restricted?: boolean; pageUrl?: string }
 export interface ModUpdate { provider: ProviderId; projectId: string; installedVersionId: string; candidate: { id: string; name: string; releaseType: 'release' | 'beta' | 'alpha' } | null }
-export interface ProjectDetail { author: string; summary: string; downloads: number | null; updatedAt: string | null; license: string | null; categories: string[]; pageUrl: string | null }
+export interface ProjectDetail { author: string; summary: string; downloads: number | null; updatedAt: string | null; license: string | null; categories: string[]; pageUrl: string | null; body?: string; bodyFormat?: 'markdown' | 'html'; gallery?: string[] }
 export interface ProjectRef { provider: ProviderId; projectId: string; versionId?: string }
 
 /**
