@@ -1,9 +1,11 @@
-import { ref, shallowRef } from 'vue';
+import { reactive, ref, shallowRef } from 'vue';
 import type { ContentArea, ContentKind } from '../backend/contract';
 
 /** What Browse is showing: mods go through a reviewed plan, resource packs and shaders install directly. */
 export type BrowseKind = 'mod' | ContentKind;
 export const browseKind = ref<BrowseKind>('mod');
+/** What was typed in each Browse search, kept while the app runs so leaving the screen doesn't clear it. */
+export const browseText = reactive<Record<BrowseKind, string>>({ mod: '', resourcepack: '', shader: '' });
 
 /**
  * Set by a screen that may hold unsaved work (the file editor). Asked before another screen

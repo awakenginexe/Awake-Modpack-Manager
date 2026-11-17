@@ -8,5 +8,6 @@ export default defineConfig({
   build: { target: 'es2022' },
   // The Rust host rebuilds into src-tauri/target; watching it only produces busy-file errors.
   server: { watch: { ignored: ['**/src-tauri/**'] } },
-  test: { environment: 'jsdom', include: ['tests/**/*.test.ts'] },
+  // The first view a test file mounts compiles it; that alone can pass 5 s on a busy CI runner.
+  test: { environment: 'jsdom', include: ['tests/**/*.test.ts'], testTimeout: 30_000 },
 });

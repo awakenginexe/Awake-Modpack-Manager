@@ -815,4 +815,8 @@ export const zhCN: Catalog = {
   detailGallery: "截图",
   detailShot: "截图 {n}",
   detailNoBody: "此项目的页面上没有说明。",
+  detailEmbedOpen: "来自 {host} 的嵌入内容：在浏览器中打开",
+  detailEmbedTitle: "在浏览器中打开？",
+  detailEmbedBody: "说明中嵌入了来自 {host} 的页面。管理器内只播放 YouTube 视频，此链接将在浏览器中打开。",
+  detailEmbedConfirm: "在浏览器中打开",
 };

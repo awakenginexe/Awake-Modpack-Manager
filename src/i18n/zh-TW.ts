@@ -815,4 +815,8 @@ export const zhTW: Catalog = {
   detailGallery: "螢幕截圖",
   detailShot: "螢幕截圖 {n}",
   detailNoBody: "此專案的頁面上沒有說明。",
+  detailEmbedOpen: "來自 {host} 的嵌入內容：在瀏覽器中開啟",
+  detailEmbedTitle: "在瀏覽器中開啟？",
+  detailEmbedBody: "說明中嵌入了來自 {host} 的頁面。管理器內只播放 YouTube 影片，此連結將在瀏覽器中開啟。",
+  detailEmbedConfirm: "在瀏覽器中開啟",
 };

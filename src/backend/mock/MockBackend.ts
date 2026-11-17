@@ -591,8 +591,8 @@ export class MockBackend implements ManagerBackend {
       bodyFormat: provider === 'curseforge' ? 'html' as const : 'markdown' as const,
       body: provider === 'curseforge'
         ? '<h2>About</h2><p>A <strong>demo</strong> page written as HTML.</p><ul><li>One thing</li><li>Another</li></ul><script>window.bad = 1</script>'
-        : '# About\n\nA **demo** page written as Markdown, with a [link](https://example.com/).\n\n## Features\n\n- One thing\n- Another\n\n```\n/give @s demo\n```',
-      gallery: [shot(seed % 360), shot((seed + 120) % 360), shot((seed + 240) % 360)],
+        : '# About\n\nA **demo** page written as Markdown, with a [link](https://example.com/).\n\n## Features\n\n- One thing\n- Another\n\n```\n/give @s demo\n```\n\n## Showcase\n\n<iframe src="https://www.youtube.com/embed/jNQXAC9IVRw"></iframe>\n\n<iframe src="https://example.com/trailer"></iframe>',
+      gallery: [seed, seed + 120, seed + 240].map((h) => ({ full: shot(h % 360), thumb: shot(h % 360) })),
     };
   }
 

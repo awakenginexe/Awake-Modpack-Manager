@@ -6,6 +6,7 @@ import type { ProjectDetail } from '../backend/host';
 import { formatDate, formatNumber, t } from '../i18n';
 import { openExternal } from '../state/appUpdate';
 import { useSession } from '../state/session';
+import { confirmDialog } from '../ui/desktop';
 import { renderRich } from '../ui/richText';
 import Avatar from './Avatar.vue';
 import ProviderLogo from './ProviderLogo.vue';
@@ -42,7 +43,10 @@ function onBodyClick(event: MouseEvent) {
   const link = (event.target as HTMLElement).closest('a');
   if (!link) return;
   event.preventDefault();
-  void openExternal(link.href);
+  if (link.dataset.embed === undefined) { void openExternal(link.href); return; }
+  const host = new URL(link.href).host;
+  void confirmDialog({ title: t('detailEmbedTitle'), body: t('detailEmbedBody', { host }), details: [link.href], confirm: t('detailEmbedConfirm'), cancel: t('cancel') })
+    .then((ok) => { if (ok) void openExternal(link.href); });
 }
 </script>
 
@@ -68,10 +72,10 @@ function onBodyClick(event: MouseEvent) {
         <div v-if="detail?.categories.length" class="tags"><span v-for="c in detail.categories.slice(0, 10)" :key="c" class="chip">{{ c }}</span></div>
 
         <section v-if="gallery.length" class="gallery" :aria-label="t('detailGallery')">
-          <img class="hero" :src="gallery[shot]" alt="" referrerpolicy="no-referrer" />
+          <img class="hero" :src="gallery[shot]?.full" alt="" referrerpolicy="no-referrer" />
           <div v-if="gallery.length > 1" class="thumbs">
-            <button v-for="(g, i) in gallery" :key="g" type="button" class="thumb" :class="{ active: i === shot }" :aria-label="t('detailShot', { n: i + 1 })" :aria-pressed="i === shot" @click="shot = i">
-              <img :src="g" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            <button v-for="(g, i) in gallery" :key="g.full" type="button" class="thumb" :class="{ active: i === shot }" :aria-label="t('detailShot', { n: i + 1 })" :aria-pressed="i === shot" @click="shot = i">
+              <img :src="g.thumb" alt="" loading="lazy" referrerpolicy="no-referrer" />
             </button>
           </div>
         </section>
@@ -119,6 +123,8 @@ function onBodyClick(event: MouseEvent) {
 .rich :deep(p), .rich :deep(ul), .rich :deep(ol), .rich :deep(blockquote), .rich :deep(pre), .rich :deep(table) { margin: 0 0 0.8em; }
 .rich :deep(ul), .rich :deep(ol) { padding-left: 1.4em; }
 .rich :deep(img) { max-width: 100%; height: auto; border-radius: 6px; }
+.rich :deep(iframe.video) { display: block; width: 100%; max-width: 720px; aspect-ratio: 16 / 9; height: auto; border: 0; border-radius: 8px; background: rgba(0, 0, 0, 0.35); margin: 0 0 0.8em; }
+.rich :deep(a.embed-link) { display: inline-flex; padding: 8px 12px; margin: 0 0 0.8em; border: 1px solid var(--border-subtle); border-radius: 8px; background: rgba(255, 255, 255, 0.04); text-decoration: none; }
 .rich :deep(a) { color: #7dd3fc; text-decoration: underline; text-underline-offset: 2px; }
 .rich :deep(code) { font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; background: rgba(255, 255, 255, 0.08); padding: 1px 5px; border-radius: 4px; }
 .rich :deep(pre) { background: rgba(0, 0, 0, 0.35); padding: 12px; border-radius: 8px; overflow-x: auto; }

@@ -815,4 +815,8 @@ export const th: Catalog = {
   detailGallery: "ภาพหน้าจอ",
   detailShot: "ภาพหน้าจอ {n}",
   detailNoBody: "โปรเจกต์นี้ไม่มีคำอธิบายบนหน้าเว็บ",
+  detailEmbedOpen: "เนื้อหาฝังจาก {host}: เปิดในเบราว์เซอร์",
+  detailEmbedTitle: "เปิดในเบราว์เซอร์ไหม?",
+  detailEmbedBody: "คำอธิบายนี้ฝังหน้าเว็บจาก {host} ไว้ ตัวจัดการเล่นได้เฉพาะวิดีโอ YouTube ภายในแอป ลิงก์นี้จะเปิดในเบราว์เซอร์ของคุณ",
+  detailEmbedConfirm: "เปิดในเบราว์เซอร์",
 };

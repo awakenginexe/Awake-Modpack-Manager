@@ -2,7 +2,9 @@
  * Project descriptions come from Modrinth (Markdown, often with HTML in it) and CurseForge (HTML), written by
  * anyone. They are never inserted as HTML: the text is parsed into an inert document and rebuilt from an
  * allowlist of plain formatting tags, https links and https images. Everything else is dropped or unwrapped.
+ * The one frame allowed is a YouTube player whose URL is rebuilt from the video id.
  */
+import { t } from '../i18n';
 
 const KEEP = new Set(['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 'u', 's', 'del', 'code', 'pre', 'blockquote',
   'ul', 'ol', 'li', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'details', 'summary', 'center', 'sub', 'sup', 'kbd']);
@@ -10,11 +12,45 @@ const KEEP = new Set(['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'stro
 const DROP = new Set(['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'svg', 'math', 'link', 'meta', 'base', 'template', 'noscript', 'video', 'audio', 'title', 'head']);
 const web = (url: string | null) => (url && /^https:\/\/[^\s"'<>]+$/i.test(url.trim()) ? url.trim() : null);
 
+/** The video id of a YouTube embed or watch link, or null. Only the id is kept: the player URL is rebuilt from it. */
+export function youtubeId(url: string | null): string | null {
+  const m = /^https:\/\/(?:www\.|m\.)?(?:youtube(?:-nocookie)?\.com\/(?:embed\/|shorts\/|watch\?(?:[^#]*&)?v=)|youtu\.be\/)([\w-]{11})(?![\w-])/i.exec(url?.trim() ?? '');
+  return m?.[1] ?? null;
+}
+
+/** A frame from the description: YouTube plays in a locked-down player, anything else becomes a link that asks before opening. */
+function embed(el: Element, to: Node, doc: Document) {
+  const src = el.getAttribute('src');
+  const id = youtubeId(src);
+  if (id) {
+    const frame = doc.createElement('iframe');
+    frame.src = `https://www.youtube-nocookie.com/embed/${id}`;
+    frame.className = 'video';
+    frame.title = 'YouTube';
+    frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+    frame.setAttribute('allow', 'encrypted-media; picture-in-picture; fullscreen');
+    frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    frame.setAttribute('loading', 'lazy');
+    to.appendChild(frame);
+    return;
+  }
+  const href = web(src);
+  if (!href) return;
+  const link = doc.createElement('a');
+  link.href = href;
+  link.rel = 'noreferrer noopener';
+  link.className = 'embed-link';
+  link.dataset.embed = '';
+  link.textContent = t('detailEmbedOpen', { host: new URL(href).host });
+  to.appendChild(link);
+}
+
 function copy(from: Node, to: Node, doc: Document) {
   for (const node of Array.from(from.childNodes)) {
     if (node.nodeType === 3) { to.appendChild(doc.createTextNode(node.textContent ?? '')); continue; }
     if (node.nodeType !== 1) continue;
     const el = node as Element, tag = el.tagName.toLowerCase();
+    if (tag === 'iframe') { embed(el, to, doc); continue; }
     if (DROP.has(tag)) continue;
     if (!KEEP.has(tag)) { copy(el, to, doc); continue; } // unknown wrapper (div, span, font): keep its text
     const out = doc.createElement(tag);

@@ -813,6 +813,10 @@ export const en = {
   detailGallery: "Screenshots",
   detailShot: "Screenshot {n}",
   detailNoBody: "This project has no description on its page.",
+  detailEmbedOpen: "Embedded content from {host}: open in browser",
+  detailEmbedTitle: "Open this in your browser?",
+  detailEmbedBody: "The description embeds a page from {host}. Only YouTube videos play inside the Manager; this one opens in your browser.",
+  detailEmbedConfirm: "Open in browser",
 } as const;
 
 export type MessageKey = keyof typeof en;
